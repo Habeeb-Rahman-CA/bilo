@@ -145,6 +145,14 @@ import { WorkspaceService } from '../../core/services/workspace.service';
 
                     <div class="shortcut-item">
                       <div class="item-info">
+                        <span class="item-title">Toggle Dark / Light Theme</span>
+                        <span class="item-desc">Switch between Black & Grey Dark Theme and Light Theme</span>
+                      </div>
+                      <span class="key-badge">T</span>
+                    </div>
+
+                    <div class="shortcut-item">
+                      <div class="item-info">
                         <span class="item-title">Close Modal / Dismiss Overlay</span>
                         <span class="item-desc">Exit open dialogs, drawers, or palettes</span>
                       </div>

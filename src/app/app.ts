@@ -15,6 +15,7 @@ import { TaskModalComponent } from './shared/components/task-modal';
 
 import { TaskShareService } from './core/services/task-share.service';
 import { PushNotificationService } from './core/services/push-notification.service';
+import { ThemeService } from './core/services/theme.service';
 import { TaskDetailModalComponent } from './shared/components/task-detail-modal';
 import { PushNotificationModalComponent } from './shared/components/push-notification-modal';
 import { BiloLogoComponent } from './shared/components/bilo-logo';
@@ -74,7 +75,8 @@ export class App {
     public syncService: SyncService,
     public updateService: UpdateService,
     public taskShareService: TaskShareService,
-    public pushService: PushNotificationService
+    public pushService: PushNotificationService,
+    public themeService: ThemeService
   ) {}
 
   togglePushNotificationModal() {

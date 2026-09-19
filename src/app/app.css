@@ -97,7 +97,8 @@
 }
 
 .help-btn,
-.nav-bell-btn {
+.nav-bell-btn,
+.theme-toggle-btn {
   position: relative;
   padding: 0.35rem 0.6rem;
   font-size: 1rem;
@@ -106,7 +107,8 @@
 }
 
 .help-btn:hover,
-.nav-bell-btn:hover {
+.nav-bell-btn:hover,
+.theme-toggle-btn:hover {
   color: var(--text-main);
   background: var(--bg-surface-hover);
 }

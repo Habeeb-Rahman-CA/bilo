@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { WorkspaceService } from '../../core/services/workspace.service';
 import { TaskService } from '../../core/services/task.service';
 import { ProjectService } from '../../core/services/project.service';
+import { ThemeService } from '../../core/services/theme.service';
 
 interface PaletteItem {
   id: string;
@@ -201,7 +202,8 @@ export class CommandPaletteComponent implements AfterViewInit {
   constructor(
     public workspaceService: WorkspaceService,
     public taskService: TaskService,
-    public projectService: ProjectService
+    public projectService: ProjectService,
+    public themeService: ThemeService
   ) { }
 
   ngAfterViewInit() {
@@ -234,6 +236,19 @@ export class CommandPaletteComponent implements AfterViewInit {
     }
 
     // Quick Actions
+    list.push({
+      id: 'action-toggle-theme',
+      type: 'action',
+      title: this.themeService.isDarkMode() ? 'Action: Switch to Light Theme' : 'Action: Switch to Black & Grey Dark Theme',
+      subtitle: 'Toggle workspace theme styling and color system',
+      badge: 'THEME',
+      icon: this.themeService.isDarkMode() ? 'fi fi-rr-sun' : 'fi fi-rr-moon-stars',
+      action: () => {
+        this.themeService.toggleTheme();
+        this.close();
+      }
+    });
+
     list.push({
       id: 'action-new-task',
       type: 'action',

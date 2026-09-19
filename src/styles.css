@@ -60,6 +60,149 @@
   --shadow-modal: 0 8px 30px rgba(0, 0, 0, 0.08);
 }
 
+/* ==========================================================================
+   bilo Black & Grey Dark Theme (Obsidian & Charcoal Monochromatic Palette)
+   ========================================================================== */
+
+body.dark-theme,
+[data-theme="dark"] {
+  /* High-Contrast Obsidian / Slate Grey Monochromatic Palette */
+  --bg-canvas: #09090b;
+  /* Deep obsidian black canvas */
+  --bg-surface: #141416;
+  /* Dark charcoal paper card surface */
+  --bg-surface-subtle: #1c1c1f;
+  /* Soft dark slate container tone */
+  --bg-surface-hover: #27272a;
+  /* Interactive hover state tone */
+  --bg-surface-active: #3f3f46;
+  /* Active / pressed state tone */
+
+  /* Text & Contrast Scale */
+  --text-main: #f4f4f5;
+  /* Crisp bright off-white for main text */
+  --text-muted: #a1a1aa;
+  /* Refined neutral grey for labels */
+  --text-subtle: #71717a;
+  /* Soft neutral grey for metadata */
+
+  /* Precision Crisp Metallic Dark Borders (1px rule) */
+  --border-subtle: #27272a;
+  /* Soft dark slate border */
+  --border-medium: #3f3f46;
+  /* Medium card border */
+  --border-active: #f4f4f5;
+  /* High-contrast active border */
+
+  /* Curated Dark Mode Accent Highlights */
+  --accent-emerald: #22c55e;
+  --accent-cyan: #06b6d4;
+  --accent-amber: #f59e0b;
+  --accent-rose: #f43f5e;
+  --accent-purple: #a855f7;
+
+  /* Modals & Backdrop */
+  --shadow-modal: 0 16px 40px rgba(0, 0, 0, 0.7);
+}
+
+/* Dark Theme Specific Utility & Component Overrides */
+body.dark-theme .modal-overlay {
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+}
+
+body.dark-theme .btn-primary {
+  background: var(--text-main);
+  color: var(--bg-canvas);
+  border-color: var(--text-main);
+}
+
+body.dark-theme .btn-primary:hover {
+  background: #e4e4e7;
+  border-color: #e4e4e7;
+  color: #09090b;
+}
+
+body.dark-theme .badge-urgent,
+body.dark-theme .priority-badge.urgent {
+  background: rgba(244, 63, 94, 0.18) !important;
+  color: #fb7185 !important;
+  border-color: rgba(244, 63, 94, 0.35) !important;
+}
+
+body.dark-theme .badge-high,
+body.dark-theme .badge-amber,
+body.dark-theme .priority-badge.high {
+  background: rgba(245, 158, 11, 0.18) !important;
+  color: #fbbf24 !important;
+  border-color: rgba(245, 158, 11, 0.35) !important;
+}
+
+body.dark-theme .badge-medium,
+body.dark-theme .priority-badge.medium {
+  background: rgba(14, 165, 233, 0.18) !important;
+  color: #38bdf8 !important;
+  border-color: rgba(14, 165, 233, 0.35) !important;
+}
+
+body.dark-theme .badge-low,
+body.dark-theme .priority-badge.low {
+  background: rgba(113, 113, 122, 0.2) !important;
+  color: #a1a1aa !important;
+  border-color: rgba(113, 113, 122, 0.35) !important;
+}
+
+body.dark-theme .pill-created,
+body.dark-theme .filter-pill.active.pill-created-toggle {
+  background: rgba(168, 85, 247, 0.18) !important;
+  color: #c084fc !important;
+  border-color: rgba(168, 85, 247, 0.35) !important;
+}
+
+body.dark-theme .pill-closed,
+body.dark-theme .filter-pill.active.pill-closed-toggle {
+  background: rgba(34, 197, 94, 0.18) !important;
+  color: #4ade80 !important;
+  border-color: rgba(34, 197, 94, 0.35) !important;
+}
+
+body.dark-theme .pill-due,
+body.dark-theme .filter-pill.active.pill-due-toggle {
+  background: rgba(245, 158, 11, 0.18) !important;
+  color: #fbbf24 !important;
+  border-color: rgba(245, 158, 11, 0.35) !important;
+}
+
+body.dark-theme .day-cell.today {
+  background: #18181b !important;
+  border-color: var(--text-main) !important;
+}
+
+body.dark-theme .day-cell.drag-over {
+  background: rgba(168, 85, 247, 0.15) !important;
+  border-color: var(--accent-purple) !important;
+}
+
+/* Sleek Dark Scrollbar */
+body.dark-theme ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+body.dark-theme ::-webkit-scrollbar-track {
+  background: var(--bg-canvas);
+}
+
+body.dark-theme ::-webkit-scrollbar-thumb {
+  background: var(--border-medium);
+  border-radius: var(--radius-xs);
+}
+
+body.dark-theme ::-webkit-scrollbar-thumb:hover {
+  background: var(--text-subtle);
+}
+
+
 /* Base Body Setup */
 html,
 body {

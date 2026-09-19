@@ -1,4 +1,5 @@
 import { Injectable, signal } from '@angular/core';
+import { ThemeService } from './theme.service';
 
 export type WorkspaceSection = '01 TODAY' | '02 PROJECTS' | '03 BACKLOG' | '04 TASKS' | '05 CALENDAR' | '06 ARCHIVE';
 
@@ -48,7 +49,7 @@ export class WorkspaceService {
     { id: '06 ARCHIVE', key: '6', name: 'ARCHIVE', code: '06', icon: 'fi fi-rr-box-alt', desc: 'Completed task history & exports' }
   ];
 
-  constructor() {
+  constructor(public themeService: ThemeService) {
     this.initKeyboardListeners();
     this.initHashListener();
   }
@@ -157,6 +158,13 @@ export class WorkspaceService {
           e.preventDefault();
           this.setWorkspace(item.id);
         }
+        return;
+      }
+
+      // Toggle theme shortcut (T or t)
+      if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        this.themeService.toggleTheme();
         return;
       }
 

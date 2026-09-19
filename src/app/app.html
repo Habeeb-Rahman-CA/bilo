@@ -31,6 +31,10 @@
           <i class="fi fi-rr-wifi-slash"></i> OFFLINE ({{ syncService.pendingSyncQueue().length }})
         </span>
       }
+      <button class="btn btn-ghost btn-sm theme-toggle-btn" (click)="themeService.toggleTheme()"
+        [title]="themeService.isDarkMode() ? 'Switch to Light Craft Paper Theme' : 'Switch to Dark Theme (Black & Grey)'">
+        <i [class]="themeService.isDarkMode() ? 'fi fi-rr-sun' : 'fi fi-rr-moon-stars'"></i>
+      </button>
       <button class="btn btn-ghost btn-sm nav-bell-btn" (click)="togglePushNotificationModal()"
         [title]="pushService.notificationsEnabled() ? 'Push Notifications Active' : 'Push Notifications Center'">
         <i class="fi fi-rr-bell-ring help-icon" [class.text-amber]="pushService.notificationsEnabled()"></i>
