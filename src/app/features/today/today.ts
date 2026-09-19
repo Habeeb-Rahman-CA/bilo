@@ -590,6 +590,121 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       transition: width 0.3s ease;
       min-width: 2px;
     }
+
+    /* ==========================================================================
+       Mobile Responsive Overhaul for Today / Dashboard (< 768px & < 480px)
+       - Compact 2x2 grid for stat cards (reduces 4 vertical rows to 2)
+       - Streamlined chart sizes & compact card padding to minimize scrolling
+       ========================================================================== */
+    @media (max-width: 768px) {
+      .today-workspace {
+        padding: 0.5rem;
+        gap: 0.65rem;
+      }
+
+      /* 2x2 Grid for Stat Cards on Mobile */
+      .stats-row {
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem;
+      }
+
+      .stat-card {
+        padding: 0.55rem 0.75rem;
+        gap: 0.2rem;
+      }
+
+      .stat-label {
+        font-size: 0.6rem;
+      }
+
+      .stat-icon {
+        font-size: 0.85rem;
+      }
+
+      .stat-value {
+        font-size: 1.25rem;
+      }
+
+      .stat-sub {
+        font-size: 0.65rem;
+      }
+
+      /* Compact Dashboard Cards & Grids */
+      .dashboard-grid-2col {
+        gap: 0.65rem;
+      }
+
+      .grid-card {
+        padding: 0.65rem 0.75rem;
+        gap: 0.5rem;
+      }
+
+      .card-header h3 {
+        font-size: 0.825rem;
+      }
+
+      .project-filter-wrap {
+        width: 110px;
+      }
+
+      .donut-body {
+        gap: 0.85rem;
+        padding: 0.25rem 0;
+      }
+
+      .donut-chart-container {
+        width: 100px;
+        height: 100px;
+      }
+
+      .center-num {
+        font-size: 1.1rem;
+      }
+
+      .legend-item {
+        font-size: 0.725rem;
+        padding: 0.15rem 0.35rem;
+      }
+
+      .vbars-container {
+        height: 100px;
+        padding-top: 0.5rem;
+      }
+
+      .vbar-count {
+        font-size: 0.7rem;
+      }
+
+      .vbar-label {
+        font-size: 0.625rem;
+      }
+
+      .hbars-list {
+        gap: 0.45rem;
+      }
+
+      .hbar-meta {
+        font-size: 0.725rem;
+      }
+
+      .timeline-list {
+        gap: 0.45rem;
+      }
+
+      .timeline-item {
+        font-size: 0.725rem;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .stat-value {
+        font-size: 1.15rem;
+      }
+
+      .project-filter-wrap {
+        width: 95px;
+      }
+    }
   `]
 })
 export class TodayComponent {

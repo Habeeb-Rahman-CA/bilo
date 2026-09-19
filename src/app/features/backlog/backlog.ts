@@ -603,6 +603,140 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       color: #ffffff;
       border-color: #f43f5e;
     }
+
+    /* ==========================================================================
+       Mobile Backlog Optimizations (< 768px & < 480px)
+       Only show important data: Checkbox, Key/Title, Priority, Status.
+       Hide project, created date, due date, action button, and type label text.
+       ========================================================================== */
+    @media (max-width: 768px) {
+      .backlog-workspace {
+        padding: 0.5rem;
+        gap: 0.65rem;
+      }
+
+      /* Horizontal Scrolling Filter Toolbar on Mobile */
+      .filter-toolbar {
+        padding: 0.5rem 0.65rem;
+        gap: 0.5rem;
+      }
+
+      .filter-dropdowns {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        padding-bottom: 0.2rem;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .filter-label {
+        display: none;
+      }
+
+      .filter-group {
+        flex-shrink: 0;
+      }
+
+      /* Backlog Table Container & Row */
+      .backlog-table-container {
+        border-radius: var(--radius-xs);
+        overflow-x: hidden;
+      }
+
+      .table-header-row {
+        padding: 0.5rem 0.65rem;
+        gap: 0.5rem;
+      }
+
+      /* Hide non-essential columns on mobile */
+      .table-header-row .cell-project,
+      .table-header-row .cell-due,
+      .table-header-row .cell-created,
+      .table-header-row .cell-actions,
+      .task-table-row .cell-project,
+      .task-table-row .cell-due,
+      .task-table-row .cell-created,
+      .task-table-row .cell-actions {
+        display: none !important;
+      }
+
+      .table-header-row .cell-type {
+        display: none !important;
+      }
+
+      /* Compact mobile task row */
+      .task-table-row {
+        padding: 0.55rem 0.65rem;
+        gap: 0.45rem;
+      }
+
+      .cell-check {
+        width: 20px;
+        flex-shrink: 0;
+      }
+
+      .cell-type {
+        width: auto;
+        flex-shrink: 0;
+      }
+
+      .type-name {
+        display: none;
+      }
+
+      .cell-key {
+        width: auto;
+        min-width: 60px;
+        flex-shrink: 0;
+        font-size: 0.7rem;
+      }
+
+      .cell-summary {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .summary-text {
+        font-size: 0.775rem;
+      }
+
+      .cell-priority {
+        width: auto;
+        flex-shrink: 0;
+      }
+
+      .priority-badge {
+        font-size: 0.625rem;
+        padding: 0.08rem 0.3rem;
+      }
+
+      .cell-status {
+        width: 90px;
+        flex-shrink: 0;
+      }
+
+      .batch-bar {
+        padding: 0.4rem 0.65rem;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.4rem;
+      }
+
+      .batch-actions {
+        flex-wrap: wrap;
+        width: 100%;
+        justify-content: flex-start;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .cell-key {
+        font-size: 0.675rem;
+      }
+
+      .cell-status {
+        width: 82px;
+      }
+    }
   `]
 })
 export class BacklogComponent implements OnInit {

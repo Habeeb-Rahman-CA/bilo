@@ -2,12 +2,8 @@
 <div class="app-shell">
   <!-- Top Bar Header: System Name (Left), Command Palette Search (Middle), Help Icon (Right) -->
   <header class="app-header paper-panel">
-    <!-- Left End: System Name & Mobile Menu Toggle -->
+    <!-- Left End: System Name Logo -->
     <div class="header-brand font-mono">
-      <button class="mobile-menu-toggle btn btn-ghost btn-xs" (click)="mobileMenuOpen.set(!mobileMenuOpen())"
-        title="Toggle Menu">
-        <i [class]="mobileMenuOpen() ? 'fi fi-rr-cross' : 'fi fi-rr-menu-burger'"></i>
-      </button>
       <app-bilo-logo size="sm" [showText]="true"></app-bilo-logo>
     </div>
 
@@ -16,20 +12,20 @@
       <button class="cmd-search-bar font-mono" (click)="workspaceService.toggleCommandPalette()"
         title="Search or type a command">
         <i class="fi fi-rr-search search-icon"></i>
-        <span class="search-placeholder">Search workspace, tasks, projects...</span>
+        <span class="search-placeholder">Search workspace, tasks...</span>
       </button>
     </div>
 
-    <!-- Right End: Offline Badge & Help Icon -->
+    <!-- Right End: Offline Badge & Action Buttons -->
     <div class="header-right font-mono">
       @if (canInstallPwa()) {
-        <button class="btn btn-primary btn-xs" (click)="installPwa()" title="Install Bilo Desktop Standalone App">
-          <i class="fi fi-rr-download"></i> Install App
+        <button class="btn btn-primary btn-xs pwa-install-btn" (click)="installPwa()" title="Install Bilo Desktop Standalone App">
+          <i class="fi fi-rr-download"></i> <span class="pwa-text">Install</span>
         </button>
       }
       @if (!syncService.isOnline()) {
-        <span class="badge-mono badge-amber" title="Offline Mode - Changes saved locally">
-          <i class="fi fi-rr-wifi-slash"></i> OFFLINE ({{ syncService.pendingSyncQueue().length }})
+        <span class="badge-mono badge-amber offline-header-badge" title="Offline Mode - Changes saved locally">
+          <i class="fi fi-rr-wifi-slash"></i> <span class="offline-text">OFFLINE</span> ({{ syncService.pendingSyncQueue().length }})
         </span>
       }
       <!-- User Auth Badge -->
@@ -65,18 +61,12 @@
     </div>
   </header>
 
-  <!-- Mobile Sidebar Backdrop Overlay -->
-  @if (mobileMenuOpen()) {
-  <div class="mobile-sidebar-backdrop" (click)="mobileMenuOpen.set(false)"></div>
-  }
-
   <!-- App Body Layout: Left Sidebar + Main Workspace View -->
   <div class="app-body">
-    <!-- Left Sidebar: Collapsible Workspace Navigation -->
-    <aside class="app-sidebar paper-panel font-mono" [class.collapsed]="sidebarCollapsed()"
-      [class.mobile-open]="mobileMenuOpen()">
+    <!-- Left Sidebar: Collapsible Workspace Navigation (Desktop) -->
+    <aside class="app-sidebar paper-panel font-mono" [class.collapsed]="sidebarCollapsed()">
       <div class="sidebar-header">
-        @if (!sidebarCollapsed() || mobileMenuOpen()) {
+        @if (!sidebarCollapsed()) {
         <div class="sidebar-brand-box">
           <span class="sidebar-label">WORKSPACE</span>
         </div>
@@ -93,7 +83,7 @@
           (click)="selectWorkspace(ws.id)" [title]="ws.code + ' ' + ws.name">
           <div class="tab-left">
             <i [class]="ws.icon"></i>
-            @if (!sidebarCollapsed() || mobileMenuOpen()) {
+            @if (!sidebarCollapsed()) {
             <span class="ws-code">{{ ws.code }}</span>
             <span class="ws-name">{{ ws.name }}</span>
             }
@@ -159,7 +149,47 @@
     </main>
   </div>
 
-  <!-- Clean Paper Footer -->
+  <!-- Fixed Mobile Bottom Navigation Bar -->
+  <nav class="app-bottom-bar paper-panel font-mono">
+    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '01 TODAY'"
+      (click)="selectWorkspace('01 TODAY')" title="Today">
+      <i class="fi fi-rr-sun"></i>
+      <span class="bottom-tab-label">Today</span>
+    </button>
+    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '02 PROJECTS'"
+      (click)="selectWorkspace('02 PROJECTS')" title="Projects">
+      <i class="fi fi-rr-folder"></i>
+      <span class="bottom-tab-label">Projects</span>
+    </button>
+    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '03 BACKLOG'"
+      (click)="selectWorkspace('03 BACKLOG')" title="Backlog">
+      <i class="fi fi-rr-list-check"></i>
+      <span class="bottom-tab-label">Backlog</span>
+    </button>
+
+    <!-- Center Action: New Task (+) Icon Button -->
+    <button class="bottom-bar-center-btn" (click)="workspaceService.openCreateTaskModal()" title="Create New Task">
+      <i class="fi fi-rr-plus"></i>
+    </button>
+
+    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '04 TASKS'"
+      (click)="selectWorkspace('04 TASKS')" title="Board">
+      <i class="fi fi-rr-layout-fluid"></i>
+      <span class="bottom-tab-label">Board</span>
+    </button>
+    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '05 CALENDAR'"
+      (click)="selectWorkspace('05 CALENDAR')" title="Calendar">
+      <i class="fi fi-rr-calendar"></i>
+      <span class="bottom-tab-label">Calendar</span>
+    </button>
+    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '06 ARCHIVE'"
+      (click)="selectWorkspace('06 ARCHIVE')" title="Archive">
+      <i class="fi fi-rr-box-alt"></i>
+      <span class="bottom-tab-label">Archive</span>
+    </button>
+  </nav>
+
+  <!-- Clean Paper Footer (Desktop) -->
   <footer class="app-footer paper-panel font-mono">
     <div class="footer-left">
       @if (syncService.isOnline()) {

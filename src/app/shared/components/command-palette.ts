@@ -5,7 +5,6 @@ import { WorkspaceService } from '../../core/services/workspace.service';
 import { TaskService } from '../../core/services/task.service';
 import { ProjectService } from '../../core/services/project.service';
 import { ThemeService } from '../../core/services/theme.service';
-import { AuthService } from '../../core/services/auth.service';
 
 interface PaletteItem {
   id: string;
@@ -204,8 +203,7 @@ export class CommandPaletteComponent implements AfterViewInit {
     public workspaceService: WorkspaceService,
     public taskService: TaskService,
     public projectService: ProjectService,
-    public themeService: ThemeService,
-    public authService: AuthService
+    public themeService: ThemeService
   ) { }
 
   ngAfterViewInit() {
@@ -220,35 +218,6 @@ export class CommandPaletteComponent implements AfterViewInit {
 
   items = computed<PaletteItem[]>(() => {
     const list: PaletteItem[] = [];
-
-    // Auth Action
-    if (this.authService.isAuthenticated()) {
-      list.push({
-        id: 'action-auth-signout',
-        type: 'action',
-        title: `Action: Sign Out (${this.authService.userEmail()})`,
-        subtitle: 'Sign out of current Supabase authenticated session',
-        badge: 'AUTH',
-        icon: 'fi fi-rr-sign-out-alt',
-        action: () => {
-          this.authService.signOut();
-          this.close();
-        }
-      });
-    } else {
-      list.push({
-        id: 'action-auth-signin',
-        type: 'action',
-        title: 'Action: Sign In / Create Account',
-        subtitle: 'Authenticate to access user-isolated project workspaces',
-        badge: 'AUTH',
-        icon: 'fi fi-rr-sign-in-alt',
-        action: () => {
-          this.authService.openAuthModal();
-          this.close();
-        }
-      });
-    }
 
     // Workspaces
     for (const ws of this.workspaceService.workspaces) {

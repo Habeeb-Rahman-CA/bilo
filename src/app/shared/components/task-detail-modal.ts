@@ -45,33 +45,35 @@ import { DatePickerComponent } from './date-picker';
           </button>
         </div>
 
+        <!-- Inline Title Edit (Full Width Title Block) -->
+        <div class="detail-title-block">
+          @if (isEditingTitle()) {
+            <div class="inline-title-edit">
+              <input
+                id="inline-title-input"
+                type="text"
+                class="form-input inline-title-input font-mono"
+                [(ngModel)]="titleInputText"
+                (keydown.enter)="saveTitle()"
+                (keydown.escape)="cancelTitleEdit()"
+                (blur)="saveTitle()"
+              />
+            </div>
+          } @else {
+            <h2
+              class="task-title editable-field"
+              (dblclick)="startEditingTitle()"
+              title="Double-click to edit title"
+            >
+              <span>{{ task.title }}</span>
+              <i class="fi fi-rr-edit edit-hint-icon" (click)="startEditingTitle()" title="Edit title"></i>
+            </h2>
+          }
+        </div>
+
         <div class="detail-body">
           <!-- Main Content Left Column -->
           <div class="main-col">
-            <!-- Inline Title Edit -->
-            @if (isEditingTitle()) {
-              <div class="inline-title-edit">
-                <input
-                  id="inline-title-input"
-                  type="text"
-                  class="form-input inline-title-input font-mono"
-                  [(ngModel)]="titleInputText"
-                  (keydown.enter)="saveTitle()"
-                  (keydown.escape)="cancelTitleEdit()"
-                  (blur)="saveTitle()"
-                />
-              </div>
-            } @else {
-              <h2
-                class="task-title editable-field"
-                (dblclick)="startEditingTitle()"
-                title="Double-click to edit title"
-              >
-                <span>{{ task.title }}</span>
-                <i class="fi fi-rr-edit edit-hint-icon" (click)="startEditingTitle()" title="Edit title"></i>
-              </h2>
-            }
-
             <!-- Description Box -->
             <div class="description-box">
               <div class="section-heading-row">
@@ -1150,6 +1152,152 @@ import { DatePickerComponent } from './date-picker';
       color: #ffffff;
       border-color: #f43f5e;
       box-shadow: 0 2px 8px rgba(244, 63, 94, 0.3);
+    }
+
+    /* ==========================================================================
+       Responsive & Compact Mobile Overhaul for Task Detail Modal (< 768px & < 480px)
+       - Places quick metadata card (Status, Priority, Assignee, Due Date) right below Title
+       - Restricts comment list & status history to a 220px scroll container
+       - Makes attachments gallery horizontal scrolling
+       - Reduces paddings and font sizes to eliminate long page scrolling
+       ========================================================================== */
+    @media (max-width: 768px) {
+      .detail-card {
+        padding: 0.85rem;
+        max-height: 90vh;
+        width: 95vw;
+        border-radius: var(--radius-sm);
+      }
+
+      .detail-header {
+        margin-bottom: 0.5rem;
+        padding-bottom: 0.4rem;
+      }
+
+      .detail-title-block {
+        margin-bottom: 0.65rem;
+      }
+
+      .task-title {
+        font-size: 1.1rem;
+      }
+
+      .inline-title-input {
+        font-size: 1.1rem;
+      }
+
+      .detail-body {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+
+      /* Compact 2-column Grid for Metadata on Mobile (Renders FIRST) */
+      .meta-col {
+        order: 1;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.45rem 0.65rem;
+        padding: 0.65rem 0.75rem;
+        background: var(--bg-surface-subtle);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-xs);
+      }
+
+      .meta-group {
+        gap: 0.15rem;
+      }
+
+      .meta-label {
+        font-size: 0.625rem;
+      }
+
+      .meta-input {
+        height: 28px;
+        font-size: 0.75rem;
+        padding: 0.2rem 0.4rem;
+      }
+
+      .meta-actions {
+        grid-column: 1 / -1;
+        margin-top: 0.15rem;
+        padding-top: 0.4rem;
+      }
+
+      .danger-zone-section {
+        grid-column: 1 / -1;
+        margin-top: 0.25rem;
+        padding: 0.45rem;
+        gap: 0.35rem;
+      }
+
+      .danger-zone-desc {
+        display: none;
+      }
+
+      .main-col {
+        order: 2;
+        gap: 0.75rem;
+      }
+
+      .desc-text {
+        font-size: 0.825rem;
+        padding: 0.6rem;
+      }
+
+      .detail-attachment-grid {
+        display: flex;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        gap: 0.5rem;
+        padding-bottom: 0.25rem;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .detail-thumb-card {
+        width: 68px;
+        height: 68px;
+        flex-shrink: 0;
+      }
+
+      .activity-section {
+        margin-top: 0.5rem;
+        padding-top: 0.5rem;
+        gap: 0.65rem;
+      }
+
+      .comments-list,
+      .history-timeline {
+        max-height: 220px;
+        overflow-y: auto;
+        padding-right: 0.25rem;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .comment-item {
+        padding: 0.6rem;
+        gap: 0.5rem;
+      }
+
+      .comment-avatar {
+        width: 24px;
+        height: 24px;
+        font-size: 0.75rem;
+      }
+
+      .text {
+        font-size: 0.825rem;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .meta-col {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .task-title {
+        font-size: 1.05rem;
+      }
     }
   `]
 })
