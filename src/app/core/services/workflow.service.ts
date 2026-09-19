@@ -23,7 +23,7 @@ export class WorkflowService {
     this.loadAllWorkflows();
   }
 
-  private loadFromStorage() {
+  loadFromStorage() {
     const cached = localStorage.getItem('bilo_global_workflows');
     if (cached) {
       try {

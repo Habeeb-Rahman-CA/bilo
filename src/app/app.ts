@@ -16,9 +16,14 @@ import { TaskModalComponent } from './shared/components/task-modal';
 import { TaskShareService } from './core/services/task-share.service';
 import { PushNotificationService } from './core/services/push-notification.service';
 import { ThemeService } from './core/services/theme.service';
+import { AuthService } from './core/services/auth.service';
+import { ProjectService } from './core/services/project.service';
 import { TaskDetailModalComponent } from './shared/components/task-detail-modal';
 import { PushNotificationModalComponent } from './shared/components/push-notification-modal';
 import { BiloLogoComponent } from './shared/components/bilo-logo';
+import { AuthModalComponent } from './shared/components/auth-modal';
+import { ProjectAccessModalComponent } from './shared/components/project-access-modal';
+import { AuthPageComponent } from './features/auth/auth-page';
 import { Task } from './core/models/project.model';
 
 @Component({
@@ -37,7 +42,10 @@ import { Task } from './core/models/project.model';
     ShortcutsModalComponent,
     TaskModalComponent,
     TaskDetailModalComponent,
-    PushNotificationModalComponent
+    PushNotificationModalComponent,
+    AuthModalComponent,
+    ProjectAccessModalComponent,
+    AuthPageComponent
   ],
   templateUrl: './app.html',
   styleUrl: './app.css'
@@ -48,6 +56,7 @@ export class App {
   mobileMenuOpen = signal<boolean>(false);
   editingSharedTask = signal<Task | null>(null);
   pushNotificationModalOpen = signal<boolean>(false);
+  projectAccessModalOpen = signal<boolean>(false);
 
   deferredPrompt: any = null;
   canInstallPwa = signal<boolean>(false);
@@ -76,7 +85,9 @@ export class App {
     public updateService: UpdateService,
     public taskShareService: TaskShareService,
     public pushService: PushNotificationService,
-    public themeService: ThemeService
+    public themeService: ThemeService,
+    public authService: AuthService,
+    public projectService: ProjectService
   ) {}
 
   togglePushNotificationModal() {

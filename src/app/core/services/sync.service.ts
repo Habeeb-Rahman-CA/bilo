@@ -130,10 +130,15 @@ export class SyncService {
   private async executeOp(op: PendingSyncOp): Promise<boolean> {
     const sb = this.supabaseService.supabase;
     const { type, payload } = op;
+    const { data: authData } = await sb.auth.getUser();
+    const currentUserId = authData?.user?.id;
 
     switch (type) {
       case 'CREATE_TASK': {
         const cleanPayload = this.sanitizeTaskPayload(payload);
+        if (currentUserId && !cleanPayload.user_id) {
+          cleanPayload.user_id = currentUserId;
+        }
         let { error } = await sb.from('tasks').upsert([cleanPayload]);
         if (error && error.code === 'PGRST204') {
           delete cleanPayload.attachments;
@@ -159,6 +164,9 @@ export class SyncService {
       }
       case 'CREATE_PROJECT': {
         const cleanPayload = { ...payload };
+        if (currentUserId && !cleanPayload.user_id) {
+          cleanPayload.user_id = currentUserId;
+        }
         let { error } = await sb.from('projects').upsert([cleanPayload]);
         if (error && error.code === 'PGRST204') {
           delete cleanPayload.image_url;

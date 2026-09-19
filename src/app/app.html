@@ -1,3 +1,4 @@
+@if (authService.isAuthenticated()) {
 <div class="app-shell">
   <!-- Top Bar Header: System Name (Left), Command Palette Search (Middle), Help Icon (Right) -->
   <header class="app-header paper-panel">
@@ -31,6 +32,21 @@
           <i class="fi fi-rr-wifi-slash"></i> OFFLINE ({{ syncService.pendingSyncQueue().length }})
         </span>
       }
+      <!-- User Auth Badge -->
+      <div class="user-auth-badge font-mono" [title]="'Authenticated as ' + authService.userEmail()">
+        <i class="fi fi-rr-user-check text-emerald"></i>
+        <span class="user-email-text">{{ authService.userEmail() }}</span>
+        <button class="btn btn-ghost btn-xs signout-btn" (click)="authService.signOut()" title="Sign Out">
+          <i class="fi fi-rr-sign-out-alt"></i>
+        </button>
+      </div>
+
+      @if (projectService.activeProject(); as activeProj) {
+        <button class="btn btn-ghost btn-sm access-btn" (click)="projectAccessModalOpen.set(true)" title="Project Access & Members">
+          <i class="fi fi-rr-users-alt"></i>
+        </button>
+      }
+
       <button class="btn btn-ghost btn-sm theme-toggle-btn" (click)="themeService.toggleTheme()"
         [title]="themeService.isDarkMode() ? 'Switch to Light Craft Paper Theme' : 'Switch to Dark Theme (Black & Grey)'">
         <i [class]="themeService.isDarkMode() ? 'fi fi-rr-sun' : 'fi fi-rr-moon-stars'"></i>
@@ -191,6 +207,14 @@
   <app-push-notification-modal (close)="pushNotificationModalOpen.set(false)" />
   }
 
+  @if (authService.authModalOpen()) {
+    <app-auth-modal (close)="authService.closeAuthModal()" />
+  }
+
+  @if (projectAccessModalOpen() && projectService.activeProject(); as activeProj) {
+    <app-project-access-modal [project]="activeProj" (close)="projectAccessModalOpen.set(false)" />
+  }
+
   <!-- Toast Notification for Copy Share Link & Push Service -->
   @if (taskShareService.toastMessage(); as msg) {
   <div class="task-share-toast paper-panel font-mono">
@@ -206,3 +230,7 @@
   </div>
   }
 </div>
+} @else {
+  <!-- Dedicated Sign In / Sign Up Landing Page -->
+  <app-auth-page (authenticated)="selectWorkspace('01 TODAY')" />
+}

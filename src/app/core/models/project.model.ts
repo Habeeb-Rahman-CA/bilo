@@ -1,11 +1,22 @@
 export type TaskType = 'story' | 'bug' | 'task' | 'epic';
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 
+export type ProjectRole = 'owner' | 'admin' | 'member' | 'viewer';
+
 export interface UserProfile {
   id: string;
   email: string;
   display_name?: string;
   avatar_url?: string;
+  created_at: string;
+}
+
+export interface ProjectMember {
+  id: string;
+  project_id: string;
+  user_id: string;
+  role: ProjectRole;
+  user_email?: string;
   created_at: string;
 }
 
@@ -38,6 +49,7 @@ export interface Project {
 export interface ProjectActivity {
   id: string;
   project_id: string;
+  user_id?: string;
   action: string;
   description: string;
   timestamp: string;

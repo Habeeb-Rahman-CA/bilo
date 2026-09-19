@@ -98,7 +98,8 @@
 
 .help-btn,
 .nav-bell-btn,
-.theme-toggle-btn {
+.theme-toggle-btn,
+.access-btn {
   position: relative;
   padding: 0.35rem 0.6rem;
   font-size: 1rem;
@@ -108,9 +109,41 @@
 
 .help-btn:hover,
 .nav-bell-btn:hover,
-.theme-toggle-btn:hover {
+.theme-toggle-btn:hover,
+.access-btn:hover {
   color: var(--text-main);
   background: var(--bg-surface-hover);
+}
+
+.user-auth-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.2rem 0.55rem;
+  background: var(--bg-surface-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  font-size: 0.725rem;
+  color: var(--text-main);
+  max-width: 220px;
+}
+
+.user-email-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+  font-weight: 500;
+}
+
+.signout-btn {
+  padding: 0.1rem 0.3rem !important;
+  color: var(--text-muted) !important;
+}
+
+.signout-btn:hover {
+  color: var(--accent-rose) !important;
+  background: transparent !important;
 }
 
 .bell-active-dot {

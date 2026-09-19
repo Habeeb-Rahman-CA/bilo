@@ -1,0 +1,369 @@
+import { Component, Input, signal, OnInit, Output, EventEmitter } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { ProjectService } from '../../core/services/project.service';
+import { AuthService } from '../../core/services/auth.service';
+import { Project, ProjectMember, ProjectRole } from '../../core/models/project.model';
+
+@Component({
+  selector: 'app-project-access-modal',
+  standalone: true,
+  imports: [CommonModule, FormsModule],
+  template: `
+    <div class="modal-overlay" (click)="closeModal()">
+      <div class="modal-card access-modal-card paper-panel" (click)="$event.stopPropagation()">
+        <!-- Header -->
+        <div class="modal-header">
+          <div class="header-title-box">
+            <i class="fi fi-rr-users-alt text-cyan"></i>
+            <div>
+              <h3>Project Access & Members</h3>
+              <span class="project-name-subtitle font-mono">{{ project.name }}</span>
+            </div>
+          </div>
+          <button class="btn btn-ghost btn-xs" (click)="closeModal()">
+            <i class="fi fi-rr-cross"></i>
+          </button>
+        </div>
+
+        <!-- Alert Notice -->
+        @if (message()) {
+          <div class="access-alert font-mono" [class.error]="isError()">
+            <i [class]="isError() ? 'fi fi-rr-exclamation text-rose' : 'fi fi-rr-check-circle text-emerald'"></i>
+            <span>{{ message() }}</span>
+          </div>
+        }
+
+        <!-- Add Member Form -->
+        <div class="add-member-section paper-panel font-mono">
+          <label class="form-label">ADD TEAM MEMBER / USER</label>
+          <div class="add-member-form">
+            <input
+              type="text"
+              class="form-input"
+              placeholder="Enter User ID or Email"
+              [(ngModel)]="newUserId"
+            />
+            <select class="form-select role-select" [(ngModel)]="newRole">
+              <option value="admin">Admin</option>
+              <option value="member">Member</option>
+              <option value="viewer">Viewer</option>
+            </select>
+            <button
+              class="btn btn-primary btn-sm"
+              [disabled]="submitting() || !newUserId.trim()"
+              (click)="addMember()"
+            >
+              <i class="fi fi-rr-user-add"></i> Add
+            </button>
+          </div>
+        </div>
+
+        <!-- Members List -->
+        <div class="members-section font-mono">
+          <div class="section-title">
+            <span>CURRENT PROJECT MEMBERS ({{ members().length }})</span>
+          </div>
+
+          @if (loading()) {
+            <div class="loading-state">
+              <i class="fi fi-rr-spinner spinner-icon"></i> Loading project members...
+            </div>
+          } @else if (members().length === 0) {
+            <div class="empty-state">
+              <p>No explicit team members added. Only project owner has default access.</p>
+            </div>
+          } @else {
+            <div class="members-list">
+              @for (m of members(); track m.id) {
+                <div class="member-item">
+                  <div class="member-info">
+                    <i class="fi fi-rr-user member-icon"></i>
+                    <div class="member-text">
+                      <span class="member-id">{{ m.user_email || m.user_id }}</span>
+                      <span class="member-date">Added {{ m.created_at | date:'shortDate' }}</span>
+                    </div>
+                  </div>
+
+                  <div class="member-actions">
+                    <span class="role-badge" [ngClass]="'role-' + m.role">{{ m.role }}</span>
+
+                    @if (isOwner() && m.role !== 'owner') {
+                      <button
+                        class="btn btn-ghost btn-xs text-amber"
+                        (click)="transferOwnership(m.user_id)"
+                        title="Transfer project ownership"
+                      >
+                        Transfer
+                      </button>
+
+                      <button
+                        class="btn btn-ghost btn-xs text-rose"
+                        (click)="removeMember(m.id)"
+                        title="Remove member from project"
+                      >
+                        <i class="fi fi-rr-trash"></i>
+                      </button>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+          }
+        </div>
+
+        <!-- Footer -->
+        <div class="modal-footer font-mono">
+          <button class="btn btn-secondary btn-sm" (click)="closeModal()">Done</button>
+        </div>
+      </div>
+    </div>
+  `,
+  styles: [`
+    .access-modal-card {
+      max-width: 540px;
+    }
+    .header-title-box {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+    }
+    .header-title-box h3 {
+      margin: 0;
+      font-size: 1rem;
+      font-weight: 700;
+    }
+    .project-name-subtitle {
+      font-size: 0.725rem;
+      color: var(--text-muted);
+    }
+    .access-alert {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.55rem 0.75rem;
+      border-radius: var(--radius-xs);
+      font-size: 0.75rem;
+      margin-bottom: 0.85rem;
+      background: rgba(34, 197, 94, 0.12);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      color: #4ade80;
+    }
+    .access-alert.error {
+      background: rgba(244, 63, 94, 0.12);
+      border: 1px solid rgba(244, 63, 94, 0.3);
+      color: #fb7185;
+    }
+    .add-member-section {
+      padding: 0.75rem 0.85rem;
+      margin-bottom: 1rem;
+      background: var(--bg-surface-subtle);
+    }
+    .form-label {
+      font-size: 0.65rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+      margin-bottom: 0.4rem;
+      display: block;
+    }
+    .add-member-form {
+      display: flex;
+      gap: 0.4rem;
+    }
+    .add-member-form input {
+      flex: 1;
+    }
+    .role-select {
+      width: 100px;
+    }
+    .members-section {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .section-title {
+      font-size: 0.675rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+    }
+    .members-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      max-height: 240px;
+      overflow-y: auto;
+    }
+    .member-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.5rem 0.75rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xs);
+    }
+    .member-info {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .member-icon {
+      color: var(--text-muted);
+    }
+    .member-text {
+      display: flex;
+      flex-direction: column;
+    }
+    .member-id {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+    .member-date {
+      font-size: 0.675rem;
+      color: var(--text-subtle);
+    }
+    .member-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .role-badge {
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 0.1rem 0.4rem;
+      border-radius: var(--radius-xs);
+      text-transform: uppercase;
+
+    }
+    .role-owner {
+      background: rgba(168, 85, 247, 0.18);
+      color: #c084fc;
+      border: 1px solid rgba(168, 85, 247, 0.35);
+    }
+    .role-admin {
+      background: rgba(6, 182, 212, 0.18);
+      color: #38bdf8;
+      border: 1px solid rgba(6, 182, 212, 0.35);
+    }
+    .role-member {
+      background: rgba(34, 197, 94, 0.18);
+      color: #4ade80;
+      border: 1px solid rgba(34, 197, 94, 0.35);
+    }
+    .role-viewer {
+      background: rgba(113, 113, 122, 0.2);
+      color: #a1a1aa;
+      border: 1px solid rgba(113, 113, 122, 0.35);
+    }
+    .loading-state, .empty-state {
+      padding: 1rem;
+      text-align: center;
+      font-size: 0.775rem;
+      color: var(--text-muted);
+    }
+    .modal-footer {
+      margin-top: 1rem;
+      display: flex;
+      justify-content: flex-end;
+    }
+    .spinner-icon {
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+  `]
+})
+export class ProjectAccessModalComponent implements OnInit {
+  @Input() project!: Project;
+  @Output() close = new EventEmitter<void>();
+
+  members = signal<ProjectMember[]>([]);
+  loading = signal<boolean>(true);
+  submitting = signal<boolean>(false);
+  newUserId = '';
+  newRole: ProjectRole = 'member';
+
+  message = signal<string>('');
+  isError = signal<boolean>(false);
+
+  constructor(
+    public projectService: ProjectService,
+    public authService: AuthService
+  ) {}
+
+  ngOnInit() {
+    this.loadMembers();
+  }
+
+  isOwner(): boolean {
+    const user = this.authService.user();
+    if (!user) return false;
+    return this.project.user_id === user.id;
+  }
+
+  async loadMembers() {
+    if (!this.project) return;
+    this.loading.set(true);
+    const list = await this.projectService.getProjectMembers(this.project.id);
+    this.members.set(list);
+    this.loading.set(false);
+  }
+
+  async addMember() {
+    if (!this.newUserId.trim()) return;
+    this.submitting.set(true);
+    this.message.set('');
+    this.isError.set(false);
+
+    const success = await this.projectService.addProjectMember(
+      this.project.id,
+      this.newUserId.trim(),
+      this.newRole
+    );
+
+    if (success) {
+      this.message.set('Member added successfully.');
+      this.newUserId = '';
+      await this.loadMembers();
+    } else {
+      this.isError.set(true);
+      this.message.set('Failed to add member. Check user ID / permissions.');
+    }
+    this.submitting.set(false);
+  }
+
+  async removeMember(memberId: string) {
+    if (!confirm('Remove member from project?')) return;
+    const success = await this.projectService.removeProjectMember(this.project.id, memberId);
+    if (success) {
+      this.message.set('Member removed.');
+      this.isError.set(false);
+      await this.loadMembers();
+    } else {
+      this.isError.set(true);
+      this.message.set('Failed to remove member.');
+    }
+  }
+
+  async transferOwnership(targetUserId: string) {
+    if (!confirm(`Transfer project ownership of "${this.project.name}" to ${targetUserId}?`)) return;
+    const success = await this.projectService.transferOwnership(this.project.id, targetUserId);
+    if (success) {
+      this.message.set('Ownership transferred successfully.');
+      this.isError.set(false);
+      await this.loadMembers();
+    } else {
+      this.isError.set(true);
+      this.message.set('Failed to transfer ownership.');
+    }
+  }
+
+  closeModal() {
+    this.close.emit();
+  }
+}

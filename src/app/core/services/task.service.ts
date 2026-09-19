@@ -3,6 +3,7 @@ import { SupabaseService } from './supabase.service';
 import { SyncService } from './sync.service';
 import { ProjectService } from './project.service';
 import { PushNotificationService } from './push-notification.service';
+import { AuthService } from './auth.service';
 import { Task, TaskComment, TaskStatusHistory } from '../models/project.model';
 
 @Injectable({
@@ -18,7 +19,8 @@ export class TaskService {
     private supabaseService: SupabaseService,
     private syncService: SyncService,
     private projectService: ProjectService,
-    private pushNotificationService: PushNotificationService
+    private pushNotificationService: PushNotificationService,
+    private authService: AuthService
   ) {
     this.loadFromStorage();
     this.loadTasksFromSupabase();
@@ -69,8 +71,17 @@ export class TaskService {
     return { normalized, hasChanges };
   }
 
-  private loadFromStorage() {
-    const cached = localStorage.getItem('bilo_tasks_data');
+  loadFromStorage() {
+    localStorage.removeItem('bilo_tasks_data');
+    const currentUser = this.authService.user();
+    if (!currentUser?.id) {
+      this.tasks.set([]);
+      this.taskComments.set({});
+      this.taskStatusHistory.set({});
+      return;
+    }
+
+    const cached = localStorage.getItem(`bilo_tasks_data_${currentUser.id}`);
     if (cached) {
       try {
         const data = JSON.parse(cached);
@@ -89,11 +100,17 @@ export class TaskService {
       } catch (e) {
         console.error('Failed to parse local tasks cache', e);
       }
+    } else {
+      this.tasks.set([]);
+      this.taskComments.set({});
+      this.taskStatusHistory.set({});
     }
   }
 
   private saveToStorage() {
-    localStorage.setItem('bilo_tasks_data', JSON.stringify({
+    const currentUser = this.authService.user();
+    if (!currentUser?.id) return;
+    localStorage.setItem(`bilo_tasks_data_${currentUser.id}`, JSON.stringify({
       tasks: this.tasks(),
       comments: this.taskComments(),
       statusHistory: this.taskStatusHistory()
@@ -103,11 +120,20 @@ export class TaskService {
   async loadTasksFromSupabase() {
     if (!this.syncService.isOnline()) return;
 
+    const currentUser = this.authService.user();
+    if (!currentUser) {
+      this.tasks.set([]);
+      this.taskComments.set({});
+      this.taskStatusHistory.set({});
+      return;
+    }
+
     this.loading.set(true);
     try {
       const { data, error } = await this.supabaseService.supabase
         .from('tasks')
         .select('*')
+        .eq('user_id', currentUser.id)
         .order('created_at', { ascending: false });
 
       if (!error && data) {
@@ -116,7 +142,6 @@ export class TaskService {
         this.saveToStorage();
 
         if (hasChanges) {
-          // Sync normalized statuses back to Supabase DB
           for (const t of normalized) {
             this.supabaseService.supabase
               .from('tasks')
@@ -125,6 +150,8 @@ export class TaskService {
               .then();
           }
         }
+      } else if (error) {
+        console.warn('[TaskService] Could not fetch tasks from Supabase, keeping cached tasks:', error.message);
       }
     } catch (e) {
       console.warn('Could not load tasks from Supabase', e);
@@ -158,9 +185,11 @@ export class TaskService {
       else initialStatus = 'Backlog';
     }
 
+    const currentUser = this.authService.user();
     const newTask: Task = {
       id: newId,
       project_id: finalProjectId,
+      user_id: currentUser?.id,
       title: taskData.title || 'Untitled Task',
       description: taskData.description || '',
       type: taskData.type || 'task',
@@ -181,7 +210,7 @@ export class TaskService {
     this.tasks.update(list => [newTask, ...list]);
 
     // Queue mutation for sync FIRST
-    const payload = {
+    const payload: any = {
       id: newTask.id,
       project_id: this.syncService.isValidUuid(newTask.project_id) ? newTask.project_id : null,
       title: newTask.title,
@@ -195,12 +224,16 @@ export class TaskService {
       due_date: newTask.due_date && newTask.due_date.trim() !== '' ? newTask.due_date : null,
       completed: newTask.completed
     };
+    if (currentUser?.id) {
+      payload.user_id = currentUser.id;
+    }
     this.syncService.enqueue('CREATE_TASK', payload);
 
     // Record initial status history SECOND
     const historyEntry: TaskStatusHistory = {
       id: crypto.randomUUID(),
       task_id: newTask.id,
+      user_id: currentUser?.id,
       from_status: '',
       to_status: initialStatus,
       changed_by: newTask.assignee || 'Self',
@@ -348,9 +381,11 @@ export class TaskService {
   }
 
   async addComment(taskId: string, content: string, authorName: string = 'Self'): Promise<TaskComment> {
+    const currentUser = this.authService.user();
     const newComm: TaskComment = {
       id: crypto.randomUUID(),
       task_id: taskId,
+      user_id: currentUser?.id,
       author_name: authorName,
       content,
       created_at: new Date().toISOString()
@@ -405,5 +440,16 @@ export class TaskService {
 
     this.saveToStorage();
     this.syncService.enqueue('DELETE_COMMENT', { id: commentId });
+  }
+
+  resetState() {
+    const currentUser = this.authService.user();
+    if (currentUser?.id) {
+      localStorage.removeItem(`bilo_tasks_data_${currentUser.id}`);
+    }
+    localStorage.removeItem('bilo_tasks_data');
+    this.tasks.set([]);
+    this.taskComments.set({});
+    this.taskStatusHistory.set({});
   }
 }

@@ -6,8 +6,8 @@
 5 silly config load:file:/home/habrmnc/.nvm/versions/node/v24.14.1/etc/npmrc
 6 verbose title npm exec ng build
 7 verbose argv "exec" "--" "ng" "build"
-8 verbose logfile logs-max:10 dir:/home/habrmnc/habrmnc/bilo/.npm/_logs/2026-09-19T06_51_23_732Z-
-9 verbose logfile /home/habrmnc/habrmnc/bilo/.npm/_logs/2026-09-19T06_51_23_732Z-debug-0.log
+8 verbose logfile logs-max:10 dir:/home/habrmnc/habrmnc/bilo/.npm/_logs/2026-09-19T08_18_54_543Z-
+9 verbose logfile /home/habrmnc/habrmnc/bilo/.npm/_logs/2026-09-19T08_18_54_543Z-debug-0.log
 10 silly logfile done cleaning log files
 11 verbose cwd /home/habrmnc/habrmnc/bilo
 12 verbose os Linux 7.1.9-100.fc43.x86_64

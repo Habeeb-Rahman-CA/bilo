@@ -19,12 +19,19 @@ export class SupabaseService {
       const validKey = isPlaceholder ? 'placeholder-key' : environment.supabaseKey;
 
       this.client = createClient(validUrl, validKey, {
-        auth: { persistSession: false }
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: true
+        }
       });
     } catch (e) {
       console.warn('Supabase client initialized in fallback mode', e);
       this.client = createClient('https://placeholder.supabase.co', 'placeholder-key', {
-        auth: { persistSession: false }
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true
+        }
       });
     }
   }

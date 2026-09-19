@@ -1,7 +1,8 @@
 import { Injectable, signal } from '@angular/core';
 import { SupabaseService } from './supabase.service';
 import { SyncService } from './sync.service';
-import { Project, ProjectActivity, Task } from '../models/project.model';
+import { AuthService } from './auth.service';
+import { Project, ProjectActivity, Task, ProjectMember, ProjectRole } from '../models/project.model';
 
 @Injectable({
   providedIn: 'root'
@@ -15,14 +16,24 @@ export class ProjectService {
 
   constructor(
     private supabaseService: SupabaseService,
-    private syncService: SyncService
+    private syncService: SyncService,
+    private authService: AuthService
   ) {
     this.loadFromStorage();
     this.loadFromSupabase();
   }
 
-  private loadFromStorage() {
-    const cached = localStorage.getItem('bilo_projects_data');
+  loadFromStorage() {
+    localStorage.removeItem('bilo_projects_data');
+    const currentUser = this.authService.user();
+    if (!currentUser?.id) {
+      this.projects.set([]);
+      this.activities.set([]);
+      this.activeProject.set(null);
+      return;
+    }
+
+    const cached = localStorage.getItem(`bilo_projects_data_${currentUser.id}`);
     if (cached) {
       try {
         const data = JSON.parse(cached);
@@ -38,11 +49,17 @@ export class ProjectService {
       } catch (e) {
         console.error('Failed to load local cache', e);
       }
+    } else {
+      this.projects.set([]);
+      this.activities.set([]);
+      this.activeProject.set(null);
     }
   }
 
   private saveToStorage() {
-    localStorage.setItem('bilo_projects_data', JSON.stringify({
+    const currentUser = this.authService.user();
+    if (!currentUser?.id) return;
+    localStorage.setItem(`bilo_projects_data_${currentUser.id}`, JSON.stringify({
       projects: this.projects(),
       activities: this.activities()
     }));
@@ -51,38 +68,50 @@ export class ProjectService {
   async loadFromSupabase() {
     if (!this.syncService.isOnline()) return;
 
+    const currentUser = this.authService.user();
+    if (!currentUser) {
+      this.projects.set([]);
+      this.activities.set([]);
+      this.activeProject.set(null);
+      return;
+    }
+
     this.loading.set(true);
     try {
       const { data, error } = await this.supabaseService.supabase
         .from('projects')
         .select('*')
+        .eq('user_id', currentUser.id)
         .order('created_at', { ascending: false });
 
       if (!error && data) {
         this.projects.set(data as Project[]);
         if (data.length > 0) {
-          this.activeProject.set(data[0] as Project);
+          if (!this.activeProject() || !data.some(p => p.id === this.activeProject()?.id)) {
+            this.activeProject.set(data[0] as Project);
+          }
         } else {
           this.activeProject.set(null);
         }
-        this.saveToStorage();
+      } else if (error) {
+        console.warn('[ProjectService] Could not fetch projects from Supabase:', error.message);
       }
 
       // Load activities from Supabase project_activities
       const { data: actData, error: actError } = await this.supabaseService.supabase
         .from('project_activities')
         .select('*')
+        .eq('user_id', currentUser.id)
         .order('timestamp', { ascending: false })
         .limit(100);
 
-      if (!actError && actData && actData.length > 0) {
-        const existingIds = new Set((actData as any[]).map(a => a.id));
-        const localOnly = this.activities().filter(a => !existingIds.has(a.id));
-        const combined = [...(actData as ProjectActivity[]), ...localOnly]
-          .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-        this.activities.set(combined);
-        this.saveToStorage();
+      if (!actError && actData) {
+        this.activities.set(actData as ProjectActivity[]);
+      } else {
+        this.activities.set([]);
       }
+
+      this.saveToStorage();
     } catch (e) {
       console.warn('Could not load data from Supabase', e);
     } finally {
@@ -93,9 +122,11 @@ export class ProjectService {
   // --- CRUD Operations ---
 
   async createProject(projectData: Partial<Project>): Promise<Project> {
+    const currentUser = this.authService.user();
     const generatedId = crypto.randomUUID();
     const newProj: Project = {
       id: generatedId,
+      user_id: currentUser?.id,
       name: projectData.name || 'Untitled Project',
       slug: (projectData.name || 'untitled').toLowerCase().replace(/\s+/g, '-'),
       description: projectData.description || '',
@@ -115,7 +146,7 @@ export class ProjectService {
     this.logActivity(newProj.id, 'Created', `Project "${newProj.name}" created`);
     this.saveToStorage();
 
-    const payload = {
+    const payload: any = {
       id: newProj.id,
       name: newProj.name,
       slug: newProj.slug,
@@ -127,8 +158,27 @@ export class ProjectService {
       image_url: newProj.image_url,
       icon: newProj.icon
     };
+    if (currentUser?.id) {
+      payload.user_id = currentUser.id;
+    }
 
     this.syncService.enqueue('CREATE_PROJECT', payload);
+
+    // Add owner record in project_members if online
+    if (currentUser?.id && this.syncService.isOnline()) {
+      try {
+        await this.supabaseService.supabase
+          .from('project_members')
+          .upsert([{
+            project_id: newProj.id,
+            user_id: currentUser.id,
+            role: 'owner'
+          }]);
+      } catch (e) {
+        console.warn('Failed to add owner to project_members:', e);
+      }
+    }
+
     return newProj;
   }
 
@@ -244,9 +294,11 @@ export class ProjectService {
   }
 
   logActivity(projectId: string, action: string, description: string) {
+    const currentUser = this.authService.user();
     const newAct: ProjectActivity = {
       id: crypto.randomUUID(),
       project_id: projectId || 'global',
+      user_id: currentUser?.id,
       action,
       description,
       timestamp: new Date().toISOString()
@@ -254,6 +306,18 @@ export class ProjectService {
     this.activities.update(list => [newAct, ...list]);
     this.saveToStorage();
     this.syncService.enqueue('ADD_PROJECT_ACTIVITY', newAct);
+  }
+
+  resetState() {
+    const currentUser = this.authService.user();
+    if (currentUser?.id) {
+      localStorage.removeItem(`bilo_projects_data_${currentUser.id}`);
+    }
+    localStorage.removeItem('bilo_projects_data');
+    this.projects.set([]);
+    this.activities.set([]);
+    this.tasks.set([]);
+    this.activeProject.set(null);
   }
 
   getProjectProgress(projectId: string): { completed: number; total: number; percent: number } {
@@ -269,5 +333,101 @@ export class ProjectService {
       .filter(a => a.project_id === projectId)
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       .slice(0, 5);
+  }
+
+  // --- Project Members & Ownership ---
+
+  async getProjectMembers(projectId: string): Promise<ProjectMember[]> {
+    if (!this.syncService.isOnline()) return [];
+    try {
+      const { data, error } = await this.supabaseService.supabase
+        .from('project_members')
+        .select('*')
+        .eq('project_id', projectId);
+
+      if (!error && data) {
+        return data as ProjectMember[];
+      }
+    } catch (e) {
+      console.warn('Failed to fetch project members:', e);
+    }
+    return [];
+  }
+
+  async addProjectMember(projectId: string, userId: string, role: ProjectRole = 'member'): Promise<boolean> {
+    if (!this.syncService.isOnline()) return false;
+    try {
+      const { error } = await this.supabaseService.supabase
+        .from('project_members')
+        .upsert([{
+          project_id: projectId,
+          user_id: userId,
+          role
+        }]);
+
+      if (!error) {
+        this.logActivity(projectId, 'Member Added', `User ${userId} added as ${role}`);
+        return true;
+      }
+    } catch (e) {
+      console.warn('Failed to add project member:', e);
+    }
+    return false;
+  }
+
+  async removeProjectMember(projectId: string, memberId: string): Promise<boolean> {
+    if (!this.syncService.isOnline()) return false;
+    try {
+      const { error } = await this.supabaseService.supabase
+        .from('project_members')
+        .delete()
+        .eq('id', memberId);
+
+      if (!error) {
+        this.logActivity(projectId, 'Member Removed', `Project member removed`);
+        return true;
+      }
+    } catch (e) {
+      console.warn('Failed to remove project member:', e);
+    }
+    return false;
+  }
+
+  async updateMemberRole(projectId: string, memberId: string, newRole: ProjectRole): Promise<boolean> {
+    if (!this.syncService.isOnline()) return false;
+    try {
+      const { error } = await this.supabaseService.supabase
+        .from('project_members')
+        .update({ role: newRole })
+        .eq('id', memberId);
+
+      if (!error) {
+        this.logActivity(projectId, 'Role Updated', `Member role updated to ${newRole}`);
+        return true;
+      }
+    } catch (e) {
+      console.warn('Failed to update member role:', e);
+    }
+    return false;
+  }
+
+  async transferOwnership(projectId: string, targetUserId: string): Promise<boolean> {
+    if (!this.syncService.isOnline()) return false;
+    try {
+      const { error: projError } = await this.supabaseService.supabase
+        .from('projects')
+        .update({ user_id: targetUserId, updated_at: new Date().toISOString() })
+        .eq('id', projectId);
+
+      if (!projError) {
+        await this.addProjectMember(projectId, targetUserId, 'owner');
+        this.projects.update(list => list.map(p => p.id === projectId ? { ...p, user_id: targetUserId } : p));
+        this.logActivity(projectId, 'Ownership Transferred', `Project ownership transferred to ${targetUserId}`);
+        return true;
+      }
+    } catch (e) {
+      console.warn('Failed to transfer ownership:', e);
+    }
+    return false;
   }
 }
