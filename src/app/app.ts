@@ -20,12 +20,15 @@ import { PushNotificationModalComponent } from './shared/components/push-notific
 import { BiloLogoComponent } from './shared/components/bilo-logo';
 import { Task } from './core/models/project.model';
 
+import { MaintenanceComponent } from './features/maintenance/maintenance';
+
 @Component({
   selector: 'app-root',
   standalone: true,
   imports: [
     CommonModule,
     BiloLogoComponent,
+    MaintenanceComponent,
     TodayComponent,
     ProjectsComponent,
     TasksComponent,

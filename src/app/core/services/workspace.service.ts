@@ -35,6 +35,7 @@ const WORKSPACE_SECTION_TO_HASH: Record<WorkspaceSection, string> = {
 })
 export class WorkspaceService {
   activeWorkspace = signal<WorkspaceSection>(this.getInitialWorkspace());
+  maintenanceMode = signal<boolean>(true);
   commandPaletteOpen = signal<boolean>(false);
   shortcutsModalOpen = signal<boolean>(false);
   globalCreateTaskModalOpen = signal<boolean>(false);
@@ -87,6 +88,10 @@ export class WorkspaceService {
         this.setWorkspace(WORKSPACE_HASH_MAP[hash], false);
       }
     });
+  }
+
+  toggleMaintenanceMode() {
+    this.maintenanceMode.update(v => !v);
   }
 
   toggleCommandPalette() {

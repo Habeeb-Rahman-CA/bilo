@@ -1,3 +1,6 @@
+@if (workspaceService.maintenanceMode()) {
+  <app-maintenance />
+} @else {
 <div class="app-shell">
   <!-- Top Bar Header: System Name (Left), Command Palette Search (Middle), Help Icon (Right) -->
   <header class="app-header paper-panel">
@@ -202,3 +205,4 @@
   </div>
   }
 </div>
+}
