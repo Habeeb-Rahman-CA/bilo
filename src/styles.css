@@ -224,6 +224,17 @@ body {
   box-sizing: border-box;
 }
 
+/* Universal Icon Vertical Alignment & Line-Height Reset */
+i,
+.fi,
+[class^="fi-"],
+[class*=" fi-"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
 code,
 pre,
 .font-mono {
