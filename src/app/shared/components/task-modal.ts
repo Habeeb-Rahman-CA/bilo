@@ -29,7 +29,7 @@ import { SelectComponent, SelectOption } from './select';
 
         <form (ngSubmit)="saveTask()" class="modal-form">
           <div class="form-body">
-            @if (submitted && (!title.trim() || !projectId)) {
+            @if (submitted && !title.trim()) {
               <div class="form-error-banner font-mono">
                 <i class="fi fi-rr-triangle-warning"></i>
                 <span>Please complete all required fields below before saving.</span>
@@ -56,22 +56,10 @@ import { SelectComponent, SelectOption } from './select';
               }
             </div>
 
-            <!-- Type & Project Row -->
-            <div class="form-row">
-              <div class="form-group half">
-                <label class="form-label">ISSUE TYPE</label>
-                <app-select [options]="typeOptions" [(value)]="type" placeholder="Select type..."></app-select>
-              </div>
-
-              <div class="form-group half">
-                <label class="form-label">PROJECT <span class="text-rose">*</span></label>
-                <app-select [options]="projectOptions" [(value)]="projectId" placeholder="Select project..."></app-select>
-                @if (submitted && !projectId) {
-                  <span class="field-error-text font-mono">
-                    <i class="fi fi-rr-exclamation"></i> Project selection is required
-                  </span>
-                }
-              </div>
+            <!-- Issue Type -->
+            <div class="form-group">
+              <label class="form-label">ISSUE TYPE</label>
+              <app-select [options]="typeOptions" [(value)]="type" placeholder="Select type..."></app-select>
             </div>
 
             <!-- Priority & Status Row -->
@@ -636,7 +624,7 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
     if (this.taskToEdit) {
       this.title = this.taskToEdit.title;
       this.description = this.taskToEdit.description || '';
-      this.projectId = this.taskToEdit.project_id || '';
+      this.projectId = this.taskToEdit.project_id || this.projectService.activeProject()?.id || (this.projectService.projects()[0]?.id || '');
       this.type = this.taskToEdit.type || 'task';
       this.status = this.taskToEdit.status || '';
       this.priority = this.taskToEdit.priority || 'medium';
@@ -649,10 +637,13 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
         this.attachments.set([...this.taskToEdit.attachments]);
       }
     } else {
-      if (this.defaultProjectId && this.defaultProjectId !== 'ALL' && this.defaultProjectId !== 'all') {
+      const activeProjId = this.projectService.activeProject()?.id;
+      if (activeProjId) {
+        this.projectId = activeProjId;
+      } else if (this.defaultProjectId && this.defaultProjectId !== 'ALL' && this.defaultProjectId !== 'all') {
         this.projectId = this.defaultProjectId;
       } else {
-        this.projectId = this.projectService.activeProject()?.id || '';
+        this.projectId = this.projectService.projects()[0]?.id || '';
       }
       this.severity = '';
       this.reproducibility = '';
@@ -724,7 +715,11 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
 
   async saveTask() {
     this.submitted = true;
-    if (!this.title.trim() || !this.projectId) return;
+    if (!this.title.trim()) return;
+
+    if (!this.projectId) {
+      this.projectId = this.projectService.activeProject()?.id || (this.projectService.projects()[0]?.id || '');
+    }
 
     const parsedLabels = this.labelsInput
       .split(',')
