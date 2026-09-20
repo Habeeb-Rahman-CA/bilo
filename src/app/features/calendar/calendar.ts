@@ -786,7 +786,12 @@ export class CalendarComponent implements OnInit {
     return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).toUpperCase();
   });
 
-  tasks = computed(() => this.taskService.tasks());
+  tasks = computed(() => {
+    const list = this.taskService.tasks();
+    const activeProjId = this.projectService.activeProject()?.id;
+    if (!activeProjId) return list;
+    return list.filter(t => t.project_id === activeProjId);
+  });
 
   // Tasks that do NOT have a due_date set
   unscheduledTasks = computed(() => {

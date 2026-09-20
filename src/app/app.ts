@@ -1,4 +1,4 @@
-import { Component, signal, HostListener } from '@angular/core';
+import { Component, signal, computed, ElementRef, ViewChild, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { WorkspaceService, WorkspaceSection } from './core/services/workspace.service';
 import { SyncService } from './core/services/sync.service';
@@ -23,6 +23,8 @@ import { PushNotificationModalComponent } from './shared/components/push-notific
 import { BiloLogoComponent } from './shared/components/bilo-logo';
 import { AuthModalComponent } from './shared/components/auth-modal';
 import { ProjectAccessModalComponent } from './shared/components/project-access-modal';
+import { WorkspaceSwitcherComponent } from './shared/components/workspace-switcher';
+import { ProjectModalComponent } from './shared/components/project-modal';
 import { AuthPageComponent } from './features/auth/auth-page';
 import { Task } from './core/models/project.model';
 
@@ -32,6 +34,8 @@ import { Task } from './core/models/project.model';
   imports: [
     CommonModule,
     BiloLogoComponent,
+    WorkspaceSwitcherComponent,
+    ProjectModalComponent,
     TodayComponent,
     ProjectsComponent,
     TasksComponent,
@@ -57,6 +61,41 @@ export class App {
   editingSharedTask = signal<Task | null>(null);
   pushNotificationModalOpen = signal<boolean>(false);
   projectAccessModalOpen = signal<boolean>(false);
+  createProjectModalOpen = signal<boolean>(false);
+  userMenuOpen = signal<boolean>(false);
+
+  userName = computed(() => {
+    const u = this.authService.user();
+    if (!u) return 'Guest User';
+    const meta = u.user_metadata;
+    if (meta && meta['display_name']) return meta['display_name'];
+    if (meta && meta['full_name']) return meta['full_name'];
+    if (u.email) {
+      const parts = u.email.split('@')[0];
+      return parts.charAt(0).toUpperCase() + parts.slice(1);
+    }
+    return 'User';
+  });
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent) {
+    if (this.userMenuOpen()) {
+      const target = event.target as HTMLElement;
+      if (!target.closest('.user-menu-container')) {
+        this.userMenuOpen.set(false);
+      }
+    }
+  }
+
+  toggleUserMenu(event: MouseEvent) {
+    event.stopPropagation();
+    this.userMenuOpen.update(v => !v);
+  }
+
+  signOutUser() {
+    this.userMenuOpen.set(false);
+    this.authService.signOut();
+  }
 
   deferredPrompt: any = null;
   canInstallPwa = signal<boolean>(false);

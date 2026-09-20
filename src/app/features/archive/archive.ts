@@ -216,11 +216,19 @@ export class ArchiveComponent {
     public projectService: ProjectService
   ) { }
 
-  completedTasks = computed(() =>
-    this.taskService.tasks().filter(t => t.completed || t.status.toLowerCase() === 'done')
-  );
+  completedTasks = computed(() => {
+    const list = this.taskService.tasks();
+    const activeProjId = this.projectService.activeProject()?.id;
+    const workspaceTasks = activeProjId ? list.filter(t => t.project_id === activeProjId) : list;
+    return workspaceTasks.filter(t => t.completed || t.status.toLowerCase() === 'done');
+  });
 
-  activities = computed(() => this.projectService.activities());
+  activities = computed(() => {
+    const list = this.projectService.activities();
+    const activeProjId = this.projectService.activeProject()?.id;
+    if (!activeProjId) return list;
+    return list.filter(a => a.project_id === activeProjId);
+  });
 
   private createStyledSheet(
     headers: string[],

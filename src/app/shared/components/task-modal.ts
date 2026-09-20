@@ -649,10 +649,10 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
         this.attachments.set([...this.taskToEdit.attachments]);
       }
     } else {
-      if (this.defaultProjectId && this.defaultProjectId !== 'ALL') {
+      if (this.defaultProjectId && this.defaultProjectId !== 'ALL' && this.defaultProjectId !== 'all') {
         this.projectId = this.defaultProjectId;
       } else {
-        this.projectId = '';
+        this.projectId = this.projectService.activeProject()?.id || '';
       }
       this.severity = '';
       this.reproducibility = '';

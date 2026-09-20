@@ -35,13 +35,16 @@ export class ProjectService {
     }
 
     const cached = localStorage.getItem(`bilo_projects_data_${currentUser.id}`);
+    const savedActiveId = localStorage.getItem('bilo_active_project_id');
+
     if (cached) {
       try {
         const data = JSON.parse(cached);
-        if (data.projects && Array.isArray(data.projects)) {
+        if (data.projects && Array.isArray(data.projects) && data.projects.length > 0) {
           const cleanProjects = data.projects.filter((p: Project) => p.id !== 'proj-default-1');
           this.projects.set(cleanProjects);
-          this.activeProject.set(cleanProjects.length > 0 ? cleanProjects[0] : null);
+          const found = savedActiveId ? cleanProjects.find((p: Project) => p.id === savedActiveId) : null;
+          this.activeProject.set(found || cleanProjects[0] || null);
           if (data.activities && Array.isArray(data.activities)) {
             this.activities.set(data.activities);
           }
@@ -50,11 +53,25 @@ export class ProjectService {
       } catch (e) {
         console.error('Failed to load local cache', e);
       }
-    } else {
-      this.projects.set([]);
-      this.activities.set([]);
-      this.activeProject.set(null);
     }
+
+    // Auto-initialize a default workspace for the user if none exists
+    const defaultProj: Project = {
+      id: 'proj-bilo-main',
+      user_id: currentUser.id,
+      name: 'bilo',
+      slug: 'bilo',
+      description: 'Primary workspace for task management and kanban board',
+      status: 'active',
+      color: '#06b6d4',
+      icon: 'fi fi-rr-folder',
+      labels: ['core', 'workspace'],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    this.projects.set([defaultProj]);
+    this.activeProject.set(defaultProj);
+    this.saveToStorage();
   }
 
   private saveToStorage() {
@@ -64,6 +81,9 @@ export class ProjectService {
       projects: this.projects(),
       activities: this.activities()
     }));
+    if (this.activeProject()) {
+      localStorage.setItem('bilo_active_project_id', this.activeProject()!.id);
+    }
   }
 
   async loadFromSupabase() {
@@ -85,17 +105,20 @@ export class ProjectService {
         .eq('user_id', currentUser.id)
         .order('created_at', { ascending: false });
 
-      if (!error && data) {
+      if (!error && data && data.length > 0) {
         this.projects.set(data as Project[]);
-        if (data.length > 0) {
-          if (!this.activeProject() || !data.some(p => p.id === this.activeProject()?.id)) {
-            this.activeProject.set(data[0] as Project);
-          }
-        } else {
-          this.activeProject.set(null);
-        }
-      } else if (error) {
-        console.warn('[ProjectService] Could not fetch projects from Supabase:', error.message);
+        const savedActiveId = localStorage.getItem('bilo_active_project_id');
+        const found = savedActiveId ? data.find(p => p.id === savedActiveId) : null;
+        this.activeProject.set((found as Project) || (data[0] as Project));
+      } else if (!error && (!data || data.length === 0)) {
+        // Auto-create initial project in Supabase if new user
+        await this.createProject({
+          name: 'bilo',
+          slug: 'bilo',
+          description: 'Primary workspace for task management and kanban board',
+          color: '#06b6d4',
+          icon: 'fi fi-rr-folder'
+        });
       }
 
       // Load activities from Supabase project_activities

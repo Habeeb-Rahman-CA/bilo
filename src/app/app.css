@@ -115,35 +115,128 @@
   background: var(--bg-surface-hover);
 }
 
-.user-auth-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.2rem 0.55rem;
-  background: var(--bg-surface-subtle);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-xs);
-  font-size: 0.725rem;
-  color: var(--text-main);
-  max-width: 220px;
+.user-menu-container {
+  position: relative;
+  display: inline-block;
 }
 
-.user-email-text {
+.user-menu-btn {
+  position: relative;
+  padding: 0.35rem 0.6rem;
+  font-size: 1rem;
+  color: var(--text-muted);
+  border-radius: var(--radius-xs);
+}
+
+.user-menu-btn:hover,
+.user-menu-btn.active {
+  color: var(--text-main);
+  background: var(--bg-surface-hover);
+}
+
+.user-status-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-emerald, #10b981);
+}
+
+.user-menu-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 240px;
+  z-index: 1500;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-xs);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: fadeInDown 0.15s ease-out;
+}
+
+.user-info-card {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.75rem 0.85rem;
+  background: var(--bg-surface-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.user-avatar-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(16, 185, 129, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+.user-details {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  line-height: 1.25;
+}
+
+.user-display-name {
+  font-size: 0.825rem;
+  font-weight: 700;
+  color: var(--text-main);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 140px;
-  font-weight: 500;
 }
 
-.signout-btn {
-  padding: 0.1rem 0.3rem !important;
-  color: var(--text-muted) !important;
+.user-email-address {
+  font-size: 0.725rem;
+  color: var(--text-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.signout-btn:hover {
-  color: var(--accent-rose) !important;
-  background: transparent !important;
+.user-menu-actions {
+  padding: 0.35rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.user-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.65rem;
+  font-family: var(--font-mono);
+  font-size: 0.775rem;
+  font-weight: 600;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  text-align: left;
+}
+
+.user-action-btn:hover {
+  background: var(--bg-surface-hover);
+}
+
+.user-action-btn.btn-signout {
+  color: #f43f5e;
+}
+.user-action-btn.btn-signout:hover {
+  background: rgba(244, 63, 94, 0.1);
 }
 
 .bell-active-dot {

@@ -47,16 +47,6 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       <!-- 2. Standalone Filter Toolbar -->
       <div class="filter-bar paper-panel font-mono">
         <div class="filters-left">
-          <!-- Project Filter -->
-          <div class="filter-group">
-            <label class="filter-label">PROJECT</label>
-            <app-select
-              [options]="projectFilterOptions()"
-              [value]="selectedProjectId()"
-              (valueChange)="onProjectChange($event)"
-              [compact]="true"
-            ></app-select>
-          </div>
 
           <!-- Issue Type Filter -->
           <div class="filter-group">
@@ -76,6 +66,28 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
               [options]="priorityFilterOptions"
               [value]="selectedPriority()"
               (valueChange)="selectedPriority.set($event)"
+              [compact]="true"
+            ></app-select>
+          </div>
+
+          <!-- Severity Filter -->
+          <div class="filter-group">
+            <label class="filter-label">SEVERITY</label>
+            <app-select
+              [options]="severityFilterOptions"
+              [value]="selectedSeverity()"
+              (valueChange)="selectedSeverity.set($event)"
+              [compact]="true"
+            ></app-select>
+          </div>
+
+          <!-- Reproducibility Filter -->
+          <div class="filter-group">
+            <label class="filter-label">REPRO</label>
+            <app-select
+              [options]="reproducibilityFilterOptions"
+              [value]="selectedReproducibility()"
+              (valueChange)="selectedReproducibility.set($event)"
               [compact]="true"
             ></app-select>
           </div>
@@ -100,6 +112,28 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
               (valueChange)="selectedDueDateFilter.set($event)"
               [compact]="true"
             ></app-select>
+          </div>
+
+          <!-- Sort By & Direction -->
+          <div class="filter-group sort-group">
+            <label class="filter-label">SORT</label>
+            <div class="sort-controls">
+              <app-select
+                [options]="sortOptions"
+                [value]="sortBy()"
+                (valueChange)="sortBy.set($event)"
+                [compact]="true"
+              ></app-select>
+              <button
+                type="button"
+                class="btn btn-secondary btn-xs sort-dir-btn font-mono"
+                (click)="toggleSortOrder()"
+                [title]="'Sort order: ' + sortOrder().toUpperCase()"
+              >
+                <i [class]="sortOrder() === 'asc' ? 'fi fi-rr-arrow-small-up' : 'fi fi-rr-arrow-small-down'"></i>
+                <span>{{ sortOrder().toUpperCase() }}</span>
+              </button>
+            </div>
           </div>
 
           @if (hasActiveFilters()) {
@@ -290,6 +324,18 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       width: 130px;
       padding: 0.25rem 0.45rem;
       font-size: 0.775rem;
+    }
+    .sort-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .sort-dir-btn {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.25rem 0.5rem;
+      height: 28px;
     }
     .reset-btn {
       color: var(--accent-rose);
@@ -512,8 +558,12 @@ export class TasksComponent implements OnInit {
   selectedProjectId = signal<string>('all');
   selectedType = signal<string>('all');
   selectedPriority = signal<string>('all');
+  selectedSeverity = signal<string>('all');
+  selectedReproducibility = signal<string>('all');
   selectedLabel = signal<string>('all');
   selectedDueDateFilter = signal<string>('all');
+  sortBy = signal<string>('created_at');
+  sortOrder = signal<'asc' | 'desc'>('desc');
   searchQuery = signal<string>('');
 
   projectFilterOptions = computed<SelectOption[]>(() => [
@@ -541,6 +591,23 @@ export class TasksComponent implements OnInit {
     { value: 'low', label: 'Low' }
   ];
 
+  severityFilterOptions: SelectOption[] = [
+    { value: 'all', label: 'All Severities' },
+    { value: 'critical', label: 'Critical' },
+    { value: 'major', label: 'Major' },
+    { value: 'minor', label: 'Minor' },
+    { value: 'trivial', label: 'Trivial' }
+  ];
+
+  reproducibilityFilterOptions: SelectOption[] = [
+    { value: 'all', label: 'All Reproducibility' },
+    { value: 'always', label: 'Always' },
+    { value: 'often', label: 'Often' },
+    { value: 'sometimes', label: 'Sometimes' },
+    { value: 'rarely', label: 'Rarely' },
+    { value: 'unable', label: 'Unable to Reproduce' }
+  ];
+
   labelFilterOptions = computed<SelectOption[]>(() => [
     { value: 'all', label: 'All Labels' },
     ...this.availableLabels().map(lbl => ({
@@ -556,6 +623,16 @@ export class TasksComponent implements OnInit {
     { value: 'week', label: 'Due This Week' },
     { value: 'has_date', label: 'Has Due Date' },
     { value: 'no_date', label: 'No Due Date' }
+  ];
+
+  sortOptions: SelectOption[] = [
+    { value: 'created_at', label: 'Created Date' },
+    { value: 'updated_at', label: 'Last Updated' },
+    { value: 'priority', label: 'Priority' },
+    { value: 'severity', label: 'Severity' },
+    { value: 'due_date', label: 'Due Date' },
+    { value: 'title', label: 'Title / Key' },
+    { value: 'status', label: 'Status' }
   ];
 
   showCreateModal = signal<boolean>(false);
@@ -575,12 +652,20 @@ export class TasksComponent implements OnInit {
         selectedProjectId: this.selectedProjectId(),
         selectedType: this.selectedType(),
         selectedPriority: this.selectedPriority(),
+        selectedSeverity: this.selectedSeverity(),
+        selectedReproducibility: this.selectedReproducibility(),
         selectedLabel: this.selectedLabel(),
         selectedDueDateFilter: this.selectedDueDateFilter(),
+        sortBy: this.sortBy(),
+        sortOrder: this.sortOrder(),
         searchQuery: this.searchQuery()
       };
       localStorage.setItem('bilo_board_filters', JSON.stringify(filters));
     });
+  }
+
+  toggleSortOrder() {
+    this.sortOrder.update(o => o === 'asc' ? 'desc' : 'asc');
   }
 
   ngOnInit() {
@@ -596,8 +681,12 @@ export class TasksComponent implements OnInit {
           if (parsed.selectedProjectId !== undefined) this.selectedProjectId.set(parsed.selectedProjectId);
           if (parsed.selectedType !== undefined) this.selectedType.set(parsed.selectedType);
           if (parsed.selectedPriority !== undefined) this.selectedPriority.set(parsed.selectedPriority);
+          if (parsed.selectedSeverity !== undefined) this.selectedSeverity.set(parsed.selectedSeverity);
+          if (parsed.selectedReproducibility !== undefined) this.selectedReproducibility.set(parsed.selectedReproducibility);
           if (parsed.selectedLabel !== undefined) this.selectedLabel.set(parsed.selectedLabel);
           if (parsed.selectedDueDateFilter !== undefined) this.selectedDueDateFilter.set(parsed.selectedDueDateFilter);
+          if (parsed.sortBy !== undefined) this.sortBy.set(parsed.sortBy);
+          if (parsed.sortOrder !== undefined) this.sortOrder.set(parsed.sortOrder);
           if (parsed.searchQuery !== undefined) this.searchQuery.set(parsed.searchQuery);
         } catch (e) {}
       } else {
@@ -617,12 +706,14 @@ export class TasksComponent implements OnInit {
   }
 
   activeColumns = computed<Workflow[]>(() => {
-    return this.workflowService.getWorkflowsForProject(this.selectedProjectId());
+    const activeProjId = this.projectService.activeProject()?.id;
+    return this.workflowService.getWorkflowsForProject(activeProjId || this.selectedProjectId());
   });
 
   availableLabels = computed<string[]>(() => {
     const list = this.taskService.tasks();
-    const projId = this.selectedProjectId();
+    const activeProjId = this.projectService.activeProject()?.id;
+    const projId = activeProjId || this.selectedProjectId();
     const set = new Set<string>();
     list.forEach(t => {
       if (projId === 'all' || t.project_id === projId) {
@@ -636,30 +727,41 @@ export class TasksComponent implements OnInit {
 
   hasActiveFilters = computed(() => {
     return (
-      this.selectedProjectId() !== 'all' ||
       this.selectedType() !== 'all' ||
       this.selectedPriority() !== 'all' ||
+      this.selectedSeverity() !== 'all' ||
+      this.selectedReproducibility() !== 'all' ||
       this.selectedLabel() !== 'all' ||
       this.selectedDueDateFilter() !== 'all' ||
+      this.sortOrder() !== 'desc' ||
       this.searchQuery().trim() !== ''
     );
   });
 
   filteredTasks = computed(() => {
-    const list = this.taskService.tasks();
+    let list = [...this.taskService.tasks()];
+    const activeProjId = this.projectService.activeProject()?.id;
+    if (activeProjId) {
+      list = list.filter(t => t.project_id === activeProjId);
+    }
     const projId = this.selectedProjectId();
     const type = this.selectedType();
     const priority = this.selectedPriority();
+    const severity = this.selectedSeverity();
+    const repro = this.selectedReproducibility();
     const label = this.selectedLabel().toLowerCase();
     const dueFilter = this.selectedDueDateFilter();
     const q = this.searchQuery().toLowerCase().trim();
+    const sort = this.sortBy();
 
     const todayStr = new Date().toISOString().split('T')[0];
 
-    return list.filter(t => {
+    list = list.filter(t => {
       if (projId !== 'all' && t.project_id !== projId) return false;
       if (type !== 'all' && t.type !== type) return false;
       if (priority !== 'all' && t.priority !== priority) return false;
+      if (severity !== 'all' && (t.severity || '').toLowerCase() !== severity) return false;
+      if (repro !== 'all' && (t.reproducibility || '').toLowerCase() !== repro) return false;
 
       if (label !== 'all') {
         if (!t.labels || !t.labels.some(l => l.toLowerCase() === label)) return false;
@@ -692,6 +794,44 @@ export class TasksComponent implements OnInit {
 
       return true;
     });
+
+    // Sorting
+    const mult = this.sortOrder() === 'asc' ? 1 : -1;
+    const priorityWeight: Record<string, number> = { urgent: 4, high: 3, medium: 2, low: 1 };
+    const severityWeight: Record<string, number> = { critical: 4, major: 3, minor: 2, trivial: 1 };
+
+    list.sort((a, b) => {
+      let diff = 0;
+      if (sort === 'created_at') {
+        const da = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const db = b.created_at ? new Date(b.created_at).getTime() : 0;
+        diff = da - db;
+      } else if (sort === 'updated_at') {
+        const da = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+        const db = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+        diff = da - db;
+      } else if (sort === 'priority') {
+        const pa = priorityWeight[(a.priority || 'medium').toLowerCase()] || 0;
+        const pb = priorityWeight[(b.priority || 'medium').toLowerCase()] || 0;
+        diff = pa - pb;
+      } else if (sort === 'severity') {
+        const sa = severityWeight[(a.severity || '').toLowerCase()] || 0;
+        const sb = severityWeight[(b.severity || '').toLowerCase()] || 0;
+        diff = sa - sb;
+      } else if (sort === 'due_date') {
+        if (!a.due_date && !b.due_date) diff = 0;
+        else if (!a.due_date) diff = 1;
+        else if (!b.due_date) diff = -1;
+        else diff = a.due_date.localeCompare(b.due_date);
+      } else if (sort === 'title') {
+        diff = a.title.localeCompare(b.title);
+      } else if (sort === 'status') {
+        diff = (a.status || '').localeCompare(b.status || '');
+      }
+      return diff * mult;
+    });
+
+    return list;
   });
 
   getColumnTasks(statusName: string): Task[] {
@@ -743,8 +883,12 @@ export class TasksComponent implements OnInit {
     this.selectedProjectId.set('all');
     this.selectedType.set('all');
     this.selectedPriority.set('all');
+    this.selectedSeverity.set('all');
+    this.selectedReproducibility.set('all');
     this.selectedLabel.set('all');
     this.selectedDueDateFilter.set('all');
+    this.sortBy.set('created_at');
+    this.sortOrder.set('desc');
     this.searchQuery.set('');
     localStorage.removeItem('bilo_board_filters');
   }

@@ -2,9 +2,12 @@
 <div class="app-shell">
   <!-- Top Bar Header: System Name (Left), Command Palette Search (Middle), Help Icon (Right) -->
   <header class="app-header paper-panel">
-    <!-- Left End: System Name Logo -->
+    <!-- Left End: System Name Logo & Workspace Switcher -->
     <div class="header-brand font-mono">
       <app-bilo-logo size="sm" [showText]="true"></app-bilo-logo>
+      <app-workspace-switcher
+        (createWorkspace)="createProjectModalOpen.set(true)"
+      ></app-workspace-switcher>
     </div>
 
     <!-- Middle: Command Palette Search Bar -->
@@ -28,13 +31,43 @@
           <i class="fi fi-rr-wifi-slash"></i> <span class="offline-text">OFFLINE</span> ({{ syncService.pendingSyncQueue().length }})
         </span>
       }
-      <!-- User Auth Badge -->
-      <div class="user-auth-badge font-mono" [title]="'Authenticated as ' + authService.userEmail()">
-        <i class="fi fi-rr-user-check text-emerald"></i>
-        <span class="user-email-text">{{ authService.userEmail() }}</span>
-        <button class="btn btn-ghost btn-xs signout-btn" (click)="authService.signOut()" title="Sign Out">
-          <i class="fi fi-rr-sign-out-alt"></i>
+      <!-- User Profile Menu Icon & Dropdown Popover -->
+      <div class="user-menu-container font-mono">
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm user-menu-btn"
+          [class.active]="userMenuOpen()"
+          (click)="toggleUserMenu($event)"
+          [title]="'Account: ' + authService.userEmail()"
+        >
+          <i class="fi fi-rr-user"></i>
+          <span class="user-status-dot"></span>
         </button>
+
+        @if (userMenuOpen()) {
+          <div class="user-menu-popover paper-panel font-mono" (click)="$event.stopPropagation()">
+            <div class="user-info-card">
+              <div class="user-avatar-circle">
+                <i class="fi fi-rr-user-check text-emerald"></i>
+              </div>
+              <div class="user-details">
+                <span class="user-display-name">{{ userName() }}</span>
+                <span class="user-email-address">{{ authService.userEmail() }}</span>
+              </div>
+            </div>
+
+            <div class="user-menu-actions">
+              <button
+                type="button"
+                class="user-action-btn btn-signout text-rose"
+                (click)="signOutUser()"
+              >
+                <i class="fi fi-rr-sign-out-alt"></i>
+                <span>Sign Out</span>
+              </button>
+            </div>
+          </div>
+        }
       </div>
 
       @if (projectService.activeProject(); as activeProj) {
@@ -244,6 +277,10 @@
 
   @if (projectAccessModalOpen() && projectService.activeProject(); as activeProj) {
     <app-project-access-modal [project]="activeProj" (close)="projectAccessModalOpen.set(false)" />
+  }
+
+  @if (createProjectModalOpen()) {
+    <app-project-modal (close)="createProjectModalOpen.set(false)"></app-project-modal>
   }
 
   <!-- Toast Notification for Copy Share Link & Push Service -->

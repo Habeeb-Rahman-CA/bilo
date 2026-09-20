@@ -41,12 +41,11 @@ export class WorkspaceService {
   globalCreateTaskModalOpen = signal<boolean>(false);
 
   readonly workspaces: WorkspaceItem[] = [
-    { id: '01 TODAY', key: '1', name: 'TODAY', code: '01', icon: 'fi fi-rr-sun', desc: 'Focus dashboard & metrics' },
-    { id: '02 PROJECTS', key: '2', name: 'PROJECTS', code: '02', icon: 'fi fi-rr-folder', desc: 'Project overview & metrics' },
-    { id: '03 BACKLOG', key: '3', name: 'BACKLOG', code: '03', icon: 'fi fi-rr-list-check', desc: 'Jira-style task backlog with comprehensive filters' },
-    { id: '04 TASKS', key: '4', name: 'BOARD', code: '04', icon: 'fi fi-rr-layout-fluid', desc: 'Kanban workflow board' },
-    { id: '05 CALENDAR', key: '5', name: 'CALENDAR', code: '05', icon: 'fi fi-rr-calendar', desc: 'Jira-style month calendar of created & closed tasks' },
-    { id: '06 ARCHIVE', key: '6', name: 'ARCHIVE', code: '06', icon: 'fi fi-rr-box-alt', desc: 'Completed task history & exports' }
+    { id: '01 TODAY', key: '1', name: 'DASHBOARD', code: '01', icon: 'fi fi-rr-dashboard', desc: 'Workspace dashboard & metrics' },
+    { id: '03 BACKLOG', key: '2', name: 'BACKLOG', code: '02', icon: 'fi fi-rr-list-check', desc: 'Workspace task backlog' },
+    { id: '04 TASKS', key: '3', name: 'BOARD', code: '03', icon: 'fi fi-rr-layout-fluid', desc: 'Kanban workflow board' },
+    { id: '05 CALENDAR', key: '4', name: 'CALENDAR', code: '04', icon: 'fi fi-rr-calendar', desc: 'Workspace month calendar' },
+    { id: '06 ARCHIVE', key: '5', name: 'ARCHIVE', code: '05', icon: 'fi fi-rr-box-alt', desc: 'Completed work history & exports' }
   ];
 
   constructor(public themeService: ThemeService) {

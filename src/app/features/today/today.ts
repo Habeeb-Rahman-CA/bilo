@@ -726,14 +726,21 @@ export class TodayComponent {
     return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase();
   });
 
+  activeWorkspaceTasks = computed(() => {
+    const tasks = this.taskService.tasks();
+    const activeProjId = this.projectService.activeProject()?.id;
+    if (!activeProjId) return tasks;
+    return tasks.filter(t => t.project_id === activeProjId);
+  });
+
   // Last 7 Days Calculations
   completed7dCount = computed(() => {
-    const tasks = this.taskService.tasks();
+    const tasks = this.activeWorkspaceTasks();
     return tasks.filter(t => t.completed || t.status.toLowerCase() === 'done').length;
   });
 
   updated7dCount = computed(() => {
-    const tasks = this.taskService.tasks();
+    const tasks = this.activeWorkspaceTasks();
     const now = new Date().getTime();
     const sevenDaysAgo = now - 7 * 86400000;
     return tasks.filter(t => {
@@ -743,7 +750,7 @@ export class TodayComponent {
   });
 
   created7dCount = computed(() => {
-    const tasks = this.taskService.tasks();
+    const tasks = this.activeWorkspaceTasks();
     const now = new Date().getTime();
     const sevenDaysAgo = now - 7 * 86400000;
     return tasks.filter(t => {
@@ -753,7 +760,7 @@ export class TodayComponent {
   });
 
   dueSoonCount = computed(() => {
-    const tasks = this.taskService.tasks();
+    const tasks = this.activeWorkspaceTasks();
     const todayStr = new Date().toISOString().split('T')[0];
     const sevenDaysAhead = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
     return tasks.filter(t => !t.completed && t.due_date && t.due_date >= todayStr && t.due_date <= sevenDaysAhead).length;
@@ -770,10 +777,10 @@ export class TodayComponent {
     }))
   ]);
 
-  totalTaskCount = computed(() => this.taskService.tasks().length);
+  totalTaskCount = computed(() => this.activeWorkspaceTasks().length);
 
   filteredStatusTasksCount = computed(() => {
-    let tasks = this.taskService.tasks();
+    let tasks = this.activeWorkspaceTasks();
     const projId = this.selectedStatusProjectId();
     if (projId !== 'all') {
       tasks = tasks.filter(t => t.project_id === projId);
@@ -783,7 +790,7 @@ export class TodayComponent {
 
   // Dynamic Status Breakdown & Donut SVG calculation across projects
   statusCounts = computed(() => {
-    let tasks = this.taskService.tasks();
+    let tasks = this.activeWorkspaceTasks();
     const projId = this.selectedStatusProjectId();
     if (projId !== 'all') {
       tasks = tasks.filter(t => t.project_id === projId);
@@ -858,17 +865,18 @@ export class TodayComponent {
     });
   });
 
-  // Recent Activity (Latest 5 Entries)
+  // Recent Activity (Latest 5 Entries for active workspace)
   recentActivities = computed(() => {
+    const activeProjId = this.projectService.activeProject()?.id;
     return this.projectService.activities()
-      .slice()
+      .filter(a => !activeProjId || a.project_id === activeProjId)
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       .slice(0, 5);
   });
 
   // Priority Breakdown
   priorityCounts = computed(() => {
-    const tasks = this.taskService.tasks();
+    const tasks = this.activeWorkspaceTasks();
     const total = tasks.length;
 
     const priorities = [
@@ -887,7 +895,7 @@ export class TodayComponent {
 
   // Types of Work
   typeCounts = computed(() => {
-    const tasks = this.taskService.tasks();
+    const tasks = this.activeWorkspaceTasks();
     const total = tasks.length;
 
     const types = [
