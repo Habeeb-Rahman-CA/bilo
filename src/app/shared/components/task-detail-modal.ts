@@ -9,11 +9,12 @@ import { Task, TaskComment, TaskStatusHistory, TaskPriority, TaskSeverity, TaskR
 import { getTaskKey } from '../../core/utils/task-key.util';
 import { SelectComponent, SelectOption } from './select';
 import { DatePickerComponent } from './date-picker';
+import { ConfirmModalComponent } from './confirm-modal';
 
 @Component({
   selector: 'app-task-detail-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectComponent, DatePickerComponent],
+  imports: [CommonModule, FormsModule, SelectComponent, DatePickerComponent, ConfirmModalComponent],
   template: `
     <div class="task-detail-overlay" (click)="close.emit()">
       <div class="task-detail-panel font-mono" (click)="$event.stopPropagation()">
@@ -511,6 +512,18 @@ import { DatePickerComponent } from './date-picker';
             </div>
           </div>
         </div>
+      }
+
+      @if (confirmState(); as cs) {
+        <app-confirm-modal
+          [isOpen]="cs.open"
+          [title]="cs.title"
+          [message]="cs.message"
+          confirmText="Delete"
+          type="danger"
+          (confirm)="handleConfirm()"
+          (cancel)="confirmState.set(null)"
+        />
       }
     </div>
   `,
@@ -1600,18 +1613,38 @@ export class TaskDetailModalComponent implements OnInit {
     this.cancelCommentEdit();
   }
 
-  async confirmDeleteComment(commentId: string) {
-    if (confirm('Delete this comment?')) {
-      await this.taskService.deleteComment(commentId, this.task.id);
-      this.comments.update(list => list.filter(c => c.id !== commentId));
-    }
+  confirmState = signal<{ open: boolean; title: string; message: string; action: () => void } | null>(null);
+
+  confirmDeleteComment(commentId: string) {
+    this.confirmState.set({
+      open: true,
+      title: 'Delete Comment',
+      message: 'Are you sure you want to delete this comment? This action cannot be undone.',
+      action: async () => {
+        await this.taskService.deleteComment(commentId, this.task.id);
+        this.comments.update(list => list.filter(c => c.id !== commentId));
+      }
+    });
   }
 
-  async deleteTask() {
-    if (confirm(`Delete issue "${this.task.title}"?`)) {
-      await this.taskService.deleteTask(this.task.id);
-      this.close.emit();
+  deleteTask() {
+    this.confirmState.set({
+      open: true,
+      title: 'Delete Task',
+      message: `Are you sure you want to permanently delete issue "${this.task.title}"?`,
+      action: async () => {
+        await this.taskService.deleteTask(this.task.id);
+        this.close.emit();
+      }
+    });
+  }
+
+  handleConfirm() {
+    const current = this.confirmState();
+    if (current && current.action) {
+      current.action();
     }
+    this.confirmState.set(null);
   }
 
   async onDetailFileSelected(event: Event) {

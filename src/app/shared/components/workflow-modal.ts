@@ -107,7 +107,6 @@ import { Project, Workflow } from '../../core/models/project.model';
       display: flex;
       flex-direction: column;
       gap: 0.6rem;
-      max-height: 320px;
       overflow-y: auto;
       padding-right: 0.25rem;
       margin-bottom: 1rem;

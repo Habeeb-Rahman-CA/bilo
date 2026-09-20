@@ -26,6 +26,15 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
   ],
   template: `
     <div class="tasks-page-container">
+      <!-- Restricted Transition Toast Notification -->
+      @if (restrictedToastMessage()) {
+        <div class="workflow-restriction-banner font-mono">
+          <i class="fi fi-rr-lock text-amber"></i>
+          <span>{{ restrictedToastMessage() }}</span>
+          <button type="button" class="btn-close-toast" (click)="restrictedToastMessage.set('')">&times;</button>
+        </div>
+      }
+
       <!-- 1. Standalone Top Header Bar -->
       <div class="view-header-strip paper-panel">
         <div class="view-header-left">
@@ -552,6 +561,34 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
     .column-cards.cdk-drop-list-dragging .task-card:not(.cdk-drag-placeholder) {
       transition: transform 250ms cubic-bezier(0, 0, 0.2, 1);
     }
+
+    .workflow-restriction-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.65rem;
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      color: #f59e0b;
+      padding: 0.65rem 1rem;
+      border-radius: var(--radius-xs);
+      font-size: 0.775rem;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+      animation: fadeIn 0.2s ease-out;
+    }
+    .btn-close-toast {
+      background: none;
+      border: none;
+      color: #f59e0b;
+      font-size: 1.1rem;
+      cursor: pointer;
+      line-height: 1;
+      padding: 0 0.25rem;
+    }
+    .text-amber {
+      color: #f59e0b;
+    }
   `]
 })
 export class TasksComponent implements OnInit {
@@ -639,6 +676,7 @@ export class TasksComponent implements OnInit {
   createDefaultStatus = signal<string>('');
   editingTask = signal<Task | null>(null);
   activeDetailTask = signal<Task | null>(null);
+  restrictedToastMessage = signal<string>('');
 
   constructor(
     public taskService: TaskService,
@@ -872,6 +910,13 @@ export class TasksComponent implements OnInit {
   async drop(event: CdkDragDrop<Task[]>, targetColumn: Workflow) {
     const task: Task = event.item.data;
     if (task && task.status !== targetColumn.name) {
+      const allowed = this.workflowService.canTransition(task.status, targetColumn.id, task.project_id);
+      if (!allowed) {
+        this.restrictedToastMessage.set(`Jira Workflow Rule: Transitioning from "${task.status}" to "${targetColumn.name}" is restricted.`);
+        setTimeout(() => this.restrictedToastMessage.set(''), 4500);
+        return;
+      }
+
       await this.taskService.updateTask(task.id, {
         status: targetColumn.name,
         workflow_id: targetColumn.id

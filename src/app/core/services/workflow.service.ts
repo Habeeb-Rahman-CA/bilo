@@ -233,4 +233,118 @@ export class WorkflowService {
     this.saveToStorage();
     return defaults;
   }
+
+  // --- Workflow Transition Rules ---
+
+  canTransition(fromStatusNameOrId: string, toStatusNameOrId: string, projectId?: string): boolean {
+    if (!fromStatusNameOrId || !toStatusNameOrId) return true;
+    if (fromStatusNameOrId.trim().toLowerCase() === toStatusNameOrId.trim().toLowerCase()) return true;
+
+    const workflows = this.getWorkflowsForProject(projectId);
+    const targetWf = workflows.find(
+      w => w.id === toStatusNameOrId || w.name.trim().toLowerCase() === toStatusNameOrId.trim().toLowerCase()
+    );
+
+    if (!targetWf) return true; // If target status is unknown, allow by default
+    if (targetWf.allow_all_transitions !== false) return true; // Allow all by default unless explicitly disabled
+
+    const fromWf = workflows.find(
+      w => w.id === fromStatusNameOrId || w.name.trim().toLowerCase() === fromStatusNameOrId.trim().toLowerCase()
+    );
+
+    const allowed = targetWf.allowed_transitions || [];
+    if (fromWf && allowed.includes(fromWf.id)) return true;
+    if (allowed.includes(fromStatusNameOrId)) return true;
+
+    return false;
+  }
+
+  async updateWorkflowTransitions(
+    projectId: string,
+    workflowId: string,
+    allowAllTransitions: boolean,
+    allowedTransitions: string[]
+  ) {
+    const key = projectId || 'global';
+    this.workflowsByProject.update(map => {
+      const current = map[key] || [];
+      const updated = current.map(w => {
+        if (w.id === workflowId) {
+          return {
+            ...w,
+            allow_all_transitions: allowAllTransitions,
+            allowed_transitions: allowedTransitions
+          };
+        }
+        return w;
+      });
+      return { ...map, [key]: updated };
+    });
+    this.saveToStorage();
+
+    try {
+      await this.supabaseService.supabase
+        .from('workflows')
+        .update({
+          allow_all_transitions: allowAllTransitions,
+          allowed_transitions: allowedTransitions
+        })
+        .eq('id', workflowId);
+    } catch (e) {
+      console.warn('Supabase workflow transition update warning:', e);
+    }
+  }
+
+  async resetToSequentialPipeline(projectId: string) {
+    const key = projectId || 'global';
+    const workflows = [...this.getWorkflowsForProject(key)];
+    const updated = workflows.map((w, idx) => {
+      if (idx === 0) {
+        return { ...w, allow_all_transitions: true, allowed_transitions: [] };
+      }
+      const prevWf = workflows[idx - 1];
+      return {
+        ...w,
+        allow_all_transitions: false,
+        allowed_transitions: [prevWf.id]
+      };
+    });
+
+    this.workflowsByProject.update(map => ({
+      ...map,
+      [key]: updated
+    }));
+    this.saveToStorage();
+
+    for (const w of updated) {
+      try {
+        await this.supabaseService.supabase
+          .from('workflows')
+          .update({
+            allow_all_transitions: w.allow_all_transitions,
+            allowed_transitions: w.allowed_transitions
+          })
+          .eq('id', w.id);
+      } catch (e) {
+        console.warn('Supabase sequential pipeline update warning:', e);
+      }
+    }
+  }
+
+  async allowAllTransitionsForProject(projectId: string) {
+    const key = projectId || 'global';
+    const workflows = this.getWorkflowsForProject(key);
+    const updated = workflows.map(w => ({
+      ...w,
+      allow_all_transitions: true,
+      allowed_transitions: []
+    }));
+
+    this.workflowsByProject.update(map => ({
+      ...map,
+      [key]: updated
+    }));
+    this.saveToStorage();
+  }
 }
+

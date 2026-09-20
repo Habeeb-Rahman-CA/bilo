@@ -29,6 +29,8 @@ export interface Workflow {
   name: string;
   color: string;
   position: number;
+  allow_all_transitions?: boolean;
+  allowed_transitions?: string[]; // IDs of workflows allowed to transition INTO this workflow
   created_at: string;
 }
 

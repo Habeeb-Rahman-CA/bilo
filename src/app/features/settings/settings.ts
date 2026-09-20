@@ -9,13 +9,14 @@ import { PushNotificationService } from '../../core/services/push-notification.s
 import { Project, Workflow } from '../../core/models/project.model';
 import { ProjectAccessModalComponent } from '../../shared/components/project-access-modal';
 import { ProjectModalComponent } from '../../shared/components/project-modal';
+import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
 
 export type SettingsSection = 'overview' | 'workflow' | 'notifications';
 
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [CommonModule, FormsModule, ProjectAccessModalComponent, ProjectModalComponent],
+  imports: [CommonModule, FormsModule, ProjectAccessModalComponent, ProjectModalComponent, ConfirmModalComponent],
   template: `
     <div class="settings-workspace font-mono">
       <!-- Top Banner Bar -->
@@ -228,6 +229,22 @@ export type SettingsSection = 'overview' | 'workflow' | 'notifications';
                   <div class="header-actions">
                     <button
                       type="button"
+                      class="btn btn-secondary btn-xs"
+                      (click)="applySequentialPreset(proj.id)"
+                      title="Set strict sequential pipeline (Start -> To Do -> In Progress -> In Review -> Done)"
+                    >
+                      <i class="fi fi-rr-diagram-project text-cyan"></i> Sequential Pipeline
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-xs"
+                      (click)="applyAllowAllPreset(proj.id)"
+                      title="Allow transitions between all status columns"
+                    >
+                      <i class="fi fi-rr-globe text-emerald"></i> Allow All
+                    </button>
+                    <button
+                      type="button"
                       class="btn btn-ghost btn-xs text-rose"
                       (click)="resetToDefaults(proj.id)"
                       title="Reset status columns to default backlog workflow"
@@ -238,80 +255,119 @@ export type SettingsSection = 'overview' | 'workflow' | 'notifications';
                 </div>
 
                 <p class="section-subtext">
-                  Customize status columns for <strong>{{ proj.name }}</strong>. Each workspace has its own isolated workflow board and backlog columns.
+                  Configure status columns and Jira-style allowed transition rules for <strong>{{ proj.name }}</strong>.
                 </p>
 
-                <!-- Columns List -->
-                <div class="columns-list">
-                  @if (columns.length === 0) {
-                    <div class="empty-list">
-                      <i class="fi fi-rr-info empty-icon"></i>
-                      <p>No workflow status columns defined. Add your first status column below!</p>
-                    </div>
-                  } @else {
-                    @for (col of columns; track col.id; let i = $index) {
-                      <div class="column-item">
-                        <span class="drag-handle"><i class="fi fi-rr-menu-dots-vertical"></i></span>
-
-                        <input
-                          type="color"
-                          class="color-picker-inline"
-                          [(ngModel)]="col.color"
-                          title="Column accent color"
-                        />
-
-                        <input
-                          type="text"
-                          class="form-input col-name-input"
-                          [(ngModel)]="col.name"
-                          placeholder="Status Column Name (e.g. In Review, Testing)"
-                        />
-
-                        <div class="col-actions">
-                          @if (i > 0) {
-                            <button type="button" class="btn btn-ghost btn-xs btn-icon" (click)="moveColumn(i, -1)" title="Move up">
-                              <i class="fi fi-rr-angle-up"></i>
-                            </button>
-                          }
-                          @if (i < columns.length - 1) {
-                            <button type="button" class="btn btn-ghost btn-xs btn-icon" (click)="moveColumn(i, 1)" title="Move down">
-                              <i class="fi fi-rr-angle-down"></i>
-                            </button>
-                          }
-                          <button type="button" class="btn btn-ghost btn-xs btn-icon btn-danger" (click)="removeColumn(col, i)" title="Delete status column">
-                            <i class="fi fi-rr-trash"></i>
-                          </button>
+                <div class="rules-section-wrapper">
+                  <div class="columns-list">
+                    @if (columns.length === 0) {
+                        <div class="empty-list">
+                          <i class="fi fi-rr-info empty-icon"></i>
+                          <p>No workflow status columns defined. Add your first status column below!</p>
                         </div>
-                      </div>
-                    }
-                  }
-                </div>
+                      } @else {
+                        @for (col of columns; track col.id; let i = $index) {
+                          @let isAllowAll = col.allow_all_transitions !== false;
 
-                <!-- Add Column Row -->
-                <div class="add-col-row">
-                  <input
-                    type="text"
-                    class="form-input new-col-input"
-                    placeholder="New status column name (e.g. QA Review, Deployment)..."
-                    [(ngModel)]="newColumnName"
-                    (keyup.enter)="addNewWorkflowColumn(proj.id)"
-                  />
-                  <button type="button" class="btn btn-secondary btn-sm" (click)="addNewWorkflowColumn(proj.id)">
-                    <i class="fi fi-rr-plus"></i> Add Status
-                  </button>
-                </div>
+                          <div class="column-item-card paper-panel font-mono">
+                            <div class="column-item-top">
+                              <span class="drag-handle"><i class="fi fi-rr-menu-dots-vertical"></i></span>
+
+                              <input
+                                type="color"
+                                class="color-picker-inline"
+                                [(ngModel)]="col.color"
+                                title="Column accent color"
+                              />
+
+                              <input
+                                type="text"
+                                class="form-input col-name-input"
+                                [(ngModel)]="col.name"
+                                placeholder="Status Column Name (e.g. In Review, Testing)"
+                              />
+
+                              <div class="col-actions">
+                                @if (i > 0) {
+                                  <button type="button" class="btn btn-ghost btn-xs btn-icon" (click)="moveColumn(i, -1)" title="Move left / up">
+                                    <i class="fi fi-rr-angle-left"></i>
+                                  </button>
+                                }
+                                @if (i < columns.length - 1) {
+                                  <button type="button" class="btn btn-ghost btn-xs btn-icon" (click)="moveColumn(i, 1)" title="Move right / down">
+                                    <i class="fi fi-rr-angle-right"></i>
+                                  </button>
+                                }
+                                <button type="button" class="btn btn-ghost btn-xs btn-icon btn-danger" (click)="removeColumn(col, i)" title="Delete status column">
+                                  <i class="fi fi-rr-trash"></i>
+                                </button>
+                              </div>
+                            </div>
+
+                            <!-- Jira Transition Rules Configuration Row -->
+                            <div class="transition-rules-config">
+                              <div class="rule-toggle-line">
+                                <label class="checkbox-label">
+                                  <input
+                                    type="checkbox"
+                                    [checked]="isAllowAll"
+                                    (change)="toggleAllowAllForColumn(col, $event)"
+                                  />
+                                  <span>Allow transitions from <strong>ANY</strong> status</span>
+                                </label>
+                              </div>
+
+                              @if (!isAllowAll) {
+                                <div class="allowed-from-picker">
+                                  <span class="picker-label">Allowed Predecessors (Incoming Statuses):</span>
+                                  <div class="predecessor-chips">
+                                    @for (pred of columns; track pred.id) {
+                                      @if (pred.id !== col.id) {
+                                        @let isChecked = (col.allowed_transitions || []).includes(pred.id);
+                                        <button
+                                          type="button"
+                                          class="pred-toggle-chip"
+                                          [class.chip-active]="isChecked"
+                                          (click)="togglePredecessor(col, pred.id)"
+                                        >
+                                          <span class="dot" [style.background-color]="pred.color"></span>
+                                          {{ pred.name }}
+                                          @if (isChecked) { <i class="fi fi-rr-check"></i> }
+                                        </button>
+                                      }
+                                    }
+                                  </div>
+                                </div>
+                              }
+                            </div>
+                          </div>
+                        }
+                      }
+                    </div>
+
+                    <!-- Add Column Row -->
+                    <div class="add-col-row">
+                      <input
+                        type="text"
+                        class="form-input new-col-input"
+                        placeholder="New status column name (e.g. QA Review, Deployment)..."
+                        [(ngModel)]="newColumnName"
+                        (keyup.enter)="addNewWorkflowColumn(proj.id)"
+                      />
+                    </div>
+                  </div>
 
                 <div class="card-footer">
                   @if (savedToast()) {
-                    <span class="save-toast-msg text-emerald">
-                      <i class="fi fi-rr-check-circle"></i> Workflow saved successfully!
+                    <span class="save-toast-msg text-emerald font-mono">
+                      <i class="fi fi-rr-check-circle"></i> Workflow transition rules saved successfully!
                     </span>
                   } @else {
                     <span>&nbsp;</span>
                   }
 
-                  <button type="button" class="btn btn-primary btn-sm" (click)="saveWorkflowChanges(proj.id)">
-                    <i class="fi fi-rr-check"></i> Save Workflow
+                  <button type="button" class="btn btn-primary btn-sm font-mono" (click)="saveWorkflowChanges(proj.id)">
+                    <i class="fi fi-rr-check"></i> Save Workflow Rules
                   </button>
                 </div>
               </div>
@@ -471,6 +527,16 @@ export type SettingsSection = 'overview' | 'workflow' | 'notifications';
       @if (editProjectModalOpen() && activeProject(); as proj) {
         <app-project-modal [projectToEdit]="proj" (close)="editProjectModalOpen.set(false)" />
       }
+
+      <app-confirm-modal
+        [isOpen]="resetConfirmOpen()"
+        title="Reset Workflow Defaults"
+        message="Are you sure you want to reset status columns and transition rules for this workspace to default?"
+        confirmText="Reset Defaults"
+        type="warning"
+        (confirm)="executeResetToDefaults()"
+        (cancel)="resetConfirmOpen.set(false)"
+      />
     </div>
   `,
   styles: [`
@@ -734,7 +800,6 @@ export type SettingsSection = 'overview' | 'workflow' | 'notifications';
       display: flex;
       flex-direction: column;
       gap: 0.5rem;
-      max-height: 380px;
       overflow-y: auto;
     }
     .empty-list {
@@ -976,6 +1041,136 @@ export type SettingsSection = 'overview' | 'workflow' | 'notifications';
       font-size: 2rem;
       color: var(--accent-cyan);
     }
+
+    /* Workflow Diagram & Transition Rules Styles */
+    .workflow-tabs-strip {
+      display: flex;
+      gap: 0.5rem;
+      border-bottom: 1px solid var(--border-subtle);
+      padding-bottom: 0.65rem;
+      margin-bottom: 1rem;
+    }
+    .wf-tab-btn {
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      border-radius: var(--radius-xs);
+      padding: 0.4rem 0.85rem;
+      font-size: 0.775rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      transition: var(--transition-fast);
+    }
+    .wf-tab-btn:hover {
+      color: var(--text-main);
+      border-color: var(--border-medium);
+    }
+    .wf-tab-btn.active {
+      background: var(--bg-surface);
+      color: var(--accent-cyan);
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 0 1px rgba(6, 182, 212, 0.2);
+    }
+
+    .section-subtitle {
+      font-size: 0.825rem;
+      font-weight: 700;
+      color: var(--text-main);
+      margin: 1.25rem 0 0.85rem 0;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+
+    .column-item-card {
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xs);
+      padding: 0.85rem 1rem;
+      margin-bottom: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+    }
+    .column-item-top {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+    }
+
+    .transition-rules-config {
+      padding-top: 0.5rem;
+      border-top: 1px dashed var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+    }
+    .rule-toggle-line {
+      display: flex;
+      align-items: center;
+    }
+    .checkbox-label {
+      font-size: 0.75rem;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      cursor: pointer;
+    }
+    .checkbox-label input[type="checkbox"] {
+      accent-color: var(--accent-cyan);
+      cursor: pointer;
+    }
+
+    .allowed-from-picker {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      padding-left: 1.25rem;
+      margin-top: 0.2rem;
+    }
+    .picker-label {
+      font-size: 0.675rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      letter-spacing: 0.04em;
+    }
+    .predecessor-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+    .pred-toggle-chip {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-medium);
+      color: var(--text-muted);
+      border-radius: 12px;
+      padding: 0.2rem 0.55rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: var(--transition-fast);
+    }
+    .pred-toggle-chip:hover {
+      border-color: var(--text-main);
+      color: var(--text-main);
+    }
+    .pred-toggle-chip.chip-active {
+      background: rgba(6, 182, 212, 0.12);
+      border-color: var(--accent-cyan);
+      color: var(--accent-cyan);
+    }
+    .pred-toggle-chip .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
   `]
 })
 export class SettingsComponent {
@@ -983,6 +1178,7 @@ export class SettingsComponent {
   activeProject = computed(() => this.projectService.activeProject());
   accessModalOpen = signal<boolean>(false);
   editProjectModalOpen = signal<boolean>(false);
+  resetConfirmOpen = signal<boolean>(false);
   columns: Workflow[] = [];
   deletedColumnIds: string[] = [];
   newColumnName = '';
@@ -1056,20 +1252,63 @@ export class SettingsComponent {
     this.columns[target] = temp;
   }
 
-  async resetToDefaults(projectId: string) {
-    if (confirm('Are you sure you want to reset workflow columns for this workspace to default?')) {
-      const defaults = await this.workflowService.resetToDefaultWorkflows(projectId);
-      this.columns = JSON.parse(JSON.stringify(defaults));
-      this.triggerSavedToast();
+  toggleAllowAllForColumn(col: Workflow, event: Event) {
+    const checked = (event.target as HTMLInputElement).checked;
+    col.allow_all_transitions = checked;
+    if (checked) {
+      col.allowed_transitions = [];
     }
   }
 
-  async saveWorkflowChanges(projectId: string) {
-    for (const delId of this.deletedColumnIds) {
-      await this.workflowService.deleteWorkflow(delId, projectId);
+  togglePredecessor(col: Workflow, predId: string) {
+    if (!col.allowed_transitions) col.allowed_transitions = [];
+    const idx = col.allowed_transitions.indexOf(predId);
+    if (idx >= 0) {
+      col.allowed_transitions.splice(idx, 1);
+    } else {
+      col.allowed_transitions.push(predId);
     }
-    await this.workflowService.updateWorkflowPositions(projectId, this.columns);
+  }
+
+  async applySequentialPreset(projectId: string) {
+    await this.workflowService.resetToSequentialPipeline(projectId);
+    this.loadProjectColumns(projectId);
     this.triggerSavedToast();
+  }
+
+  async applyAllowAllPreset(projectId: string) {
+    await this.workflowService.allowAllTransitionsForProject(projectId);
+    this.loadProjectColumns(projectId);
+    this.triggerSavedToast();
+  }
+
+  resetToDefaults(projectId: string) {
+    this.resetConfirmOpen.set(true);
+  }
+
+  async executeResetToDefaults() {
+    this.resetConfirmOpen.set(false);
+    const proj = this.activeProject();
+    if (!proj) return;
+    const defaults = await this.workflowService.resetToDefaultWorkflows(proj.id);
+    this.columns = JSON.parse(JSON.stringify(defaults));
+    this.triggerSavedToast();
+  }
+
+  async saveWorkflowChanges(projectId: string) {
+    this.triggerSavedToast();
+    for (const delId of this.deletedColumnIds) {
+      this.workflowService.deleteWorkflow(delId, projectId);
+    }
+    this.workflowService.updateWorkflowPositions(projectId, this.columns);
+    for (const col of this.columns) {
+      this.workflowService.updateWorkflowTransitions(
+        projectId,
+        col.id,
+        col.allow_all_transitions !== false,
+        col.allowed_transitions || []
+      );
+    }
   }
 
   private triggerSavedToast() {

@@ -4,11 +4,12 @@ import { FormsModule } from '@angular/forms';
 import { ProjectService } from '../../core/services/project.service';
 import { AuthService } from '../../core/services/auth.service';
 import { Project, ProjectMember, ProjectRole } from '../../core/models/project.model';
+import { ConfirmModalComponent } from './confirm-modal';
 
 @Component({
   selector: 'app-project-access-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ConfirmModalComponent],
   template: `
     <div class="modal-overlay" (click)="closeModal()">
       <div class="modal-card access-modal-card paper-panel" (click)="$event.stopPropagation()">
@@ -118,6 +119,18 @@ import { Project, ProjectMember, ProjectRole } from '../../core/models/project.m
         </div>
       </div>
     </div>
+
+    @if (confirmState(); as cs) {
+      <app-confirm-modal
+        [isOpen]="cs.open"
+        [title]="cs.title"
+        [message]="cs.message"
+        confirmText="Confirm"
+        type="danger"
+        (confirm)="handleConfirm()"
+        (cancel)="confirmState.set(null)"
+      />
+    }
   `,
   styles: [`
     .access-modal-card {
@@ -337,30 +350,52 @@ export class ProjectAccessModalComponent implements OnInit {
     this.submitting.set(false);
   }
 
-  async removeMember(memberId: string) {
-    if (!confirm('Remove member from project?')) return;
-    const success = await this.projectService.removeProjectMember(this.project.id, memberId);
-    if (success) {
-      this.message.set('Member removed.');
-      this.isError.set(false);
-      await this.loadMembers();
-    } else {
-      this.isError.set(true);
-      this.message.set('Failed to remove member.');
-    }
+  confirmState = signal<{ open: boolean; title: string; message: string; action: () => void } | null>(null);
+
+  removeMember(memberId: string) {
+    this.confirmState.set({
+      open: true,
+      title: 'Remove Member',
+      message: 'Are you sure you want to remove this member from the project?',
+      action: async () => {
+        const success = await this.projectService.removeProjectMember(this.project.id, memberId);
+        if (success) {
+          this.message.set('Member removed.');
+          this.isError.set(false);
+          await this.loadMembers();
+        } else {
+          this.isError.set(true);
+          this.message.set('Failed to remove member.');
+        }
+      }
+    });
   }
 
-  async transferOwnership(targetUserId: string) {
-    if (!confirm(`Transfer project ownership of "${this.project.name}" to ${targetUserId}?`)) return;
-    const success = await this.projectService.transferOwnership(this.project.id, targetUserId);
-    if (success) {
-      this.message.set('Ownership transferred successfully.');
-      this.isError.set(false);
-      await this.loadMembers();
-    } else {
-      this.isError.set(true);
-      this.message.set('Failed to transfer ownership.');
+  transferOwnership(targetUserId: string) {
+    this.confirmState.set({
+      open: true,
+      title: 'Transfer Ownership',
+      message: `Are you sure you want to transfer project ownership of "${this.project.name}" to ${targetUserId}?`,
+      action: async () => {
+        const success = await this.projectService.transferOwnership(this.project.id, targetUserId);
+        if (success) {
+          this.message.set('Ownership transferred successfully.');
+          this.isError.set(false);
+          await this.loadMembers();
+        } else {
+          this.isError.set(true);
+          this.message.set('Failed to transfer ownership.');
+        }
+      }
+    });
+  }
+
+  handleConfirm() {
+    const current = this.confirmState();
+    if (current && current.action) {
+      current.action();
     }
+    this.confirmState.set(null);
   }
 
   closeModal() {
