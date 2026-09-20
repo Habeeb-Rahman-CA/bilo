@@ -53,20 +53,6 @@ import { SelectComponent, SelectOption } from './select';
               }
             </div>
 
-            <!-- Repository URL -->
-            <div class="form-group">
-              <label class="form-label">REPOSITORY URL (OPTIONAL)</label>
-              <div class="input-with-icon">
-                <i class="fi fi-brands-github field-icon"></i>
-                <input
-                  type="url"
-                  class="form-input icon-padded"
-                  [(ngModel)]="repositoryUrl"
-                  name="repositoryUrl"
-                  placeholder="https://github.com/org/repository"
-                />
-              </div>
-            </div>
 
             <!-- Status Row (Only visible when editing an existing project) -->
             @if (isEditMode) {
@@ -417,7 +403,6 @@ export class ProjectModalComponent implements OnInit, AfterViewInit {
   submitted = false;
 
   name = '';
-  repositoryUrl = '';
   description = '';
   status: 'active' | 'archived' | 'completed' = 'active';
   labelsInput = '';
@@ -461,7 +446,6 @@ export class ProjectModalComponent implements OnInit, AfterViewInit {
   ngOnInit() {
     if (this.projectToEdit) {
       this.name = this.projectToEdit.name || '';
-      this.repositoryUrl = this.projectToEdit.repository_url || '';
       this.description = this.projectToEdit.description || '';
       this.status = this.projectToEdit.status || 'active';
       this.labelsInput = (this.projectToEdit.labels || []).join(', ');
@@ -492,7 +476,6 @@ export class ProjectModalComponent implements OnInit, AfterViewInit {
     if (this.isEditMode && this.projectToEdit && this.projectToEdit.id) {
       const updated = await this.projectService.updateProject(this.projectToEdit.id, {
         name: this.name,
-        repository_url: this.repositoryUrl,
         description: this.description,
         status: this.status,
         labels: parsedLabels,
@@ -503,7 +486,6 @@ export class ProjectModalComponent implements OnInit, AfterViewInit {
     } else {
       const created = await this.projectService.createProject({
         name: this.name,
-        repository_url: this.repositoryUrl,
         description: this.description,
         status: 'active',
         labels: parsedLabels,

@@ -313,7 +313,7 @@ export class ArchiveComponent {
       'Work category (Task, Bug, Story, Epic)',
       'Urgency priority level',
       'Completion status state',
-      'Parent project repository',
+      'Parent workspace project',
       'Assigned team member',
       'Target due date (YYYY-MM-DD)',
       'Timestamp when task was logged'
@@ -341,7 +341,7 @@ export class ArchiveComponent {
       'Urgency priority level',
       'Current workflow state (Todo, In Progress, Done)',
       'Completion status indicator (YES/NO)',
-      'Parent project repository',
+      'Parent workspace project',
       'Assigned team member',
       'Target due date (YYYY-MM-DD)',
       'Timestamp when task was logged'
@@ -365,7 +365,7 @@ export class ArchiveComponent {
     const projectHeaders = ['Project Key', 'Project Name', 'Description', 'Status', 'Total Tasks', 'Completed Tasks', 'Progress (%)'];
     const projectDescriptions = [
       'Unique project code identifier',
-      'Name of repository project',
+      'Name of workspace project',
       'Project overview and objectives',
       'Lifecycle status (Active, Completed)',
       'Total count of assigned tasks',

@@ -80,13 +80,66 @@
         [title]="themeService.isDarkMode() ? 'Switch to Light Craft Paper Theme' : 'Switch to Dark Theme (Black & Grey)'">
         <i [class]="themeService.isDarkMode() ? 'fi fi-rr-sun' : 'fi fi-rr-moon-stars'"></i>
       </button>
-      <button class="btn btn-ghost btn-sm nav-bell-btn" (click)="togglePushNotificationModal()"
-        [title]="pushService.notificationsEnabled() ? 'Push Notifications Active' : 'Push Notifications Center'">
-        <i class="fi fi-rr-bell-ring help-icon" [class.text-amber]="pushService.notificationsEnabled()"></i>
-        @if (pushService.notificationsEnabled()) {
-          <span class="bell-active-dot"></span>
+      <!-- Notifications Menu Icon & Popover -->
+      <div class="notification-menu-container font-mono">
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm nav-bell-btn"
+          [class.active]="notificationMenuOpen()"
+          (click)="toggleNotificationMenu($event)"
+          [title]="pushService.notificationsEnabled() ? 'Notifications Center' : 'Notifications Off'"
+        >
+          <i class="fi fi-rr-bell-ring help-icon" [class.text-amber]="pushService.notificationsEnabled()"></i>
+          @if (pushService.notificationsEnabled() || pushService.notificationHistory().length > 0) {
+            <span class="bell-active-dot"></span>
+          }
+        </button>
+
+        @if (notificationMenuOpen()) {
+          <div class="notification-menu-popover paper-panel font-mono" (click)="$event.stopPropagation()">
+            <div class="notif-popover-header">
+              <div class="notif-header-left">
+                <i class="fi fi-rr-bell text-amber"></i>
+                <span class="notif-title">NOTIFICATIONS</span>
+                <span class="badge-mono">{{ pushService.notificationHistory().length }}</span>
+              </div>
+              @if (pushService.notificationHistory().length > 0) {
+                <button class="btn btn-ghost btn-xs text-rose" (click)="pushService.clearHistory()">Clear</button>
+              }
+            </div>
+
+            <div class="notif-popover-body">
+              @if (pushService.notificationHistory().length === 0) {
+                <div class="empty-notif-box">
+                  <i class="fi fi-rr-bell-slash text-muted"></i>
+                  <p>No recent notifications</p>
+                </div>
+              } @else {
+                <div class="notif-list">
+                  @for (log of pushService.notificationHistory(); track log.id) {
+                    <div class="notif-item">
+                      <div class="notif-item-header">
+                        <span class="notif-item-title">{{ log.title }}</span>
+                        <span class="notif-item-time">{{ log.time }}</span>
+                      </div>
+                      <p class="notif-item-body">{{ log.body }}</p>
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+
+            <div class="notif-popover-footer">
+              <button
+                class="btn btn-secondary btn-xs full-width-btn"
+                (click)="openNotificationSettings()"
+              >
+                <i class="fi fi-rr-settings"></i> Notification Settings
+              </button>
+            </div>
+          </div>
         }
-      </button>
+      </div>
       <button class="btn btn-ghost btn-sm help-btn" (click)="workspaceService.toggleShortcutsModal()"
         title="Help & Reference (?)">
         <i class="fi fi-rr-interrogation help-icon"></i>
@@ -174,6 +227,9 @@
         }
         @case ('06 ARCHIVE') {
         <app-archive />
+        }
+        @case ('07 SETTINGS') {
+        <app-settings />
         }
         @default {
         <app-today />
@@ -265,10 +321,6 @@
 
   @if (editingSharedTask()) {
   <app-task-modal [taskToEdit]="editingSharedTask()" (close)="closeEditSharedModal()" />
-  }
-
-  @if (pushNotificationModalOpen()) {
-  <app-push-notification-modal (close)="pushNotificationModalOpen.set(false)" />
   }
 
   @if (authService.authModalOpen()) {

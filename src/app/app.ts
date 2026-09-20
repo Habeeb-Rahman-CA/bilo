@@ -9,6 +9,7 @@ import { TasksComponent } from './features/tasks/tasks';
 import { BacklogComponent } from './features/backlog/backlog';
 import { CalendarComponent } from './features/calendar/calendar';
 import { ArchiveComponent } from './features/archive/archive';
+import { SettingsComponent } from './features/settings/settings';
 import { CommandPaletteComponent } from './shared/components/command-palette';
 import { ShortcutsModalComponent } from './shared/components/shortcuts-modal';
 import { TaskModalComponent } from './shared/components/task-modal';
@@ -42,11 +43,11 @@ import { Task } from './core/models/project.model';
     BacklogComponent,
     CalendarComponent,
     ArchiveComponent,
+    SettingsComponent,
     CommandPaletteComponent,
     ShortcutsModalComponent,
     TaskModalComponent,
     TaskDetailModalComponent,
-    PushNotificationModalComponent,
     AuthModalComponent,
     ProjectAccessModalComponent,
     AuthPageComponent
@@ -63,6 +64,7 @@ export class App {
   projectAccessModalOpen = signal<boolean>(false);
   createProjectModalOpen = signal<boolean>(false);
   userMenuOpen = signal<boolean>(false);
+  notificationMenuOpen = signal<boolean>(false);
 
   userName = computed(() => {
     const u = this.authService.user();
@@ -79,17 +81,30 @@ export class App {
 
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent) {
-    if (this.userMenuOpen()) {
-      const target = event.target as HTMLElement;
-      if (!target.closest('.user-menu-container')) {
-        this.userMenuOpen.set(false);
-      }
+    const target = event.target as HTMLElement;
+    if (this.userMenuOpen() && !target.closest('.user-menu-container')) {
+      this.userMenuOpen.set(false);
+    }
+    if (this.notificationMenuOpen() && !target.closest('.notification-menu-container')) {
+      this.notificationMenuOpen.set(false);
     }
   }
 
   toggleUserMenu(event: MouseEvent) {
     event.stopPropagation();
+    this.notificationMenuOpen.set(false);
     this.userMenuOpen.update(v => !v);
+  }
+
+  toggleNotificationMenu(event: MouseEvent) {
+    event.stopPropagation();
+    this.userMenuOpen.set(false);
+    this.notificationMenuOpen.update(v => !v);
+  }
+
+  openNotificationSettings() {
+    this.notificationMenuOpen.set(false);
+    this.selectWorkspace('07 SETTINGS');
   }
 
   signOutUser() {
@@ -130,7 +145,7 @@ export class App {
   ) {}
 
   togglePushNotificationModal() {
-    this.pushNotificationModalOpen.update(v => !v);
+    this.selectWorkspace('07 SETTINGS');
   }
 
   toggleSidebar() {
