@@ -81,6 +81,9 @@ export type SettingsSection = 'overview' | 'workflow' | 'notifications';
                     </div>
                   </div>
                   <div class="header-actions">
+                    <button class="btn btn-secondary btn-xs" (click)="accessModalOpen.set(true)">
+                      <i class="fi fi-rr-link text-cyan"></i> Invite via Link
+                    </button>
                     <button class="btn btn-secondary btn-xs" (click)="editProjectModalOpen.set(true)">
                       <i class="fi fi-rr-edit"></i> Edit Details
                     </button>

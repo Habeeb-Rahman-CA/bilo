@@ -35,9 +35,37 @@ import { ConfirmModalComponent } from './confirm-modal';
           </div>
         }
 
+        <!-- Invite via Link Section -->
+        <div class="invite-link-section paper-panel font-mono">
+          <label class="form-label">
+            <i class="fi fi-rr-link text-cyan"></i> INVITE VIA LINK
+          </label>
+          <div class="invite-link-controls">
+            <select class="form-select role-select" [(ngModel)]="inviteRole">
+              <option value="member">Member</option>
+              <option value="admin">Admin</option>
+              <option value="viewer">Viewer</option>
+            </select>
+            <input
+              type="text"
+              class="form-input link-input"
+              readonly
+              [value]="getGeneratedInviteLink()"
+              (click)="copyInviteLink()"
+            />
+            <button class="btn btn-secondary btn-sm copy-btn" (click)="copyInviteLink()">
+              @if (linkCopied()) {
+                <i class="fi fi-rr-check text-emerald"></i> Copied!
+              } @else {
+                <i class="fi fi-rr-copy"></i> Copy Link
+              }
+            </button>
+          </div>
+        </div>
+
         <!-- Add Member Form -->
         <div class="add-member-section paper-panel font-mono">
-          <label class="form-label">ADD TEAM MEMBER / USER</label>
+          <label class="form-label">ADD TEAM MEMBER BY USER ID / EMAIL</label>
           <div class="add-member-form">
             <input
               type="text"
@@ -81,8 +109,8 @@ import { ConfirmModalComponent } from './confirm-modal';
                   <div class="member-info">
                     <i class="fi fi-rr-user member-icon"></i>
                     <div class="member-text">
-                      <span class="member-id">{{ m.user_email || m.user_id }}</span>
-                      <span class="member-date">Added {{ m.created_at | date:'shortDate' }}</span>
+                      <span class="member-name">{{ getUserDisplayName(m) }}</span>
+                      <span class="member-subtext">{{ m.user_email || m.user_id }} • Added {{ m.created_at | date:'shortDate' }}</span>
                     </div>
                   </div>
 
@@ -167,10 +195,27 @@ import { ConfirmModalComponent } from './confirm-modal';
       border: 1px solid rgba(244, 63, 94, 0.3);
       color: #fb7185;
     }
-    .add-member-section {
+    .add-member-section, .invite-link-section {
       padding: 0.75rem 0.85rem;
-      margin-bottom: 1rem;
+      margin-bottom: 0.85rem;
       background: var(--bg-surface-subtle);
+    }
+    .invite-link-controls {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 0.35rem;
+    }
+    .link-input {
+      flex: 1;
+      font-size: 0.75rem;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xs);
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+    .copy-btn {
+      white-space: nowrap;
     }
     .form-label {
       font-size: 0.65rem;
@@ -229,14 +274,14 @@ import { ConfirmModalComponent } from './confirm-modal';
       display: flex;
       flex-direction: column;
     }
-    .member-id {
-      font-size: 0.8rem;
-      font-weight: 600;
+    .member-name {
+      font-size: 0.825rem;
+      font-weight: 700;
       color: var(--text-main);
     }
-    .member-date {
+    .member-subtext {
       font-size: 0.675rem;
-      color: var(--text-subtle);
+      color: var(--text-muted);
     }
     .member-actions {
       display: flex;
@@ -300,9 +345,28 @@ export class ProjectAccessModalComponent implements OnInit {
   submitting = signal<boolean>(false);
   newUserId = '';
   newRole: ProjectRole = 'member';
+  inviteRole: ProjectRole = 'member';
+  linkCopied = signal<boolean>(false);
 
   message = signal<string>('');
   isError = signal<boolean>(false);
+
+  getGeneratedInviteLink(): string {
+    if (!this.project) return '';
+    return this.projectService.generateInviteLink(this.project.id, this.inviteRole);
+  }
+
+  async copyInviteLink() {
+    const link = this.getGeneratedInviteLink();
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      this.linkCopied.set(true);
+      setTimeout(() => this.linkCopied.set(false), 3000);
+    } catch (e) {
+      console.warn('Failed to copy to clipboard:', e);
+    }
+  }
 
   constructor(
     public projectService: ProjectService,
@@ -317,6 +381,33 @@ export class ProjectAccessModalComponent implements OnInit {
     const user = this.authService.user();
     if (!user) return false;
     return this.project.user_id === user.id;
+  }
+
+  getUserDisplayName(m: ProjectMember): string {
+    if (m.user_name) return m.user_name;
+
+    const currentUser = this.authService.user();
+    if (currentUser && (m.user_id === currentUser.id || (m.user_email && m.user_email === currentUser.email))) {
+      const meta = currentUser.user_metadata;
+      if (meta && meta['display_name']) return meta['display_name'];
+      if (meta && meta['full_name']) return meta['full_name'];
+      if (currentUser.email) {
+        const parts = currentUser.email.split('@')[0];
+        return parts.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+      }
+    }
+
+    if (m.user_email) {
+      const parts = m.user_email.split('@')[0];
+      return parts.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+    }
+
+    if (m.user_id.includes('_') || !m.user_id.includes('-')) {
+      const clean = m.user_id.replace(/^usr_/, '').replace(/^user_/, '');
+      return clean.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+    }
+
+    return `Member (${m.user_id.slice(0, 8)})`;
   }
 
   async loadMembers() {

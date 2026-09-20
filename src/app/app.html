@@ -335,6 +335,14 @@
     <app-project-modal (close)="createProjectModalOpen.set(false)"></app-project-modal>
   }
 
+  <app-join-workspace-modal
+    [isOpen]="!!incomingInviteProjectId()"
+    [project]="incomingInviteProject()"
+    [role]="incomingInviteRole()"
+    (join)="acceptWorkspaceInvite()"
+    (cancel)="clearInviteState()"
+  />
+
   <!-- Toast Notification for Copy Share Link & Push Service -->
   @if (taskShareService.toastMessage(); as msg) {
   <div class="task-share-toast paper-panel font-mono">

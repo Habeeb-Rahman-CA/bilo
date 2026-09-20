@@ -454,4 +454,52 @@ export class ProjectService {
     }
     return false;
   }
+
+  // --- Invite Link & Workspace Joining ---
+
+  generateInviteLink(projectId: string, role: ProjectRole = 'member'): string {
+    const origin = window.location.origin + window.location.pathname;
+    return `${origin}?invite=${encodeURIComponent(projectId)}&role=${encodeURIComponent(role)}`;
+  }
+
+  async fetchProjectById(projectId: string): Promise<Project | null> {
+    const existing = this.projects().find(p => p.id === projectId);
+    if (existing) return existing;
+
+    if (!this.syncService.isOnline()) return null;
+    try {
+      const { data, error } = await this.supabaseService.supabase
+        .from('projects')
+        .select('*')
+        .eq('id', projectId)
+        .maybeSingle();
+
+      if (!error && data) {
+        return data as Project;
+      }
+    } catch (e) {
+      console.warn('Failed to fetch project by ID:', e);
+    }
+    return null;
+  }
+
+  async joinProjectViaInvite(projectId: string, role: ProjectRole = 'member'): Promise<Project | null> {
+    const proj = await this.fetchProjectById(projectId);
+    if (!proj) return null;
+
+    const currentUser = this.authService.user();
+    if (currentUser?.id) {
+      await this.addProjectMember(projectId, currentUser.id, role);
+    }
+
+    // Add project to local projects signal if not present
+    if (!this.projects().some(p => p.id === proj.id)) {
+      this.projects.update(list => [proj, ...list]);
+    }
+
+    this.activeProject.set(proj);
+    this.saveToStorage();
+    return proj;
+  }
 }
+

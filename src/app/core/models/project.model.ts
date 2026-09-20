@@ -19,6 +19,7 @@ export interface ProjectMember {
   user_id: string;
   role: ProjectRole;
   user_email?: string;
+  user_name?: string;
   created_at: string;
 }
 

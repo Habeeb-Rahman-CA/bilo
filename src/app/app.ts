@@ -1,4 +1,4 @@
-import { Component, signal, computed, ElementRef, ViewChild, HostListener } from '@angular/core';
+import { Component, signal, computed, ElementRef, ViewChild, HostListener, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { WorkspaceService, WorkspaceSection } from './core/services/workspace.service';
 import { SyncService } from './core/services/sync.service';
@@ -26,8 +26,9 @@ import { AuthModalComponent } from './shared/components/auth-modal';
 import { ProjectAccessModalComponent } from './shared/components/project-access-modal';
 import { WorkspaceSwitcherComponent } from './shared/components/workspace-switcher';
 import { ProjectModalComponent } from './shared/components/project-modal';
+import { JoinWorkspaceModalComponent } from './shared/components/join-workspace-modal';
 import { AuthPageComponent } from './features/auth/auth-page';
-import { Task } from './core/models/project.model';
+import { Task, ProjectRole, Project } from './core/models/project.model';
 
 @Component({
   selector: 'app-root',
@@ -37,6 +38,7 @@ import { Task } from './core/models/project.model';
     BiloLogoComponent,
     WorkspaceSwitcherComponent,
     ProjectModalComponent,
+    JoinWorkspaceModalComponent,
     TodayComponent,
     ProjectsComponent,
     TasksComponent,
@@ -55,7 +57,7 @@ import { Task } from './core/models/project.model';
   templateUrl: './app.html',
   styleUrl: './app.css'
 })
-export class App {
+export class App implements OnInit {
   readonly appVersion = 'v1.1.1';
   sidebarCollapsed = signal<boolean>(false);
   mobileMenuOpen = signal<boolean>(false);
@@ -65,6 +67,11 @@ export class App {
   createProjectModalOpen = signal<boolean>(false);
   userMenuOpen = signal<boolean>(false);
   notificationMenuOpen = signal<boolean>(false);
+
+  // Incoming Invite Link State
+  incomingInviteProjectId = signal<string | null>(null);
+  incomingInviteRole = signal<ProjectRole>('member');
+  incomingInviteProject = signal<Project | null>(null);
 
   userName = computed(() => {
     const u = this.authService.user();
@@ -78,6 +85,65 @@ export class App {
     }
     return 'User';
   });
+
+  constructor(
+    public workspaceService: WorkspaceService,
+    public syncService: SyncService,
+    public updateService: UpdateService,
+    public taskShareService: TaskShareService,
+    public pushService: PushNotificationService,
+    public themeService: ThemeService,
+    public authService: AuthService,
+    public projectService: ProjectService
+  ) {}
+
+  async ngOnInit() {
+    this.checkIncomingInviteLink();
+  }
+
+  async checkIncomingInviteLink() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const inviteId = params.get('invite');
+      const role = (params.get('role') || 'member') as ProjectRole;
+
+      if (inviteId) {
+        this.incomingInviteProjectId.set(inviteId);
+        this.incomingInviteRole.set(role);
+
+        // Fetch workspace details for confirmation modal preview
+        const proj = await this.projectService.fetchProjectById(inviteId);
+        this.incomingInviteProject.set(proj);
+      }
+    } catch (e) {
+      console.warn('Failed to parse incoming invite parameters:', e);
+    }
+  }
+
+  async acceptWorkspaceInvite() {
+    const projId = this.incomingInviteProjectId();
+    const role = this.incomingInviteRole();
+
+    if (projId) {
+      const joinedProj = await this.projectService.joinProjectViaInvite(projId, role);
+      if (joinedProj) {
+        this.taskShareService.showToast(`Joined workspace "${joinedProj.name}" successfully!`);
+      }
+    }
+
+    this.clearInviteState();
+  }
+
+  clearInviteState() {
+    this.incomingInviteProjectId.set(null);
+    this.incomingInviteProject.set(null);
+
+    // Clean up query param from URL without refreshing page
+    if (window.history && window.history.replaceState) {
+      const cleanUrl = window.location.origin + window.location.pathname;
+      window.history.replaceState({}, document.title, cleanUrl);
+    }
+  }
 
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent) {
@@ -132,17 +198,6 @@ export class App {
       this.deferredPrompt = null;
     }
   }
-
-  constructor(
-    public workspaceService: WorkspaceService,
-    public syncService: SyncService,
-    public updateService: UpdateService,
-    public taskShareService: TaskShareService,
-    public pushService: PushNotificationService,
-    public themeService: ThemeService,
-    public authService: AuthService,
-    public projectService: ProjectService
-  ) {}
 
   togglePushNotificationModal() {
     this.selectWorkspace('07 SETTINGS');
