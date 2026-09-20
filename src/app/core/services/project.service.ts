@@ -370,7 +370,21 @@ export class ProjectService {
         .eq('project_id', projectId);
 
       if (!error && data) {
-        return data as ProjectMember[];
+        const currentUser = this.authService.user();
+        const members = data as ProjectMember[];
+        return members.map(m => {
+          if (currentUser && (m.user_id === currentUser.id || m.user_email === currentUser.email)) {
+            const meta = currentUser.user_metadata;
+            const name = meta?.['display_name'] || meta?.['full_name'] || meta?.['name'] ||
+              (currentUser.email ? currentUser.email.split('@')[0].split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ') : '');
+            return {
+              ...m,
+              user_name: m.user_name || name,
+              user_email: m.user_email || currentUser.email
+            };
+          }
+          return m;
+        });
       }
     } catch (e) {
       console.warn('Failed to fetch project members:', e);
@@ -378,19 +392,43 @@ export class ProjectService {
     return [];
   }
 
-  async addProjectMember(projectId: string, userId: string, role: ProjectRole = 'member'): Promise<boolean> {
+  async addProjectMember(
+    projectId: string,
+    userId: string,
+    role: ProjectRole = 'member',
+    userName?: string,
+    userEmail?: string
+  ): Promise<boolean> {
     if (!this.syncService.isOnline()) return false;
     try {
+      let finalEmail = userEmail;
+      let finalName = userName;
+
+      if (!finalEmail && userId.includes('@')) {
+        finalEmail = userId;
+      }
+      if (!finalName && finalEmail) {
+        const parts = finalEmail.split('@')[0];
+        finalName = parts.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+      } else if (!finalName && !userId.includes('-')) {
+        const clean = userId.replace(/^usr_/, '').replace(/^user_/, '');
+        finalName = clean.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+      }
+
+      const payload: any = {
+        project_id: projectId,
+        user_id: userId,
+        role
+      };
+      if (finalEmail) payload.user_email = finalEmail;
+      if (finalName) payload.user_name = finalName;
+
       const { error } = await this.supabaseService.supabase
         .from('project_members')
-        .upsert([{
-          project_id: projectId,
-          user_id: userId,
-          role
-        }]);
+        .upsert([payload]);
 
       if (!error) {
-        this.logActivity(projectId, 'Member Added', `User ${userId} added as ${role}`);
+        this.logActivity(projectId, 'Member Added', `${finalName || userId} added as ${role}`);
         return true;
       }
     } catch (e) {

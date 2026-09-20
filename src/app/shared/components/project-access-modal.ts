@@ -110,7 +110,7 @@ import { ConfirmModalComponent } from './confirm-modal';
                     <i class="fi fi-rr-user member-icon"></i>
                     <div class="member-text">
                       <span class="member-name">{{ getUserDisplayName(m) }}</span>
-                      <span class="member-subtext">{{ m.user_email || m.user_id }} • Added {{ m.created_at | date:'shortDate' }}</span>
+                      <span class="member-subtext">{{ getUserSubtext(m) }} • Added {{ m.created_at | date:'shortDate' }}</span>
                     </div>
                   </div>
 
@@ -384,13 +384,16 @@ export class ProjectAccessModalComponent implements OnInit {
   }
 
   getUserDisplayName(m: ProjectMember): string {
-    if (m.user_name) return m.user_name;
+    if (m.user_name && m.user_name.trim() && m.user_name !== m.user_id) {
+      return m.user_name;
+    }
 
     const currentUser = this.authService.user();
     if (currentUser && (m.user_id === currentUser.id || (m.user_email && m.user_email === currentUser.email))) {
       const meta = currentUser.user_metadata;
       if (meta && meta['display_name']) return meta['display_name'];
       if (meta && meta['full_name']) return meta['full_name'];
+      if (meta && meta['name']) return meta['name'];
       if (currentUser.email) {
         const parts = currentUser.email.split('@')[0];
         return parts.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
@@ -402,18 +405,77 @@ export class ProjectAccessModalComponent implements OnInit {
       return parts.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
     }
 
-    if (m.user_id.includes('_') || !m.user_id.includes('-')) {
+    if (m.user_id && m.user_id.includes('@')) {
+      const parts = m.user_id.split('@')[0];
+      return parts.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+    }
+
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(m.user_id);
+    if (!isUuid && m.user_id) {
       const clean = m.user_id.replace(/^usr_/, '').replace(/^user_/, '');
       return clean.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
     }
 
-    return `Member (${m.user_id.slice(0, 8)})`;
+    if (m.role === 'owner' || m.user_id === this.project?.user_id) {
+      return 'Project Owner';
+    }
+
+    return `Team Member (${m.user_id.slice(0, 6)})`;
+  }
+
+  getUserSubtext(m: ProjectMember): string {
+    if (m.user_email) return m.user_email;
+    if (m.user_id && m.user_id.includes('@')) return m.user_id;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(m.user_id);
+    if (isUuid) return `ID: ${m.user_id.slice(0, 8)}...`;
+    return `ID: ${m.user_id}`;
   }
 
   async loadMembers() {
     if (!this.project) return;
     this.loading.set(true);
-    const list = await this.projectService.getProjectMembers(this.project.id);
+    let list = await this.projectService.getProjectMembers(this.project.id);
+    const currentUser = this.authService.user();
+    const ownerId = this.project.user_id || currentUser?.id;
+
+    if (ownerId && !list.some(m => m.role === 'owner' || m.user_id === ownerId)) {
+      const isCurrentOwner = currentUser && ownerId === currentUser.id;
+      let ownerName = 'Project Owner';
+      let ownerEmail = undefined;
+
+      if (isCurrentOwner) {
+        const meta = currentUser.user_metadata;
+        ownerName = meta?.['display_name'] || meta?.['full_name'] || meta?.['name'] ||
+          (currentUser.email ? currentUser.email.split('@')[0].split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ') : 'Project Owner');
+        ownerEmail = currentUser.email;
+      }
+
+      const ownerMember: ProjectMember = {
+        id: `owner-${ownerId}`,
+        project_id: this.project.id,
+        user_id: ownerId,
+        role: 'owner',
+        user_name: ownerName,
+        user_email: ownerEmail,
+        created_at: this.project.created_at || new Date().toISOString()
+      };
+      list = [ownerMember, ...list];
+    } else {
+      list = list.map(m => {
+        if ((m.role === 'owner' || m.user_id === ownerId) && (!m.user_name || m.user_name === m.user_id)) {
+          if (currentUser && ownerId === currentUser.id) {
+            const meta = currentUser.user_metadata;
+            const name = meta?.['display_name'] || meta?.['full_name'] || meta?.['name'] ||
+              (currentUser.email ? currentUser.email.split('@')[0].split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ') : 'Project Owner');
+            return { ...m, user_name: name, user_email: m.user_email || currentUser.email };
+          } else {
+            return { ...m, user_name: m.user_name || 'Project Owner' };
+          }
+        }
+        return m;
+      });
+    }
+
     this.members.set(list);
     this.loading.set(false);
   }
