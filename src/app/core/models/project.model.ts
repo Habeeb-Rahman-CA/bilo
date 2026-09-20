@@ -1,5 +1,7 @@
 export type TaskType = 'story' | 'bug' | 'task' | 'epic';
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
+export type TaskSeverity = 'critical' | 'major' | 'minor' | 'trivial';
+export type TaskReproducibility = 'always' | 'often' | 'sometimes' | 'rarely' | 'unable';
 
 export type ProjectRole = 'owner' | 'admin' | 'member' | 'viewer';
 
@@ -65,6 +67,9 @@ export interface Task {
   type: TaskType;
   status: string; // Workflow column name or workflow_id
   priority: TaskPriority;
+  severity?: TaskSeverity;
+  reproducibility?: TaskReproducibility;
+  reporter?: string;
   labels?: string[];
   assignee?: string;
   due_date?: string;

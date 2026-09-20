@@ -1,4 +1,4 @@
-import { Component, signal, computed } from '@angular/core';
+import { Component, signal, computed, effect, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DragDropModule, CdkDragDrop } from '@angular/cdk/drag-drop';
@@ -351,7 +351,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding-bottom: 0.45rem;
+      padding-bottom: 0.5rem;
       border-bottom: 1px solid var(--border-subtle);
     }
     .column-title {
@@ -361,34 +361,29 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
     }
     .column-title h3 {
       font-size: 0.875rem;
-      font-weight: 600;
+      font-weight: 700;
+      margin: 0;
+      color: var(--text-main);
     }
     .column-cards {
       display: flex;
       flex-direction: column;
-      gap: 0.65rem;
-      flex: 1;
+      gap: 0.75rem;
       min-height: 420px;
+      flex: 1;
     }
     .task-card {
-      padding: 0.85rem 0.95rem;
+      padding: 0.75rem 0.85rem;
       display: flex;
       flex-direction: column;
-      gap: 0.55rem;
-      background: var(--bg-surface-subtle);
-      border: 1px solid var(--border-medium);
-      border-radius: var(--radius-xs);
-      cursor: grab;
+      gap: 0.45rem;
+      cursor: pointer;
       transition: var(--transition-fast);
-      user-select: none;
-    }
-    .task-card:active {
-      cursor: grabbing;
+      background: var(--bg-surface);
     }
     .task-card:hover {
-      background: var(--bg-surface);
-      border-color: var(--border-active);
-      box-shadow: var(--shadow-sm);
+      background: var(--bg-surface-hover);
+      border-color: var(--border-medium);
     }
     .card-top {
       display: flex;
@@ -397,81 +392,85 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
     }
     .type-badge-wrap {
       display: flex;
-      gap: 0.4rem;
       align-items: center;
-      flex-wrap: wrap;
+      gap: 0.4rem;
     }
     .badge-type {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.25rem;
-      font-size: 0.7rem;
-      font-weight: 600;
-      color: var(--text-main);
-      text-transform: capitalize;
-    }
-    .task-key {
-      font-size: 0.725rem;
-      font-weight: 700;
-      color: var(--text-muted);
-    }
-    .priority-badge {
-      display: inline-flex;
-      align-items: center;
-      padding: 0.1rem 0.4rem;
-      border-radius: var(--radius-xs);
       font-size: 0.65rem;
       font-weight: 700;
       text-transform: uppercase;
-      border: 1px solid transparent;
+      padding: 0.1rem 0.35rem;
+      border-radius: var(--radius-xs);
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+    }
+    .badge-type.bug { background: #fee2e2; color: #dc2626; border-color: #fca5a5; }
+    .badge-type.story { background: #e0f2fe; color: #0284c7; border-color: #7dd3fc; }
+    .badge-type.epic { background: #fef3c7; color: #d97706; border-color: #fcd34d; }
+    .task-key {
+      font-size: 0.725rem;
+      font-weight: 700;
+      color: var(--text-subtle);
+    }
+    .priority-badge {
+      font-size: 0.65rem;
+      padding: 0.08rem 0.35rem;
+      border-radius: var(--radius-xs);
+      font-weight: 700;
+      text-transform: uppercase;
+      border: 1px solid var(--border-subtle);
     }
     .priority-badge.urgent { background: #fee2e2; color: #dc2626; border-color: #fca5a5; }
     .priority-badge.high { background: #fef3c7; color: #d97706; border-color: #fcd34d; }
     .priority-badge.medium { background: #e0f2fe; color: #0284c7; border-color: #7dd3fc; }
     .priority-badge.low { background: #f3f4f6; color: #4b5563; border-color: #d1d5db; }
-
+    .drag-grip {
+      font-size: 0.85rem;
+      color: var(--text-subtle);
+      cursor: grab;
+      opacity: 0.5;
+    }
+    .drag-grip:hover {
+      opacity: 1;
+    }
     .card-project-row {
-      margin-top: -0.1rem;
+      display: flex;
     }
     .card-project-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.3rem;
-      font-size: 0.7rem;
-      padding: 0.1rem 0.45rem;
-      background: var(--bg-canvas);
+      font-size: 0.675rem;
+      padding: 0.1rem 0.4rem;
+      background: var(--bg-surface-subtle);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-xs);
-      color: var(--text-main);
-      font-weight: 600;
-    }
-    .drag-grip {
       color: var(--text-muted);
-      font-size: 0.8rem;
     }
     .card-title {
-      font-size: 0.825rem;
+      font-size: 0.875rem;
       font-weight: 600;
       color: var(--text-main);
-      line-height: 1.3;
+      margin: 0;
+      line-height: 1.35;
     }
     .card-labels {
       display: flex;
-      gap: 0.25rem;
+      gap: 0.3rem;
       flex-wrap: wrap;
     }
     .label-chip {
-      font-size: 0.675rem;
-      color: var(--text-muted);
-      background: var(--bg-surface);
+      font-size: 0.65rem;
+      color: var(--text-subtle);
+      background: var(--bg-surface-subtle);
       border: 1px solid var(--border-subtle);
-      padding: 0.05rem 0.35rem;
+      padding: 0.08rem 0.35rem;
       border-radius: var(--radius-xs);
       cursor: pointer;
     }
-    .label-chip:hover, .label-chip.active-label {
-      background: var(--text-main);
-      color: var(--bg-canvas);
+    .label-chip:hover,
+    .label-chip.active-label {
+      background: var(--accent-cyan);
+      color: #ffffff;
+      border-color: var(--accent-cyan);
     }
     .card-bottom {
       display: flex;
@@ -479,20 +478,22 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       align-items: center;
       font-size: 0.725rem;
       color: var(--text-muted);
-      padding-top: 0.35rem;
-      border-top: 1px solid var(--border-subtle);
+      margin-top: 0.2rem;
+    }
+    .assignee, .due-date {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
     }
     .due-date.overdue {
       color: var(--accent-rose);
-      font-weight: 600;
+      font-weight: 700;
     }
 
     .cdk-drag-preview {
       box-sizing: border-box;
       border-radius: var(--radius-xs);
-      background: var(--bg-surface);
-      padding: 0.75rem 0.85rem;
-      border: 1px solid var(--border-active);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
     }
     .cdk-drag-placeholder {
       opacity: 0.3;
@@ -507,7 +508,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
     }
   `]
 })
-export class TasksComponent {
+export class TasksComponent implements OnInit {
   selectedProjectId = signal<string>('all');
   selectedType = signal<string>('all');
   selectedPriority = signal<string>('all');
@@ -568,10 +569,51 @@ export class TasksComponent {
     public workflowService: WorkflowService,
     public workspaceService: WorkspaceService,
     public taskShareService: TaskShareService
-  ) {}
+  ) {
+    effect(() => {
+      const filters = {
+        selectedProjectId: this.selectedProjectId(),
+        selectedType: this.selectedType(),
+        selectedPriority: this.selectedPriority(),
+        selectedLabel: this.selectedLabel(),
+        selectedDueDateFilter: this.selectedDueDateFilter(),
+        searchQuery: this.searchQuery()
+      };
+      localStorage.setItem('bilo_board_filters', JSON.stringify(filters));
+    });
+  }
+
+  ngOnInit() {
+    const explicitId = this.projectService.explicitBoardProjectId();
+    if (explicitId) {
+      this.selectedProjectId.set(explicitId);
+      this.projectService.explicitBoardProjectId.set(null);
+    } else {
+      const saved = localStorage.getItem('bilo_board_filters');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (parsed.selectedProjectId !== undefined) this.selectedProjectId.set(parsed.selectedProjectId);
+          if (parsed.selectedType !== undefined) this.selectedType.set(parsed.selectedType);
+          if (parsed.selectedPriority !== undefined) this.selectedPriority.set(parsed.selectedPriority);
+          if (parsed.selectedLabel !== undefined) this.selectedLabel.set(parsed.selectedLabel);
+          if (parsed.selectedDueDateFilter !== undefined) this.selectedDueDateFilter.set(parsed.selectedDueDateFilter);
+          if (parsed.searchQuery !== undefined) this.searchQuery.set(parsed.searchQuery);
+        } catch (e) {}
+      } else {
+        this.selectedProjectId.set('all');
+      }
+    }
+  }
 
   onProjectChange(projId: string) {
     this.selectedProjectId.set(projId);
+    if (projId !== 'all') {
+      const proj = this.projectService.projects().find(p => p.id === projId);
+      if (proj) {
+        this.projectService.activeProject.set(proj);
+      }
+    }
   }
 
   activeColumns = computed<Workflow[]>(() => {
@@ -594,6 +636,7 @@ export class TasksComponent {
 
   hasActiveFilters = computed(() => {
     return (
+      this.selectedProjectId() !== 'all' ||
       this.selectedType() !== 'all' ||
       this.selectedPriority() !== 'all' ||
       this.selectedLabel() !== 'all' ||
@@ -697,11 +740,13 @@ export class TasksComponent {
   }
 
   resetFilters() {
+    this.selectedProjectId.set('all');
     this.selectedType.set('all');
     this.selectedPriority.set('all');
     this.selectedLabel.set('all');
     this.selectedDueDateFilter.set('all');
     this.searchQuery.set('');
+    localStorage.removeItem('bilo_board_filters');
   }
 
   openCreateModal(defaultStatus: string = '') {

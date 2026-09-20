@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { TaskService } from '../../core/services/task.service';
 import { ProjectService } from '../../core/services/project.service';
 import { WorkflowService } from '../../core/services/workflow.service';
-import { Task, TaskPriority, TaskType, Workflow } from '../../core/models/project.model';
+import { Task, TaskPriority, TaskSeverity, TaskReproducibility, TaskType, Workflow } from '../../core/models/project.model';
 import { DatePickerComponent } from './date-picker';
 import { SelectComponent, SelectOption } from './select';
 
@@ -94,6 +94,21 @@ import { SelectComponent, SelectOption } from './select';
               </div>
             }
 
+            <!-- Severity & Reproducibility Row (Only for Bug) -->
+            @if (type === 'bug') {
+              <div class="form-row">
+                <div class="form-group half">
+                  <label class="form-label">SEVERITY</label>
+                  <app-select [options]="severityOptions" [(value)]="severity" placeholder="Select severity..."></app-select>
+                </div>
+
+                <div class="form-group half">
+                  <label class="form-label">REPRODUCIBILITY</label>
+                  <app-select [options]="reproducibilityOptions" [(value)]="reproducibility" placeholder="Select reproducibility..."></app-select>
+                </div>
+              </div>
+            }
+
             <!-- Assignee & Due Date Row -->
             <div class="form-row">
               <div class="form-group half">
@@ -133,7 +148,6 @@ import { SelectComponent, SelectOption } from './select';
             <div class="form-group">
               <div class="label-with-hint">
                 <label class="form-label">DESCRIPTION / NOTES</label>
-                <span class="desc-hint font-mono">Press Ctrl+Enter to save</span>
               </div>
               <textarea
                 class="form-textarea"
@@ -553,6 +567,8 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
   type: TaskType = 'task';
   status: string = '';
   priority: TaskPriority = 'medium';
+  severity: TaskSeverity | '' = '';
+  reproducibility: TaskReproducibility | '' = '';
   assignee = 'Self';
   dueDate = '';
   labelsInput = '';
@@ -573,6 +589,21 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
     { value: 'high', label: 'High' },
     { value: 'medium', label: 'Medium' },
     { value: 'low', label: 'Low' }
+  ];
+
+  severityOptions: SelectOption[] = [
+    { value: 'critical', label: 'Critical' },
+    { value: 'major', label: 'Major' },
+    { value: 'minor', label: 'Minor' },
+    { value: 'trivial', label: 'Trivial' }
+  ];
+
+  reproducibilityOptions: SelectOption[] = [
+    { value: 'always', label: 'Always' },
+    { value: 'often', label: 'Often' },
+    { value: 'sometimes', label: 'Sometimes' },
+    { value: 'rarely', label: 'Rarely' },
+    { value: 'unable', label: 'Unable to Reproduce' }
   ];
 
   get projectOptions(): SelectOption[] {
@@ -609,6 +640,8 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
       this.type = this.taskToEdit.type || 'task';
       this.status = this.taskToEdit.status || '';
       this.priority = this.taskToEdit.priority || 'medium';
+      this.severity = this.taskToEdit.severity || '';
+      this.reproducibility = this.taskToEdit.reproducibility || '';
       this.assignee = this.taskToEdit.assignee || 'Self';
       this.dueDate = this.taskToEdit.due_date || '';
       this.labelsInput = (this.taskToEdit.labels || []).join(', ');
@@ -619,9 +652,10 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
       if (this.defaultProjectId && this.defaultProjectId !== 'ALL') {
         this.projectId = this.defaultProjectId;
       } else {
-        const active = this.projectService.activeProject() || this.projectService.projects()[0];
-        if (active) this.projectId = active.id;
+        this.projectId = '';
       }
+      this.severity = '';
+      this.reproducibility = '';
       if (this.defaultStatus) this.status = this.defaultStatus;
       if (this.defaultDueDate) this.dueDate = this.defaultDueDate;
     }
@@ -703,6 +737,9 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
       : (this.defaultStatus || (available.length > 0 ? available[0].name : 'todo'));
     const activeWf = available.find(w => w.name === finalStatus) || (available.length > 0 ? available[0] : undefined);
 
+    const targetSeverity = (this.type === 'bug' && this.severity) ? (this.severity as TaskSeverity) : undefined;
+    const targetReproducibility = (this.type === 'bug' && this.reproducibility) ? (this.reproducibility as TaskReproducibility) : undefined;
+
     let resTask: Task | undefined = undefined;
 
     if (this.isEditMode && this.taskToEdit) {
@@ -714,6 +751,8 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
         type: this.type,
         status: finalStatus,
         priority: this.priority,
+        severity: targetSeverity,
+        reproducibility: targetReproducibility,
         assignee: this.assignee,
         due_date: this.dueDate,
         labels: parsedLabels,
@@ -729,6 +768,8 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
         type: this.type,
         status: finalStatus,
         priority: this.priority,
+        severity: targetSeverity,
+        reproducibility: targetReproducibility,
         assignee: this.assignee,
         due_date: this.dueDate,
         labels: parsedLabels,

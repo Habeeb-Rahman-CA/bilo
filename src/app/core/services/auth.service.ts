@@ -68,6 +68,8 @@ export class AuthService {
     } catch (e) {
       console.warn('[AuthService] Error resetting state:', e);
     }
+    localStorage.removeItem('bilo_backlog_filters');
+    localStorage.removeItem('bilo_board_filters');
   }
 
   async reloadServicesData() {
@@ -126,6 +128,8 @@ export class AuthService {
     localStorage.removeItem('bilo_projects_data');
     localStorage.removeItem('bilo_tasks_data');
     localStorage.removeItem('bilo_sync_queue');
+    localStorage.removeItem('bilo_backlog_filters');
+    localStorage.removeItem('bilo_board_filters');
     return res;
   }
 

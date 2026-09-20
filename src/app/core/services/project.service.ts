@@ -12,6 +12,7 @@ export class ProjectService {
   activities = signal<ProjectActivity[]>([]);
   tasks = signal<Task[]>([]);
   activeProject = signal<Project | null>(null);
+  explicitBoardProjectId = signal<string | null>(null);
   loading = signal<boolean>(false);
 
   constructor(

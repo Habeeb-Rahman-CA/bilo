@@ -1,4 +1,4 @@
-import { Component, signal, computed, OnInit } from '@angular/core';
+import { Component, signal, computed, effect, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TaskService } from '../../core/services/task.service';
@@ -805,7 +805,32 @@ export class BacklogComponent implements OnInit {
     public workflowService: WorkflowService,
     public workspaceService: WorkspaceService,
     public taskShareService: TaskShareService
-  ) { }
+  ) {
+    const saved = localStorage.getItem('bilo_backlog_filters');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.searchQuery !== undefined) this.searchQuery.set(parsed.searchQuery);
+        if (parsed.selectedProject !== undefined) this.selectedProject.set(parsed.selectedProject);
+        if (parsed.selectedType !== undefined) this.selectedType.set(parsed.selectedType);
+        if (parsed.selectedPriority !== undefined) this.selectedPriority.set(parsed.selectedPriority);
+        if (parsed.selectedStatus !== undefined) this.selectedStatus.set(parsed.selectedStatus);
+        if (parsed.sortBy !== undefined) this.sortBy.set(parsed.sortBy);
+      } catch (e) {}
+    }
+
+    effect(() => {
+      const filters = {
+        searchQuery: this.searchQuery(),
+        selectedProject: this.selectedProject(),
+        selectedType: this.selectedType(),
+        selectedPriority: this.selectedPriority(),
+        selectedStatus: this.selectedStatus(),
+        sortBy: this.sortBy()
+      };
+      localStorage.setItem('bilo_backlog_filters', JSON.stringify(filters));
+    });
+  }
 
   getTaskKeyStr(t: Task): string {
     return getTaskKey(t, this.projectService.projects());
@@ -891,6 +916,7 @@ export class BacklogComponent implements OnInit {
     this.selectedPriority.set('ALL');
     this.selectedStatus.set('ALL');
     this.sortBy.set('created_at');
+    localStorage.removeItem('bilo_backlog_filters');
   }
 
   isAllSelected(): boolean {

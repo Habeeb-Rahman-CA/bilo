@@ -124,29 +124,34 @@
       }
 
       @switch (workspaceService.activeWorkspace()) {
-      @case ('01 TODAY') {
-      <app-today />
-      }
-      @case ('02 PROJECTS') {
-      <app-projects />
-      }
-      @case ('03 BACKLOG') {
-      <app-backlog />
-      }
-      @case ('04 TASKS') {
-      <app-tasks />
-      }
-      @case ('05 CALENDAR') {
-      <app-calendar />
-      }
-      @case ('06 ARCHIVE') {
-      <app-archive />
-      }
-      @default {
-      <app-today />
-      }
+        @case ('01 TODAY') {
+        <app-today />
+        }
+        @case ('02 PROJECTS') {
+        <app-projects />
+        }
+        @case ('03 BACKLOG') {
+        <app-backlog />
+        }
+        @case ('04 TASKS') {
+        <app-tasks />
+        }
+        @case ('05 CALENDAR') {
+        <app-calendar />
+        }
+        @case ('06 ARCHIVE') {
+        <app-archive />
+        }
+        @default {
+        <app-today />
+        }
       }
     </main>
+
+    @if (taskShareService.activeSharedTask(); as sharedTask) {
+      <app-task-detail-modal [task]="sharedTask" (close)="taskShareService.closeSharedTaskModal()"
+        (editTask)="onEditSharedTask($event)" />
+    }
   </div>
 
   <!-- Fixed Mobile Bottom Navigation Bar -->
@@ -223,11 +228,7 @@
   <app-task-modal (close)="workspaceService.closeCreateTaskModal()" />
   }
 
-  <!-- Deep Link Shared Task Detail Modal -->
-  @if (taskShareService.activeSharedTask(); as sharedTask) {
-  <app-task-detail-modal [task]="sharedTask" (close)="taskShareService.closeSharedTaskModal()"
-    (editTask)="onEditSharedTask($event)" />
-  }
+
 
   @if (editingSharedTask()) {
   <app-task-modal [taskToEdit]="editingSharedTask()" (close)="closeEditSharedModal()" />
