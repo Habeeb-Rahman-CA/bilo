@@ -92,14 +92,7 @@ export class WorkflowService {
     if (current && current.length > 0) {
       return current;
     }
-    // If not found in memory, initialize defaults
-    const defaults = createDefaultWorkflowsForProject(key);
-    this.workflowsByProject.update(map => ({
-      ...map,
-      [key]: defaults
-    }));
-    this.saveToStorage();
-    return defaults;
+    return createDefaultWorkflowsForProject(key);
   }
 
   async createWorkflow(projectId: string, name: string, color: string = '#06b6d4'): Promise<Workflow> {
