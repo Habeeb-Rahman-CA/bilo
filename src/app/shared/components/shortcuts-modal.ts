@@ -294,7 +294,12 @@ import { WorkspaceService } from '../../core/services/workspace.service';
             <span class="status-dot dot-emerald"></span>
             <span>PRESS <strong>1-6</strong> FOR WORKSPACES • PRESS <strong>⌘K</strong> FOR SEARCH • PRESS <strong>N</strong> FOR TASK</span>
           </div>
-          <button class="btn btn-secondary btn-xs" (click)="close()">Got it</button>
+          <div class="footer-right-actions">
+            <button class="btn btn-ghost btn-xs text-rose" (click)="close(); workspaceService.openReportIssueModal()">
+              <i class="fi fi-rr-bug"></i> Report Bug / Issue
+            </button>
+            <button class="btn btn-secondary btn-xs" (click)="close()">Got it</button>
+          </div>
         </div>
       </div>
     </div>
@@ -572,6 +577,11 @@ import { WorkspaceService } from '../../core/services/workspace.service';
       display: flex;
       align-items: center;
       gap: 0.45rem;
+    }
+    .footer-right-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
     }
   `]
 })

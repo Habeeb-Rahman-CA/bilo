@@ -275,6 +275,19 @@ export class CommandPaletteComponent implements AfterViewInit {
       }
     });
 
+    list.push({
+      id: 'action-report-issue',
+      type: 'action',
+      title: 'Action: Report Application Issue / Bug',
+      subtitle: 'Report a problem or bug directly to project bilo',
+      badge: 'REPORT',
+      icon: 'fi fi-rr-bug text-rose',
+      action: () => {
+        this.workspaceService.openReportIssueModal();
+        this.close();
+      }
+    });
+
     // Tasks
     for (const t of this.taskService.tasks()) {
       list.push({

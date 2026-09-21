@@ -539,5 +539,71 @@ export class ProjectService {
     this.saveToStorage();
     return proj;
   }
+
+  async getWorkspaceMemberOptions(projectId?: string, currentAssignee?: string): Promise<{ value: string; label: string; icon?: string }[]> {
+    const options: { value: string; label: string; icon?: string }[] = [
+      { value: 'Unassigned', label: 'Unassigned', icon: 'fi fi-rr-user-slash' }
+    ];
+
+    const currentUser = this.authService.user();
+    if (currentUser) {
+      const meta = currentUser.user_metadata;
+      const currentName = meta?.['display_name'] || meta?.['full_name'] || meta?.['name'] ||
+        (currentUser.email ? currentUser.email.split('@')[0].split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ') : 'User');
+
+      if (currentName && currentName !== 'Self') {
+        options.push({
+          value: currentName,
+          label: `${currentName} (You)`,
+          icon: 'fi fi-rr-user-check text-emerald'
+        });
+      }
+    }
+
+    if (projectId && projectId !== 'all' && projectId !== 'ALL') {
+      const members = await this.getProjectMembers(projectId);
+      const existingValues = new Set(options.map(o => o.value.toLowerCase()));
+
+      for (const m of members) {
+        let displayName = m.user_name;
+        if (!displayName && m.user_email) {
+          const parts = m.user_email.split('@')[0];
+          displayName = parts.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+        }
+        if (!displayName && m.user_id) {
+          if (m.user_id.includes('@')) {
+            const parts = m.user_id.split('@')[0];
+            displayName = parts.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+          } else if (!/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(m.user_id)) {
+            const clean = m.user_id.replace(/^usr_/, '').replace(/^user_/, '');
+            displayName = clean.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+          } else {
+            displayName = `Member (${m.user_id.slice(0, 6)})`;
+          }
+        }
+
+        if (displayName && displayName !== 'Self' && !existingValues.has(displayName.toLowerCase())) {
+          existingValues.add(displayName.toLowerCase());
+          if (m.user_id) existingValues.add(m.user_id.toLowerCase());
+
+          options.push({
+            value: displayName,
+            label: `${displayName} (${m.role.toUpperCase()})`,
+            icon: m.role === 'owner' ? 'fi fi-rr-crown text-purple' : 'fi fi-rr-user text-cyan'
+          });
+        }
+      }
+    }
+
+    if (currentAssignee && currentAssignee.trim() && currentAssignee.trim() !== 'Self' && currentAssignee.trim() !== 'Unassigned' && !options.some(o => o.value.toLowerCase() === currentAssignee.trim().toLowerCase())) {
+      options.push({
+        value: currentAssignee.trim(),
+        label: currentAssignee.trim(),
+        icon: 'fi fi-rr-user'
+      });
+    }
+
+    return options.filter(o => o.value !== 'Self');
+  }
 }
 

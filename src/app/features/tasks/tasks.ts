@@ -256,7 +256,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                     <!-- Card Footer: Assignee & Due Date -->
                     <div class="card-bottom font-mono">
                       <span class="assignee">
-                        <i class="fi fi-rr-user"></i> {{ t.assignee || 'Self' }}
+                        <i class="fi fi-rr-user"></i> {{ (t.assignee && t.assignee !== 'Self') ? t.assignee : 'Unassigned' }}
                       </span>
 
                       @if (t.due_date) {

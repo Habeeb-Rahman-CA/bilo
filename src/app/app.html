@@ -59,6 +59,14 @@
             <div class="user-menu-actions">
               <button
                 type="button"
+                class="user-action-btn"
+                (click)="userMenuOpen.set(false); workspaceService.openReportIssueModal()"
+              >
+                <i class="fi fi-rr-bug text-rose"></i>
+                <span>Report Application Issue</span>
+              </button>
+              <button
+                type="button"
                 class="user-action-btn btn-signout text-rose"
                 (click)="signOutUser()"
               >
@@ -75,6 +83,10 @@
           <i class="fi fi-rr-users-alt"></i>
         </button>
       }
+
+      <button class="btn btn-ghost btn-sm report-bug-header-btn text-rose" (click)="workspaceService.openReportIssueModal()" title="Report Application Issue / Bug">
+        <i class="fi fi-rr-bug"></i>
+      </button>
 
       <button class="btn btn-ghost btn-sm theme-toggle-btn" (click)="themeService.toggleTheme()"
         [title]="themeService.isDarkMode() ? 'Switch to Light Craft Paper Theme' : 'Switch to Dark Theme (Black & Grey)'">
@@ -315,6 +327,10 @@
 
   @if (workspaceService.globalCreateTaskModalOpen()) {
   <app-task-modal (close)="workspaceService.closeCreateTaskModal()" />
+  }
+
+  @if (workspaceService.reportIssueModalOpen()) {
+  <app-report-issue-modal (close)="workspaceService.closeReportIssueModal()" />
   }
 
 

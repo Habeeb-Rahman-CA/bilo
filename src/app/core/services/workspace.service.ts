@@ -41,6 +41,7 @@ export class WorkspaceService {
   commandPaletteOpen = signal<boolean>(false);
   shortcutsModalOpen = signal<boolean>(false);
   globalCreateTaskModalOpen = signal<boolean>(false);
+  reportIssueModalOpen = signal<boolean>(false);
 
   readonly workspaces: WorkspaceItem[] = [
     { id: '01 TODAY', key: '1', name: 'DASHBOARD', code: '01', icon: 'fi fi-rr-dashboard', desc: 'Workspace dashboard & metrics' },
@@ -108,6 +109,14 @@ export class WorkspaceService {
     this.globalCreateTaskModalOpen.set(false);
   }
 
+  openReportIssueModal() {
+    this.reportIssueModalOpen.set(true);
+  }
+
+  closeReportIssueModal() {
+    this.reportIssueModalOpen.set(false);
+  }
+
   private initKeyboardListeners() {
     if (typeof window === 'undefined') return;
 
@@ -130,6 +139,10 @@ export class WorkspaceService {
 
       // Escape closes modals
       if (e.key === 'Escape') {
+        if (this.reportIssueModalOpen()) {
+          this.reportIssueModalOpen.set(false);
+          return;
+        }
         if (this.globalCreateTaskModalOpen()) {
           this.globalCreateTaskModalOpen.set(false);
           return;

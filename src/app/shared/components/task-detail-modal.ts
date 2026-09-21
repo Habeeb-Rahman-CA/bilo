@@ -437,21 +437,19 @@ import { ConfirmModalComponent } from './confirm-modal';
 
               <div class="meta-group">
                 <label class="meta-label">Assignee</label>
-                <input
-                  type="text"
-                  class="form-input meta-input font-mono"
-                  [ngModel]="task.assignee || ''"
-                  (blur)="updateAssignee($event)"
-                  (keydown.enter)="updateAssignee($event)"
-                  placeholder="Assignee name..."
-                />
+                <app-select
+                  [options]="assigneeOptions"
+                  [value]="(!task.assignee || task.assignee === 'Self') ? 'Unassigned' : task.assignee"
+                  (valueChange)="updateAssigneeFromSelect($event)"
+                  placeholder="Select assignee..."
+                ></app-select>
               </div>
 
               <div class="meta-group">
                 <label class="meta-label">Reporter / Creator</label>
                 <div class="meta-subval font-mono meta-user-pill">
                   <i class="fi fi-rr-user-add text-cyan"></i>
-                  <span>{{ task.reporter || 'Self' }}</span>
+                  <span>{{ (task.reporter && task.reporter !== 'Self') ? task.reporter : 'User' }}</span>
                 </div>
               </div>
 
@@ -1411,6 +1409,8 @@ export class TaskDetailModalComponent implements OnInit {
     { value: 'unable', label: 'Unable to Reproduce' }
   ];
 
+  assigneeOptions: SelectOption[] = [];
+
   constructor(
     private taskService: TaskService,
     private projectService: ProjectService,
@@ -1433,6 +1433,23 @@ export class TaskDetailModalComponent implements OnInit {
       ]);
       this.comments.set(commList);
       this.statusHistory.set(historyList);
+      await this.loadAssigneeOptions();
+    }
+  }
+
+  async loadAssigneeOptions() {
+    const opts = await this.projectService.getWorkspaceMemberOptions(
+      this.task?.project_id,
+      this.task?.assignee
+    );
+    this.assigneeOptions = opts as SelectOption[];
+  }
+
+  async updateAssigneeFromSelect(newAssignee: string) {
+    const val = newAssignee === 'Unassigned' ? '' : newAssignee;
+    if (val !== (this.task.assignee || '')) {
+      const updated = await this.taskService.updateTask(this.task.id, { assignee: val });
+      if (updated) this.task = updated;
     }
   }
 

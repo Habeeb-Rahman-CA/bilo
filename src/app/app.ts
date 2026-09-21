@@ -27,6 +27,7 @@ import { ProjectAccessModalComponent } from './shared/components/project-access-
 import { WorkspaceSwitcherComponent } from './shared/components/workspace-switcher';
 import { ProjectModalComponent } from './shared/components/project-modal';
 import { JoinWorkspaceModalComponent } from './shared/components/join-workspace-modal';
+import { ReportIssueModalComponent } from './shared/components/report-issue-modal';
 import { AuthPageComponent } from './features/auth/auth-page';
 import { Task, ProjectRole, Project } from './core/models/project.model';
 
@@ -39,6 +40,7 @@ import { Task, ProjectRole, Project } from './core/models/project.model';
     WorkspaceSwitcherComponent,
     ProjectModalComponent,
     JoinWorkspaceModalComponent,
+    ReportIssueModalComponent,
     TodayComponent,
     ProjectsComponent,
     TasksComponent,

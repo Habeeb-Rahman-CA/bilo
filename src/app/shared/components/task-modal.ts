@@ -101,13 +101,11 @@ import { SelectComponent, SelectOption } from './select';
             <div class="form-row">
               <div class="form-group half">
                 <label class="form-label">ASSIGNEE</label>
-                <input
-                  type="text"
-                  class="form-input"
-                  [(ngModel)]="assignee"
-                  name="assignee"
-                  placeholder="Self"
-                />
+                <app-select
+                  [options]="assigneeOptions"
+                  [(value)]="assignee"
+                  placeholder="Select assignee..."
+                ></app-select>
               </div>
 
               <div class="form-group half">
@@ -557,7 +555,8 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
   priority: TaskPriority = 'medium';
   severity: TaskSeverity | '' = '';
   reproducibility: TaskReproducibility | '' = '';
-  assignee = 'Self';
+  assignee = 'Unassigned';
+  assigneeOptions: SelectOption[] = [];
   dueDate = '';
   labelsInput = '';
 
@@ -620,7 +619,7 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
     public workflowService: WorkflowService
   ) { }
 
-  ngOnInit() {
+  async ngOnInit() {
     if (this.taskToEdit) {
       this.title = this.taskToEdit.title;
       this.description = this.taskToEdit.description || '';
@@ -630,7 +629,7 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
       this.priority = this.taskToEdit.priority || 'medium';
       this.severity = this.taskToEdit.severity || '';
       this.reproducibility = this.taskToEdit.reproducibility || '';
-      this.assignee = this.taskToEdit.assignee || 'Self';
+      this.assignee = (this.taskToEdit.assignee && this.taskToEdit.assignee !== 'Self') ? this.taskToEdit.assignee : 'Unassigned';
       this.dueDate = this.taskToEdit.due_date || '';
       this.labelsInput = (this.taskToEdit.labels || []).join(', ');
       if (this.taskToEdit.attachments && Array.isArray(this.taskToEdit.attachments)) {
@@ -649,6 +648,15 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
       this.reproducibility = '';
       if (this.defaultStatus) this.status = this.defaultStatus;
       if (this.defaultDueDate) this.dueDate = this.defaultDueDate;
+    }
+    await this.loadAssigneeOptions();
+  }
+
+  async loadAssigneeOptions() {
+    const opts = await this.projectService.getWorkspaceMemberOptions(this.projectId, this.assignee);
+    this.assigneeOptions = opts as SelectOption[];
+    if (!this.assignee || this.assignee === 'Self') {
+      this.assignee = 'Unassigned';
     }
   }
 
