@@ -10,11 +10,12 @@ import { getTaskKey } from '../../core/utils/task-key.util';
 import { SelectComponent, SelectOption } from './select';
 import { DatePickerComponent } from './date-picker';
 import { ConfirmModalComponent } from './confirm-modal';
+import { RichEditorComponent } from './rich-editor';
 
 @Component({
   selector: 'app-task-detail-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectComponent, DatePickerComponent, ConfirmModalComponent],
+  imports: [CommonModule, FormsModule, SelectComponent, DatePickerComponent, ConfirmModalComponent, RichEditorComponent],
   template: `
     <div class="task-detail-overlay" (click)="close.emit()">
       <div class="task-detail-panel font-mono" (click)="$event.stopPropagation()">
@@ -95,15 +96,11 @@ import { ConfirmModalComponent } from './confirm-modal';
 
                 @if (isEditingDesc()) {
                   <div class="inline-desc-edit">
-                    <textarea
-                      id="inline-desc-input"
-                      class="form-textarea inline-desc-textarea"
-                      rows="5"
-                      [(ngModel)]="descInputText"
-                      (keydown.control.enter)="saveDesc(); $event.preventDefault()"
-                      (keydown.meta.enter)="saveDesc(); $event.preventDefault()"
-                      placeholder="Add a detailed description..."
-                    ></textarea>
+                    <app-rich-editor
+                      [(value)]="descInputText"
+                      placeholder="Add a detailed description... (headers, points, bold, code...)"
+                      [minRows]="5"
+                    ></app-rich-editor>
                     <div class="inline-edit-btn-row">
                       <button class="btn btn-secondary btn-xs" (click)="cancelDescEdit()">Cancel</button>
                       <button class="btn btn-primary btn-xs" (click)="saveDesc()">Save Description</button>
@@ -116,7 +113,7 @@ import { ConfirmModalComponent } from './confirm-modal';
                     (dblclick)="startEditingDesc()"
                     title="Double-click to edit description"
                   >
-                    {{ task.description || 'No description provided for this task. Double-click or click Edit to add one.' }}
+                    <app-rich-editor [value]="task.description || ''" [readonly]="true"></app-rich-editor>
                   </div>
                 }
               </div>
@@ -705,24 +702,31 @@ import { ConfirmModalComponent } from './confirm-modal';
 
     .detail-body {
       display: grid;
-      grid-template-columns: 1fr 220px;
+      grid-template-columns: minmax(0, 1fr) 220px;
       gap: 1.15rem;
       align-items: start;
+      min-width: 0;
+      width: 100%;
     }
 
     @media (max-width: 1100px) {
       .detail-body {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
       }
     }
     .main-col {
       display: flex;
       flex-direction: column;
       gap: 1.25rem;
+      min-width: 0;
+      max-width: 100%;
     }
 
     .description-box, .labels-box, .attachments-box, .activity-section {
       padding: 1.15rem;
+      min-width: 0;
+      max-width: 100%;
+      box-sizing: border-box;
     }
 
     .section-heading-row {
@@ -774,7 +778,10 @@ import { ConfirmModalComponent } from './confirm-modal';
       padding: 0.85rem;
       border-radius: var(--radius-md);
       border: 1px solid var(--border-subtle);
-      white-space: pre-wrap;
+      min-width: 0;
+      max-width: 100%;
+      word-break: break-word;
+      overflow-wrap: anywhere;
     }
     .empty-desc {
       color: var(--text-subtle) !important;
@@ -1427,20 +1434,28 @@ export class TaskDetailModalComponent implements OnInit {
 
   async ngOnInit() {
     if (this.task) {
+      this.loadAssigneeOptions();
       const [commList, historyList] = await Promise.all([
         this.taskService.loadCommentsForTask(this.task.id),
         this.taskService.loadStatusHistoryForTask(this.task.id)
       ]);
       this.comments.set(commList);
       this.statusHistory.set(historyList);
-      await this.loadAssigneeOptions();
     }
   }
 
   async loadAssigneeOptions() {
+    const currentAssignee = (!this.task?.assignee || this.task?.assignee === 'Self') ? 'Unassigned' : this.task.assignee;
+    this.assigneeOptions = [
+      { value: 'Unassigned', label: 'Unassigned', icon: 'fi fi-rr-user-slash' }
+    ];
+    if (currentAssignee && currentAssignee !== 'Unassigned') {
+      this.assigneeOptions.push({ value: currentAssignee, label: currentAssignee, icon: 'fi fi-rr-user' });
+    }
+
     const opts = await this.projectService.getWorkspaceMemberOptions(
       this.task?.project_id,
-      this.task?.assignee
+      currentAssignee
     );
     this.assigneeOptions = opts as SelectOption[];
   }

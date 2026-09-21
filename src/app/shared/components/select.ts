@@ -37,7 +37,7 @@ export interface SelectOption {
         }
 
         <span class="trigger-label">
-          {{ selectedOption() ? selectedOption()!.label : placeholder }}
+          {{ selectedOption() ? selectedOption()!.label : (valueSignal() !== null && valueSignal() !== undefined && valueSignal() !== '' ? valueSignal() : placeholder) }}
         </span>
 
         @if (clearable && valueSignal() !== null && valueSignal() !== undefined && valueSignal() !== '') {

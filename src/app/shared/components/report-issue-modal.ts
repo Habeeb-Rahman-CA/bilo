@@ -6,12 +6,13 @@ import { ProjectService } from '../../core/services/project.service';
 import { AuthService } from '../../core/services/auth.service';
 import { TaskShareService } from '../../core/services/task-share.service';
 import { SelectComponent, SelectOption } from './select';
+import { RichEditorComponent } from './rich-editor';
 import { TaskPriority, TaskSeverity, TaskReproducibility } from '../../core/models/project.model';
 
 @Component({
   selector: 'app-report-issue-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectComponent],
+  imports: [CommonModule, FormsModule, SelectComponent, RichEditorComponent],
   template: `
     <div class="modal-overlay" (click)="close.emit()">
       <div class="modal-card report-modal-card paper-panel font-mono" (click)="$event.stopPropagation()">
@@ -101,13 +102,11 @@ import { TaskPriority, TaskSeverity, TaskReproducibility } from '../../core/mode
             <!-- Description / Steps to Reproduce -->
             <div class="form-group">
               <label class="form-label">DESCRIPTION & STEPS TO REPRODUCE</label>
-              <textarea
-                class="form-textarea"
-                rows="4"
-                [(ngModel)]="description"
-                name="description"
+              <app-rich-editor
+                [(value)]="description"
                 placeholder="Describe what went wrong, expected result, or steps to reproduce..."
-              ></textarea>
+                [minRows]="4"
+              ></app-rich-editor>
             </div>
 
             <!-- Attachments Section (Screenshots / Images) -->

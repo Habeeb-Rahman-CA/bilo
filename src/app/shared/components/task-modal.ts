@@ -7,11 +7,12 @@ import { WorkflowService } from '../../core/services/workflow.service';
 import { Task, TaskPriority, TaskSeverity, TaskReproducibility, TaskType, Workflow } from '../../core/models/project.model';
 import { DatePickerComponent } from './date-picker';
 import { SelectComponent, SelectOption } from './select';
+import { RichEditorComponent } from './rich-editor';
 
 @Component({
   selector: 'app-task-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule, DatePickerComponent, SelectComponent],
+  imports: [CommonModule, FormsModule, DatePickerComponent, SelectComponent, RichEditorComponent],
   template: `
     <div class="modal-overlay" (click)="close.emit()">
       <div class="modal-card paper-panel font-mono" (click)="$event.stopPropagation()">
@@ -135,15 +136,10 @@ import { SelectComponent, SelectOption } from './select';
               <div class="label-with-hint">
                 <label class="form-label">DESCRIPTION / NOTES</label>
               </div>
-              <textarea
-                class="form-textarea"
-                rows="3"
-                [(ngModel)]="description"
-                name="description"
-                (keydown.control.enter)="saveTask(); $event.preventDefault()"
-                (keydown.meta.enter)="saveTask(); $event.preventDefault()"
-                placeholder="Acceptance criteria, technical notes, or reference URLs..."
-              ></textarea>
+              <app-rich-editor
+                [(value)]="description"
+                placeholder="Acceptance criteria, headers, bullet points, technical notes..."
+              ></app-rich-editor>
             </div>
 
             <!-- Attachments Section (Image Only) -->
