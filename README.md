@@ -75,6 +75,14 @@ Bilo is designed for fast navigation without leaving your keyboard:
 
 ---
 
+## Technical Documentation
+
+For developers, contributors, and architects:
+- **[Architecture Specification](file:///home/habrmnc/habrmnc/bilo/ARCHITECTURE.md)**: System architecture diagrams (Mermaid), Angular 21 SSR & Hydration lifecycle, offline sync sequences, and testing pipeline.
+- **[API & Data Specification](file:///home/habrmnc/habrmnc/bilo/docs/API.md)**: Complete Angular service method signatures, Signals reactive state model, utilities reference (`getTaskKey`), and PostgreSQL Row-Level Security (RLS) schema definitions.
+
+---
+
 ## License
 
 Bilo is open-source software licensed under the [MIT License](LICENSE).

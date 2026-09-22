@@ -2,53 +2,123 @@
 
 ## 1. Executive Overview
 
-**bilo** is a personal, minimalist project management application designed specifically for solo developers building and maintaining multiple software projects. It answers the core question: **"What should I work on next?"** without the bloat of enterprise tools.
+**bilo** is a personal, minimalist developer project management application designed for solo developers building and maintaining software projects. It answers the core question: **"What should I work on next?"** with a fast, keyboard-driven Angular 21 architecture featuring Server-Side Rendering (SSR), Client Hydration with Event Replay, Offline PWA resilience, and PostgreSQL Row-Level Security (RLS).
 
 ---
 
 ## 2. Product Principles & Architecture Goals
 
-1. **Minimalist & Fast**: Sub-second UI interactions, streamlined data models, keyboard-driven navigation.
-2. **Developer-First Data Model**: Built-in support for code repos, technical notes, bug reports, and task stories.
-3. **Personal-First Isolation**: No multi-tenant permissions overhead; simple single-user auth with strict PostgreSQL Row-Level Security (RLS).
-4. **Anywhere Access**: Responsive layout + Progressive Web App (PWA) with offline support.
-5. **Zero Infrastructure Management**: Jamstack architecture using Vercel for edge hosting and Supabase for backend services.
+1. **Minimalist & Fast**: Sub-second UI interactions, streamlined data models, keyboard-driven hotkeys (`Cmd+K`, `N`, `1-6`, `?`).
+2. **Developer-First Data Model**: Built-in support for code repositories, technical notes, bug reports, custom status workflows, and styled Excel exports.
+3. **Personal-First Isolation**: Strict single-user PostgreSQL Row-Level Security (RLS) data isolation.
+4. **Anywhere Access**: Responsive layout, Progressive Web App (PWA) offline queueing, and Angular 21 SSR + Hydration with Event Replay.
+5. **Quality Assurance**: Unit test suites powered by Vitest and End-to-End browser test automation powered by Playwright.
 
 ---
 
-## 3. High-Level Architecture Diagram
+## 3. High-Level Architecture Diagrams
 
+### 3.1 System Architecture
+
+```mermaid
+graph TD
+    subgraph Client["CLIENT LAYER (Browser / PWA / Installed Desktop)"]
+        UI["Angular 21 Standalone UI (Components & Directives)"]
+        Signals["State Management (Angular Signals & Computed State)"]
+        LocalCache["Browser Cache (LocalStorage & Offline Queue)"]
+        SW["Service Worker (Offline Caching & PWA Manifest)"]
+        UI --> Signals
+        Signals <--> LocalCache
+        UI <--> SW
+    end
+
+    subgraph SSRLayer["SERVER & HYDRATION LAYER"]
+        NodeApp["Node Express Server (server.ts)"]
+        SSREngine["@angular/ssr (AngularNodeAppEngine)"]
+        Hydrate["Client Hydration (provideClientHydration + Event Replay)"]
+        NodeApp --> SSREngine
+        SSREngine --> Hydrate
+    end
+
+    subgraph Backend["BACKEND & DATA LAYER (Supabase BaaS)"]
+        Auth["Supabase Auth (Email / Magic Links)"]
+        DB[(PostgreSQL Database with RLS)]
+        Auth <--> DB
+    end
+
+    Client <-->|HTTPS REST / WebSockets| Backend
+    Client <-->|SSR Pre-render Request| SSRLayer
+    SSRLayer <-->|Server-side Queries| Backend
 ```
-+-----------------------------------------------------------------------+
-|                           CLIENT LAYER                                |
-|  +-----------------------------------------------------------------+  |
-|  |             Browser / Mobile Web App / Installed PWA            |  |
-|  |  +-----------------------------------------------------------+  |  |
-|  |  |                     Angular Application                   |  |  |
-|  |  |  - Standalone Components & Router Guards                   |  |  |
-|  |  |  - Angular Signals (State Management)                     |  |  |
-|  |  |  - Service Worker (Offline Cache & PWA Manifest)          |  |  |
-|  |  +-----------------------------+-----------------------------+  |  |
-|  +--------------------------------|--------------------------------+  |
-+-----------------------------------|-----------------------------------+
-                                    | HTTPS / WebSockets
-                                    v
-+-----------------------------------------------------------------------+
-|                           BACKEND & DATA LAYER                        |
-|  +-----------------------------------------------------------------+  |
-|  |                          Supabase BaaS                          |  |
-|  |  +---------------------+   +---------------------------------+  |  |
-|  |  |    Supabase Auth    |   |     PostgreSQL DB with RLS      |  |  |
-|  |  | (Email Magic Links) |   | (projects, tasks, notes, etc.)  |  |  |
-|  |  +---------------------+   +---------------------------------+  |  |
-|  +-----------------------------------------------------------------+  |
-+-----------------------------------------------------------------------+
-                                    ^
-                                    | Continuous Deployment (Git push)
-+-----------------------------------|-----------------------------------+
-|                         HOSTING & INFRASTRUCTURE                      |
-|                        Vercel Global Edge Network                      |
-+-----------------------------------------------------------------------+
+
+---
+
+### 3.2 Offline-First Data Synchronization Sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as Angular Component
+    participant Signal as Angular Signal State
+    participant Storage as LocalStorage Cache
+    participant Sync as SyncService Queue
+    participant DB as Supabase PostgreSQL (RLS)
+
+    User->>UI: Performs Action (e.g. Create Task / Move Status)
+    UI->>Signal: Mutates local signal state (Sub-second UI update)
+    Signal->>Storage: Persists payload to local browser cache
+
+    alt Network Status is ONLINE
+        Signal->>DB: Sends async REST mutation to Supabase
+        DB-->>Signal: Returns updated database record
+    else Network Status is OFFLINE
+        Signal->>Sync: Pushes operation to pendingSyncQueue
+        Sync->>Storage: Persists queue to localStorage
+        Note over Sync,DB: Waiting for 'online' event...
+        User-->>Sync: Reconnects to Internet ('online' fired)
+        Sync->>DB: Flushes pendingSyncQueue mutations in order
+        DB-->>Signal: Re-syncs latest database state
+    end
+```
+
+---
+
+### 3.3 Angular 21 SSR & Event Replay Hydration Lifecycle
+
+```mermaid
+graph LR
+    Req["1. User Request (HTTP GET /)"] --> Express["2. Node Express Server (server.ts)"]
+    Express --> Engine["3. AngularNodeAppEngine Pre-renders App"]
+    Engine --> Payload["4. HTML Sent with Pre-rendered DOM + Event Replay Script"]
+    Payload --> Browser["5. Browser Renders Instant Visual Content (FCP)"]
+    Browser --> Hydration["6. Client Hydrates Angular Signals & Replays User Interactions"]
+```
+
+---
+
+### 3.4 Automated Testing Pipeline
+
+```mermaid
+graph TD
+    subgraph UnitTesting["Unit Testing Layer (Vitest)"]
+        VConfig["vitest.config.ts (JSDOM Environment)"]
+        VSetup["src/test-setup.ts (@angular/compiler)"]
+        USpecs["Core Specs (task-key, theme, workspace, workflow, task-share, pwa-install)"]
+        VConfig --> VSetup
+        VSetup --> USpecs
+    end
+
+    subgraph E2ETesting["End-to-End Automation (Playwright)"]
+        PConfig["playwright.config.ts (Headless Chromium)"]
+        WebDev["Web Server Auto-Start (http://localhost:4200)"]
+        ESpecs["E2E Specs (app-smoke, navigation-theme, shortcuts-palette, task-workflow)"]
+        PConfig --> WebDev
+        WebDev --> ESpecs
+    end
+
+    UnitTesting -->|npm test| CI["CI / CD Pipeline"]
+    E2ETesting -->|npm run test:e2e| CI
 ```
 
 ---
@@ -57,133 +127,52 @@
 
 | Layer | Technology | Purpose |
 | :--- | :--- | :--- |
-| **Frontend Framework** | Angular (v21+) + TypeScript | Structured, type-safe reactive SPA with standalone components & signals |
-| **Styling & Theme** | Modern CSS Variables & Responsive Utilities | Lightweight, high-contrast developer theme (Dark/Light) |
+| **Frontend Framework** | Angular (v21+) + TypeScript | Standalone components, router binding, signals reactivity |
+| **Server-Side Rendering** | `@angular/ssr` + Node Express | Pre-rendering HTML, client hydration with event replay |
+| **Unit Testing** | Vitest + JSDOM | Sub-second unit tests for services, utilities, and components |
+| **E2E Testing** | Playwright (`@playwright/test`) | Automated end-to-end browser user workflow testing |
+| **Styling & Theme** | Modern CSS Variables & Utilities | Developer high-contrast themes (Dark/Light) |
 | **Backend & Auth** | Supabase (BaaS) | Managed REST/Realtime API and Supabase Auth |
-| **Database** | PostgreSQL | Relational storage with Row-Level Security (RLS) policies |
-| **App Delivery** | PWA (Service Worker + Manifest) | Fast loading on desktop & mobile with offline resilience |
-| **Hosting & CI/CD** | Vercel + GitHub Integration | Automated static build deployment at the edge |
+| **Database** | PostgreSQL + RLS | Relational storage with strict Row-Level Security policies |
+| **App Delivery** | PWA (Service Worker + Manifest) | Fast desktop/mobile loading with offline queueing |
 
 ---
 
-## 5. Database Schema & Security (PostgreSQL + Supabase)
-
-### 5.1 Tables Definition
-```sql
--- 1. Projects Table
-create table public.projects (
-    id uuid primary key default uuid_generate_v4(),
-    user_id uuid references auth.users(id) on delete cascade not null,
-    name text not null,
-    slug text not null,
-    description text,
-    repository_url text,
-    status text not null default 'active', -- 'active', 'archived', 'completed'
-    color text default '#3b82f6',
-    created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-    updated_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
-
--- 2. Workflows Table (Custom Board Columns per Project)
-create table public.workflows (
-    id uuid primary key default uuid_generate_v4(),
-    project_id uuid references public.projects(id) on delete cascade not null,
-    name text not null,
-    position integer not null default 0,
-    created_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
-
--- 3. Tasks Table
-create table public.tasks (
-    id uuid primary key default uuid_generate_v4(),
-    project_id uuid references public.projects(id) on delete cascade not null,
-    workflow_id uuid references public.workflows(id) on delete set null,
-    user_id uuid references auth.users(id) on delete cascade not null,
-    title text not null,
-    description text,
-    type text not null default 'task', -- 'task', 'bug', 'story', 'note'
-    priority text not null default 'medium', -- 'low', 'medium', 'high', 'urgent'
-    labels text[],
-    attachments text[], -- Array of image/attachment URLs
-    due_date date,
-    position integer not null default 0,
-    is_next boolean default false, -- Dynamic "What to work on next" queue flag
-    completed boolean default false,
-    created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-    updated_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
-
--- 4. Tech Notes Table
-create table public.tech_notes (
-    id uuid primary key default uuid_generate_v4(),
-    project_id uuid references public.projects(id) on delete cascade not null,
-    user_id uuid references auth.users(id) on delete cascade not null,
-    title text not null,
-    content text not null,
-    tags text[],
-    created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-    updated_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
-```
-
-### 5.2 Row Level Security Policies
-Row Level Security ensures that every developer can only read and write their own data:
-```sql
-alter table public.projects enable row level security;
-alter table public.tasks enable row level security;
-alter table public.tech_notes enable row level security;
-
-create policy "Individual user access" 
-    on public.projects for all 
-    using (auth.uid() = user_id) 
-    with check (auth.uid() = user_id);
-```
-
----
-
-## 6. Angular Application Structure
+## 5. Angular Application Directory Structure
 
 ```
 src/
 ├── app/
 │   ├── core/
-│   │   ├── guards/          # Auth & route protection guards
-│   │   ├── models/          # TypeScript interfaces (Project, Task, etc.)
-│   │   └── services/        # Supabase, Auth, and State Signal services
+│   │   ├── models/          # TypeScript interfaces (Project, Task, Workflow, etc.)
+│   │   ├── services/        # Supabase, Auth, Workspace, Task, Project, Workflow, Theme, Sync, PWA services
+│   │   └── utils/           # Task key formatter (task-key.util.ts)
 │   ├── features/
-│   │   ├── dashboard/       # "What should I work on next?" central view
-│   │   ├── projects/        # Project creation & board views
-│   │   ├── tasks/           # Task creation modal & quick capture
-│   │   └── tech-notes/      # Developer notes & markdown viewer
+│   │   ├── today/           # "What should I work on next?" dashboard
+│   │   ├── backlog/         # Task backlog and unscheduled items
+│   │   ├── tasks/           # Interactive Kanban workflow board
+│   │   ├── calendar/        # Monthly calendar scheduling drawer
+│   │   ├── archive/         # Work history, activity audit & Excel exports
+│   │   ├── settings/        # Workspace settings & status column configuration
+│   │   └── auth/            # Dedicated sign in / sign up landing page
 │   ├── shared/
-│   │   ├── components/      # UI buttons, status badges, modal wrappers
-│   │   └── pipes/           # Date & markdown formatting
-│   ├── app.config.ts        # Routes and global provider configuration
+│   │   └── components/      # UI buttons, modals, logo, workspace switcher
+│   ├── app.config.ts        # Client routes & provideClientHydration(withEventReplay())
+│   ├── app.config.server.ts # Server-side app config (provideServerRendering)
 │   └── app.ts               # Shell root component
-├── assets/                  # Icons, PWA manifests, images
+├── e2e/                     # Playwright End-to-End browser test suites
+├── docs/                    # Technical API & Database Schema specifications (API.md)
+├── main.ts                  # Client bootstrap entrypoint
+├── main.server.ts           # SSR server bootstrap entrypoint
+├── server.ts                # Express Node SSR server entrypoint
+├── test-setup.ts            # Vitest compiler setup
+├── vitest.config.ts         # Vitest test runner configuration
+├── playwright.config.ts     # Playwright E2E configuration
 └── styles.css               # Global theme tokens and responsive utility classes
 ```
 
 ---
 
-## 7. Progressive Web App (PWA) & Offline Strategy
+## 6. Detailed API & Database Specification
 
-1. **Manifest File (`public/manifest.webmanifest`)**:
-   - Short Name: `bilo`
-   - Start URL: `/`
-   - Theme Color: `#0f172a`
-   - Display: `standalone`
-2. **Service Worker Caching Strategy**:
-   - **Network First** for API dynamic requests (Supabase queries).
-   - **Cache First** for static assets (HTML, JS, CSS, Web Fonts).
-
----
-
-## 8. Deployment Architecture (Vercel)
-
-- **Build Output Directory**: `dist/bilo/browser`
-- **Build Command**: `npm run build`
-- **Single Page Application Fallback**: SPA rewrite rules configured in `vercel.json` (`/(.*)` -> `/index.html`).
-- **Environment Variables**:
-  - `SUPABASE_URL`
-  - `SUPABASE_ANON_KEY`
+For full method signatures, reactive signal models, and PostgreSQL schema definitions, refer to the [API & Data Specification](file:///home/habrmnc/habrmnc/bilo/docs/API.md).
