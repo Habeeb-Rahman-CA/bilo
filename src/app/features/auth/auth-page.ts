@@ -34,7 +34,7 @@ import { BiloLogoComponent } from '../../shared/components/bilo-logo';
               <span class="hero-badge"><i class="fi fi-rr-shield-check"></i> RLS ISOLATED WORKSPACE</span>
               <h1 class="hero-title">Developer Project & Kanban Hub</h1>
               <p class="hero-desc">
-                Minimalist personal workspace with Jira-style backlog, custom workflows, offline PWA sync, and row-level security.
+                Minimalist personal workspace with backlog, custom workflows, offline PWA sync, and row-level security.
               </p>
 
               <div class="hero-features font-mono">

@@ -1,7 +1,7 @@
 import { Task, Project } from '../models/project.model';
 
 /**
- * Generates a Jira-style Task Key (e.g., BIL-104, DEV-215)
+ * Generates a Task Key (e.g., BIL-104, DEV-215)
  * based on Project Name and Task ID.
  */
 export function getTaskKey(task: Task | null | undefined, projects?: Project[]): string {
@@ -22,7 +22,7 @@ export function getTaskKey(task: Task | null | undefined, projects?: Project[]):
     }
   }
 
-  // Generate clean Jira-like 3-digit issue number (100 - 999) from task ID
+  // Generate clean 3-digit issue number (100 - 999) from task ID
   let num = 100;
   if (task.id) {
     let hash = 0;

@@ -258,7 +258,7 @@ export type SettingsSection = 'overview' | 'workflow' | 'notifications';
                 </div>
 
                 <p class="section-subtext">
-                  Configure status columns and Jira-style allowed transition rules for <strong>{{ proj.name }}</strong>.
+                  Configure status columns and allowed transition rules for <strong>{{ proj.name }}</strong>.
                 </p>
 
                 <div class="rules-section-wrapper">
@@ -307,7 +307,7 @@ export type SettingsSection = 'overview' | 'workflow' | 'notifications';
                               </div>
                             </div>
 
-                            <!-- Jira Transition Rules Configuration Row -->
+                            <!-- Transition Rules Configuration Row -->
                             <div class="transition-rules-config">
                               <div class="rule-toggle-line">
                                 <label class="checkbox-label">

@@ -989,7 +989,7 @@ export class TasksComponent implements OnInit {
     if (task && task.status !== targetColumn.name) {
       const allowed = this.workflowService.canTransition(task.status, targetColumn.id, task.project_id);
       if (!allowed) {
-        this.restrictedToastMessage.set(`Jira Workflow Rule: Transitioning from "${task.status}" to "${targetColumn.name}" is restricted.`);
+        this.restrictedToastMessage.set(`Workflow Rule: Transitioning from "${task.status}" to "${targetColumn.name}" is restricted.`);
         setTimeout(() => this.restrictedToastMessage.set(''), 4500);
         return;
       }

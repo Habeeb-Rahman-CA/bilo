@@ -253,7 +253,7 @@ import { WorkspaceService } from '../../core/services/workspace.service';
                 <div class="feature-card">
                   <div class="card-title">
                     <i class="fi fi-rr-list-check text-emerald"></i>
-                    <span>Jira-Style Backlog & Filters</span>
+                    <span>Backlog & Filters</span>
                   </div>
                   <p class="card-desc">
                     Comprehensive table view with multi-column sorting (Priority, Due Date, Title, Created Date) and multi-field dropdown filters (Project, Issue Type, Priority, Status).

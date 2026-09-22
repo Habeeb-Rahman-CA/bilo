@@ -105,7 +105,7 @@ export class TaskShareService {
   }
 
   /**
-   * Finds task matching ID or Jira key and opens detail modal
+   * Finds task matching ID and opens detail modal
    */
   openTaskByParam(param: string): boolean {
     const cleanParam = decodeURIComponent(param).trim().toUpperCase();
@@ -117,7 +117,7 @@ export class TaskShareService {
     const matched = tasks.find(t => {
       // 1. Direct UUID or prefix match
       if (t.id.toUpperCase() === cleanParam || t.id.toUpperCase().startsWith(cleanParam)) return true;
-      // 2. Exact Jira Key match (e.g. BIL-104)
+      // 2. Exact Key match (e.g. BIL-104)
       const key = getTaskKey(t, projects).toUpperCase();
       if (key === cleanParam) return true;
       // 3. Numeric match if user passed e.g. ?task=104

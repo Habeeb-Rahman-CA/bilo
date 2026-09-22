@@ -2,7 +2,7 @@
 
 ## 1. Executive Overview
 
-**bilo** is a personal, minimalist project management application designed specifically for solo developers building and maintaining multiple software projects. It answers the core question: **"What should I work on next?"** without the bloat of enterprise tools like Jira.
+**bilo** is a personal, minimalist project management application designed specifically for solo developers building and maintaining multiple software projects. It answers the core question: **"What should I work on next?"** without the bloat of enterprise tools.
 
 ---
 
