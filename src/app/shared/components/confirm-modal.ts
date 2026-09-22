@@ -7,24 +7,24 @@ import { CommonModule } from '@angular/common';
   imports: [CommonModule],
   template: `
     @if (isOpen) {
-      <div class="confirm-overlay" (click)="onCancel()">
+      <div class="confirm-overlay" (click)="onCancel()" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-desc">
         <div class="confirm-card paper-panel font-mono" (click)="$event.stopPropagation()">
           <div class="confirm-header" [class.header-danger]="type === 'danger'" [class.header-warning]="type === 'warning'">
-            <div class="header-icon">
+            <div class="header-icon" aria-hidden="true">
               @switch (type) {
                 @case ('danger') { <i class="fi fi-rr-trash text-rose"></i> }
                 @case ('warning') { <i class="fi fi-rr-triangle-warning text-amber"></i> }
                 @default { <i class="fi fi-rr-info text-cyan"></i> }
               }
             </div>
-            <h3 class="confirm-title">{{ title }}</h3>
-            <button type="button" class="btn btn-ghost btn-xs close-btn" (click)="onCancel()" title="Close">
+            <h3 id="confirm-modal-title" class="confirm-title">{{ title }}</h3>
+            <button type="button" class="btn btn-ghost btn-xs close-btn" (click)="onCancel()" title="Close" aria-label="Close dialog">
               <i class="fi fi-rr-cross"></i>
             </button>
           </div>
 
           <div class="confirm-body">
-            <p class="confirm-message">{{ message }}</p>
+            <p id="confirm-modal-desc" class="confirm-message">{{ message }}</p>
           </div>
 
           <div class="confirm-footer">

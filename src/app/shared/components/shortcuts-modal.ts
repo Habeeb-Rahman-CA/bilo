@@ -7,14 +7,14 @@ import { WorkspaceService } from '../../core/services/workspace.service';
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="modal-overlay" (click)="close()">
+    <div class="modal-overlay" (click)="close()" role="dialog" aria-modal="true" aria-labelledby="shortcuts-modal-title">
       <div class="help-modal-card paper-panel font-mono" (click)="$event.stopPropagation()">
         <!-- Modal Header Strip -->
         <div class="modal-header">
           <div class="header-left">
-            <h3><i class="fi fi-rr-interrogation text-cyan"></i> Workspace Help & Keyboard Shortcuts</h3>
+            <h3 id="shortcuts-modal-title"><i class="fi fi-rr-interrogation text-cyan" aria-hidden="true"></i> Workspace Help & Keyboard Shortcuts</h3>
           </div>
-          <button class="btn btn-ghost btn-xs close-btn" (click)="close()" title="Close (Esc)">
+          <button class="btn btn-ghost btn-xs close-btn" (click)="close()" title="Close (Esc)" aria-label="Close shortcuts modal">
             <span class="key-badge">ESC</span>
             <i class="fi fi-rr-cross"></i>
           </button>

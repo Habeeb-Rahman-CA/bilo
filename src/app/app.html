@@ -10,7 +10,7 @@
     <!-- Middle: Command Palette Search Bar -->
     <div class="header-center">
       <button class="cmd-search-bar font-mono" (click)="workspaceService.toggleCommandPalette()"
-        title="Search or type a command">
+        title="Search or type a command" aria-label="Search workspace and tasks (Cmd+K)">
         <i class="fi fi-rr-search search-icon"></i>
         <span class="search-placeholder">Search workspace, tasks...</span>
       </button>
@@ -19,19 +19,20 @@
     <!-- Right End: Offline Badge & Action Buttons -->
     <div class="header-right font-mono">
       @if (canInstallPwa()) {
-        <button class="btn btn-primary btn-xs pwa-install-btn" (click)="installPwa()" title="Install Bilo Desktop Standalone App">
+        <button class="btn btn-primary btn-xs pwa-install-btn" (click)="installPwa()" title="Install Bilo Desktop Standalone App" aria-label="Install Bilo Desktop Standalone App">
           <i class="fi fi-rr-download"></i> <span class="pwa-text">Install</span>
         </button>
       }
       @if (!syncService.isOnline()) {
-        <span class="badge-mono badge-amber offline-header-badge" title="Offline Mode - Changes saved locally">
+        <span class="badge-mono badge-amber offline-header-badge" title="Offline Mode - Changes saved locally" role="status">
           <i class="fi fi-rr-wifi-slash"></i> <span class="offline-text">OFFLINE</span> ({{ syncService.pendingSyncQueue().length }})
         </span>
       }
 
       <!-- Light / Dark Theme Mode Toggle -->
       <button class="btn btn-ghost btn-sm theme-toggle-btn" (click)="themeService.toggleTheme()"
-        [title]="themeService.isDarkMode() ? 'Switch to Light Craft Paper Theme' : 'Switch to Dark Theme (Black & Grey)'">
+        [title]="themeService.isDarkMode() ? 'Switch to Light Craft Paper Theme' : 'Switch to Dark Theme (Black & Grey)'"
+        [attr.aria-label]="themeService.isDarkMode() ? 'Switch to Light Theme' : 'Switch to Dark Theme'">
         <i [class]="themeService.isDarkMode() ? 'fi fi-rr-sun' : 'fi fi-rr-moon-stars'"></i>
       </button>
 
@@ -43,6 +44,8 @@
           [class.active]="notificationMenuOpen()"
           (click)="toggleNotificationMenu($event)"
           [title]="pushService.notificationsEnabled() ? 'Notifications Center' : 'Notifications Off'"
+          [attr.aria-expanded]="notificationMenuOpen()"
+          aria-label="Notifications Center"
         >
           <i class="fi fi-rr-bell-ring help-icon" [class.text-amber]="pushService.notificationsEnabled()"></i>
           @if (pushService.notificationsEnabled() || pushService.notificationHistory().length > 0) {
@@ -194,7 +197,7 @@
   <!-- App Body Layout: Left Sidebar + Main Workspace View -->
   <div class="app-body">
     <!-- Left Sidebar: Collapsible Workspace Navigation (Desktop) -->
-    <aside class="app-sidebar paper-panel font-mono" [class.collapsed]="sidebarCollapsed()">
+    <aside class="app-sidebar paper-panel font-mono" [class.collapsed]="sidebarCollapsed()" aria-label="Sidebar Navigation">
       <div class="sidebar-header">
         @if (!sidebarCollapsed()) {
         <div class="sidebar-brand-box">
@@ -202,15 +205,17 @@
         </div>
         }
         <button class="collapse-toggle-btn desktop-only" (click)="toggleSidebar()"
-          [title]="sidebarCollapsed() ? 'Expand Sidebar' : 'Collapse Sidebar'">
+          [title]="sidebarCollapsed() ? 'Expand Sidebar' : 'Collapse Sidebar'"
+          [attr.aria-label]="sidebarCollapsed() ? 'Expand Sidebar Navigation' : 'Collapse Sidebar Navigation'">
           <i [class]="sidebarCollapsed() ? 'fi fi-rr-angle-small-right' : 'fi fi-rr-angle-small-left'"></i>
         </button>
       </div>
 
-      <nav class="sidebar-nav">
+      <nav class="sidebar-nav" aria-label="Desktop Workspace Sections">
         @for (ws of workspaceService.workspaces; track ws.id) {
         <button class="sidebar-tab-btn" [class.active]="workspaceService.activeWorkspace() === ws.id"
-          (click)="selectWorkspace(ws.id)" [title]="ws.code + ' ' + ws.name">
+          (click)="selectWorkspace(ws.id)" [title]="ws.code + ' ' + ws.name"
+          [attr.aria-label]="ws.code + ' ' + ws.name">
           <div class="tab-left">
             <i [class]="ws.icon"></i>
             @if (!sidebarCollapsed()) {
@@ -285,40 +290,40 @@
   </div>
 
   <!-- Fixed Mobile Bottom Navigation Bar -->
-  <nav class="app-bottom-bar paper-panel font-mono">
+  <nav class="app-bottom-bar paper-panel font-mono" aria-label="Mobile Navigation Bar">
     <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '01 TODAY'"
-      (click)="selectWorkspace('01 TODAY')" title="Dashboard">
+      (click)="selectWorkspace('01 TODAY')" title="Dashboard" aria-label="Dashboard Section">
       <i class="fi fi-rr-sun"></i>
       <span class="bottom-tab-label">Dashboard</span>
     </button>
     <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '02 BACKLOG'"
-      (click)="selectWorkspace('02 BACKLOG')" title="Backlog">
+      (click)="selectWorkspace('02 BACKLOG')" title="Backlog" aria-label="Backlog Section">
       <i class="fi fi-rr-list-check"></i>
       <span class="bottom-tab-label">Backlog</span>
     </button>
 
     <!-- Center Action: New Task (+) Icon Button -->
-    <button class="bottom-bar-center-btn" (click)="workspaceService.openCreateTaskModal()" title="Create New Task">
+    <button class="bottom-bar-center-btn" (click)="workspaceService.openCreateTaskModal()" title="Create New Task" aria-label="Create New Task">
       <i class="fi fi-rr-plus"></i>
     </button>
 
     <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '03 TASKS'"
-      (click)="selectWorkspace('03 TASKS')" title="Board">
+      (click)="selectWorkspace('03 TASKS')" title="Board" aria-label="Kanban Board Section">
       <i class="fi fi-rr-layout-fluid"></i>
       <span class="bottom-tab-label">Board</span>
     </button>
     <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '04 CALENDAR'"
-      (click)="selectWorkspace('04 CALENDAR')" title="Calendar">
+      (click)="selectWorkspace('04 CALENDAR')" title="Calendar" aria-label="Calendar Section">
       <i class="fi fi-rr-calendar"></i>
       <span class="bottom-tab-label">Calendar</span>
     </button>
     <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '05 ARCHIVE'"
-      (click)="selectWorkspace('05 ARCHIVE')" title="Archive">
+      (click)="selectWorkspace('05 ARCHIVE')" title="Archive" aria-label="Archive Section">
       <i class="fi fi-rr-box-alt"></i>
       <span class="bottom-tab-label">Archive</span>
     </button>
     <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '06 SETTINGS'"
-      (click)="selectWorkspace('06 SETTINGS')" title="Settings">
+      (click)="selectWorkspace('06 SETTINGS')" title="Settings" aria-label="Settings Section">
       <i class="fi fi-rr-settings"></i>
       <span class="bottom-tab-label">Settings</span>
     </button>
@@ -394,14 +399,14 @@
 
   <!-- Toast Notification for Copy Share Link & Push Service -->
   @if (taskShareService.toastMessage(); as msg) {
-  <div class="task-share-toast paper-panel font-mono">
+  <div class="task-share-toast paper-panel font-mono" role="status" aria-live="polite">
     <i class="fi fi-rr-check-circle text-emerald"></i>
     <span>{{ msg }}</span>
   </div>
   }
 
   @if (pushService.toastMessage(); as pushMsg) {
-  <div class="task-share-toast paper-panel font-mono">
+  <div class="task-share-toast paper-panel font-mono" role="status" aria-live="polite">
     <i class="fi fi-rr-bell text-amber"></i>
     <span>{{ pushMsg }}</span>
   </div>

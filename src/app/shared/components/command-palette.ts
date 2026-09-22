@@ -21,16 +21,17 @@ interface PaletteItem {
   standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
-    <div class="modal-overlay" (click)="close()">
+    <div class="modal-overlay" (click)="close()" role="dialog" aria-modal="true" aria-label="Command Palette">
       <div class="command-palette-card paper-panel" (click)="$event.stopPropagation()">
         <!-- Search Header -->
         <div class="palette-header">
-          <i class="fi fi-rr-search search-icon"></i>
+          <i class="fi fi-rr-search search-icon" aria-hidden="true"></i>
           <input
             #searchInput
             type="text"
             class="palette-input font-mono"
             placeholder="Type a command, task, project, or workspace..."
+            aria-label="Search command, task, project, or workspace"
             [ngModel]="searchQuery()"
             (ngModelChange)="onSearchInput($event)"
             (keydown)="onKeydown($event)"
@@ -40,14 +41,16 @@ interface PaletteItem {
         <!-- Results List Container -->
         <div #paletteBody class="palette-body">
           @if (filteredItems().length === 0) {
-            <div class="empty-results font-mono">
+            <div class="empty-results font-mono" role="status">
               <p>No matching commands found for "{{ searchQuery() }}"</p>
             </div>
           } @else {
-            <div class="results-list">
+            <div class="results-list" role="listbox" aria-label="Command palette results">
               @for (item of filteredItems(); track item.id; let idx = $index) {
                 <div
                   class="palette-item"
+                  role="option"
+                  [attr.aria-selected]="selectedIndex() === idx"
                   [class.selected]="selectedIndex() === idx"
                   (mouseenter)="selectedIndex.set(idx)"
                   (click)="execute(item)"

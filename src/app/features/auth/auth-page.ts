@@ -133,6 +133,8 @@ import { BiloLogoComponent } from '../../shared/components/bilo-logo';
                     class="pwd-toggle-btn btn btn-ghost btn-xs"
                     (click)="showPassword.set(!showPassword())"
                     title="Toggle password visibility"
+                    aria-label="Toggle password visibility"
+                    [attr.aria-pressed]="showPassword()"
                   >
                     <i [class]="showPassword() ? 'fi fi-rr-eye-crossed' : 'fi fi-rr-eye'"></i>
                   </button>
