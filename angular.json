@@ -18,11 +18,6 @@
           "builder": "@angular/build:application",
           "options": {
             "browser": "src/main.ts",
-            "server": "src/main.server.ts",
-            "ssr": {
-              "entry": "src/server.ts"
-            },
-            "prerender": false,
             "tsConfig": "tsconfig.app.json",
             "allowedCommonJsDependencies": [
               "xlsx",
