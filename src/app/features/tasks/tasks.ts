@@ -1,4 +1,4 @@
-import { Component, signal, computed } from '@angular/core';
+import { Component, signal, computed, effect, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DragDropModule, CdkDragDrop } from '@angular/cdk/drag-drop';
@@ -26,10 +26,19 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
   ],
   template: `
     <div class="tasks-page-container">
+      <!-- Restricted Transition Toast Notification -->
+      @if (restrictedToastMessage()) {
+        <div class="workflow-restriction-banner font-mono">
+          <i class="fi fi-rr-lock text-amber"></i>
+          <span>{{ restrictedToastMessage() }}</span>
+          <button type="button" class="btn-close-toast" (click)="restrictedToastMessage.set('')">&times;</button>
+        </div>
+      }
+
       <!-- 1. Standalone Top Header Bar -->
       <div class="view-header-strip paper-panel">
         <div class="view-header-left">
-          <span class="badge-mono">04 BOARD</span>
+          <span class="badge-mono">03 BOARD</span>
           <h2 class="view-header-title">Kanban Board</h2>
         </div>
 
@@ -47,16 +56,6 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       <!-- 2. Standalone Filter Toolbar -->
       <div class="filter-bar paper-panel font-mono">
         <div class="filters-left">
-          <!-- Project Filter -->
-          <div class="filter-group">
-            <label class="filter-label">PROJECT</label>
-            <app-select
-              [options]="projectFilterOptions()"
-              [value]="selectedProjectId()"
-              (valueChange)="onProjectChange($event)"
-              [compact]="true"
-            ></app-select>
-          </div>
 
           <!-- Issue Type Filter -->
           <div class="filter-group">
@@ -76,6 +75,28 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
               [options]="priorityFilterOptions"
               [value]="selectedPriority()"
               (valueChange)="selectedPriority.set($event)"
+              [compact]="true"
+            ></app-select>
+          </div>
+
+          <!-- Severity Filter -->
+          <div class="filter-group">
+            <label class="filter-label">SEVERITY</label>
+            <app-select
+              [options]="severityFilterOptions"
+              [value]="selectedSeverity()"
+              (valueChange)="selectedSeverity.set($event)"
+              [compact]="true"
+            ></app-select>
+          </div>
+
+          <!-- Reproducibility Filter -->
+          <div class="filter-group">
+            <label class="filter-label">REPRO</label>
+            <app-select
+              [options]="reproducibilityFilterOptions"
+              [value]="selectedReproducibility()"
+              (valueChange)="selectedReproducibility.set($event)"
               [compact]="true"
             ></app-select>
           </div>
@@ -100,6 +121,28 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
               (valueChange)="selectedDueDateFilter.set($event)"
               [compact]="true"
             ></app-select>
+          </div>
+
+          <!-- Sort By & Direction -->
+          <div class="filter-group sort-group">
+            <label class="filter-label">SORT</label>
+            <div class="sort-controls">
+              <app-select
+                [options]="sortOptions"
+                [value]="sortBy()"
+                (valueChange)="sortBy.set($event)"
+                [compact]="true"
+              ></app-select>
+              <button
+                type="button"
+                class="btn btn-secondary btn-xs sort-dir-btn font-mono"
+                (click)="toggleSortOrder()"
+                [title]="'Sort order: ' + sortOrder().toUpperCase()"
+              >
+                <i [class]="sortOrder() === 'asc' ? 'fi fi-rr-arrow-small-up' : 'fi fi-rr-arrow-small-down'"></i>
+                <span>{{ sortOrder().toUpperCase() }}</span>
+              </button>
+            </div>
           </div>
 
           @if (hasActiveFilters()) {
@@ -130,9 +173,9 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
         <div class="empty-board paper-panel font-mono">
           <i class="fi fi-rr-folder-open empty-board-icon"></i>
           <h3>No Status Workflow Configured</h3>
-          <p>Configure status columns for this project in the <strong>02 PROJECTS</strong> workspace.</p>
-          <button class="btn btn-secondary btn-sm" (click)="workspaceService.setWorkspace('02 PROJECTS')">
-            <i class="fi fi-rr-folder"></i> Go to Projects
+          <p>Configure status columns for this project in the <strong>06 SETTINGS</strong> workspace.</p>
+          <button class="btn btn-secondary btn-sm" (click)="workspaceService.setWorkspace('06 SETTINGS')">
+            <i class="fi fi-rr-settings"></i> Go to Settings
           </button>
         </div>
       } @else {
@@ -165,8 +208,8 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                     <!-- Card Top Row: Issue Type, Key, Priority, Drag Handle -->
                     <div class="card-top font-mono">
                       <div class="type-badge-wrap">
-                        <span class="badge-type" [class]="t.type">
-                          <i [class]="getTypeIcon(t.type)"></i> {{ t.type }}
+                        <span class="badge-type" [class]="getTypeBadgeClass(t)">
+                          <i [class]="getTypeIcon(t)"></i> {{ getTypeLabel(t) }}
                         </span>
                         <span
                           class="task-key font-mono clickable-key"
@@ -192,7 +235,14 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                     }
 
                     <!-- Card Title -->
-                    <h4 class="card-title">{{ t.title }}</h4>
+                    <h4 class="card-title">
+                      <span>{{ t.title }}</span>
+                      @if (isReportedTask(t)) {
+                        <span class="app-report-badge font-mono" title="Reported directly by user via App Report">
+                          <i class="fi fi-rr-paper-plane"></i> User Report
+                        </span>
+                      }
+                    </h4>
 
                     <!-- Card Labels -->
                     @if (t.labels && t.labels.length > 0) {
@@ -213,7 +263,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                     <!-- Card Footer: Assignee & Due Date -->
                     <div class="card-bottom font-mono">
                       <span class="assignee">
-                        <i class="fi fi-rr-user"></i> {{ t.assignee || 'Self' }}
+                        <i class="fi fi-rr-user"></i> {{ (t.assignee && t.assignee !== 'Self') ? t.assignee : 'Unassigned' }}
                       </span>
 
                       @if (t.due_date) {
@@ -291,6 +341,18 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       padding: 0.25rem 0.45rem;
       font-size: 0.775rem;
     }
+    .sort-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .sort-dir-btn {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.25rem 0.5rem;
+      height: 28px;
+    }
     .reset-btn {
       color: var(--accent-rose);
     }
@@ -351,7 +413,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding-bottom: 0.45rem;
+      padding-bottom: 0.5rem;
       border-bottom: 1px solid var(--border-subtle);
     }
     .column-title {
@@ -361,34 +423,29 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
     }
     .column-title h3 {
       font-size: 0.875rem;
-      font-weight: 600;
+      font-weight: 700;
+      margin: 0;
+      color: var(--text-main);
     }
     .column-cards {
       display: flex;
       flex-direction: column;
-      gap: 0.65rem;
-      flex: 1;
+      gap: 0.75rem;
       min-height: 420px;
+      flex: 1;
     }
     .task-card {
-      padding: 0.85rem 0.95rem;
+      padding: 0.75rem 0.85rem;
       display: flex;
       flex-direction: column;
-      gap: 0.55rem;
-      background: var(--bg-surface-subtle);
-      border: 1px solid var(--border-medium);
-      border-radius: var(--radius-xs);
-      cursor: grab;
+      gap: 0.45rem;
+      cursor: pointer;
       transition: var(--transition-fast);
-      user-select: none;
-    }
-    .task-card:active {
-      cursor: grabbing;
+      background: var(--bg-surface);
     }
     .task-card:hover {
-      background: var(--bg-surface);
-      border-color: var(--border-active);
-      box-shadow: var(--shadow-sm);
+      background: var(--bg-surface-hover);
+      border-color: var(--border-medium);
     }
     .card-top {
       display: flex;
@@ -397,81 +454,112 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
     }
     .type-badge-wrap {
       display: flex;
-      gap: 0.4rem;
       align-items: center;
-      flex-wrap: wrap;
+      gap: 0.4rem;
     }
     .badge-type {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.25rem;
-      font-size: 0.7rem;
-      font-weight: 600;
-      color: var(--text-main);
-      text-transform: capitalize;
-    }
-    .task-key {
-      font-size: 0.725rem;
-      font-weight: 700;
-      color: var(--text-muted);
-    }
-    .priority-badge {
-      display: inline-flex;
-      align-items: center;
-      padding: 0.1rem 0.4rem;
-      border-radius: var(--radius-xs);
       font-size: 0.65rem;
       font-weight: 700;
       text-transform: uppercase;
-      border: 1px solid transparent;
+      padding: 0.1rem 0.35rem;
+      border-radius: var(--radius-xs);
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+    }
+    .badge-type.bug { background: #fee2e2; color: #dc2626; border-color: #fca5a5; }
+    .badge-type.story { background: #e0f2fe; color: #0284c7; border-color: #7dd3fc; }
+    .badge-type.epic { background: #fef3c7; color: #d97706; border-color: #fcd34d; }
+    .task-key {
+      font-size: 0.725rem;
+      font-weight: 700;
+      color: var(--text-subtle);
+    }
+    .priority-badge {
+      font-size: 0.65rem;
+      padding: 0.08rem 0.35rem;
+      border-radius: var(--radius-xs);
+      font-weight: 700;
+      text-transform: uppercase;
+      border: 1px solid var(--border-subtle);
     }
     .priority-badge.urgent { background: #fee2e2; color: #dc2626; border-color: #fca5a5; }
     .priority-badge.high { background: #fef3c7; color: #d97706; border-color: #fcd34d; }
     .priority-badge.medium { background: #e0f2fe; color: #0284c7; border-color: #7dd3fc; }
     .priority-badge.low { background: #f3f4f6; color: #4b5563; border-color: #d1d5db; }
-
+    .drag-grip {
+      font-size: 0.85rem;
+      color: var(--text-subtle);
+      cursor: grab;
+      opacity: 0.5;
+    }
+    .drag-grip:hover {
+      opacity: 1;
+    }
     .card-project-row {
-      margin-top: -0.1rem;
+      display: flex;
     }
     .card-project-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.3rem;
-      font-size: 0.7rem;
-      padding: 0.1rem 0.45rem;
-      background: var(--bg-canvas);
+      font-size: 0.675rem;
+      padding: 0.1rem 0.4rem;
+      background: var(--bg-surface-subtle);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-xs);
-      color: var(--text-main);
-      font-weight: 600;
-    }
-    .drag-grip {
       color: var(--text-muted);
-      font-size: 0.8rem;
     }
     .card-title {
-      font-size: 0.825rem;
+      font-size: 0.875rem;
       font-weight: 600;
       color: var(--text-main);
-      line-height: 1.3;
+      margin: 0;
+      line-height: 1.35;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+    }
+    .app-report-badge {
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 0.35rem !important;
+      padding: 0.18rem 0.55rem !important;
+      font-size: 0.65rem !important;
+      font-weight: 800 !important;
+      letter-spacing: 0.04em !important;
+      text-transform: uppercase !important;
+      border-radius: var(--radius-xs, 4px) !important;
+      background: rgba(244, 63, 94, 0.2) !important;
+      color: #f43f5e !important;
+      border: 1px solid rgba(244, 63, 94, 0.5) !important;
+      box-shadow: 0 1px 4px rgba(244, 63, 94, 0.2) !important;
+      line-height: 1.2 !important;
+      white-space: nowrap !important;
+      vertical-align: middle !important;
+      flex-shrink: 0 !important;
+    }
+    .app-report-badge i {
+      font-size: 0.725rem !important;
+      color: #f43f5e !important;
     }
     .card-labels {
       display: flex;
-      gap: 0.25rem;
+      gap: 0.3rem;
       flex-wrap: wrap;
     }
     .label-chip {
-      font-size: 0.675rem;
-      color: var(--text-muted);
-      background: var(--bg-surface);
+      font-size: 0.65rem;
+      color: var(--text-subtle);
+      background: var(--bg-surface-subtle);
       border: 1px solid var(--border-subtle);
-      padding: 0.05rem 0.35rem;
+      padding: 0.08rem 0.35rem;
       border-radius: var(--radius-xs);
       cursor: pointer;
     }
-    .label-chip:hover, .label-chip.active-label {
-      background: var(--text-main);
-      color: var(--bg-canvas);
+    .label-chip:hover,
+    .label-chip.active-label {
+      background: var(--accent-cyan);
+      color: #ffffff;
+      border-color: var(--accent-cyan);
     }
     .card-bottom {
       display: flex;
@@ -479,20 +567,22 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       align-items: center;
       font-size: 0.725rem;
       color: var(--text-muted);
-      padding-top: 0.35rem;
-      border-top: 1px solid var(--border-subtle);
+      margin-top: 0.2rem;
+    }
+    .assignee, .due-date {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
     }
     .due-date.overdue {
       color: var(--accent-rose);
-      font-weight: 600;
+      font-weight: 700;
     }
 
     .cdk-drag-preview {
       box-sizing: border-box;
       border-radius: var(--radius-xs);
-      background: var(--bg-surface);
-      padding: 0.75rem 0.85rem;
-      border: 1px solid var(--border-active);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
     }
     .cdk-drag-placeholder {
       opacity: 0.3;
@@ -505,14 +595,46 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
     .column-cards.cdk-drop-list-dragging .task-card:not(.cdk-drag-placeholder) {
       transition: transform 250ms cubic-bezier(0, 0, 0.2, 1);
     }
+
+    .workflow-restriction-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.65rem;
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      color: #f59e0b;
+      padding: 0.65rem 1rem;
+      border-radius: var(--radius-xs);
+      font-size: 0.775rem;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+      animation: fadeIn 0.2s ease-out;
+    }
+    .btn-close-toast {
+      background: none;
+      border: none;
+      color: #f59e0b;
+      font-size: 1.1rem;
+      cursor: pointer;
+      line-height: 1;
+      padding: 0 0.25rem;
+    }
+    .text-amber {
+      color: #f59e0b;
+    }
   `]
 })
-export class TasksComponent {
+export class TasksComponent implements OnInit {
   selectedProjectId = signal<string>('all');
   selectedType = signal<string>('all');
   selectedPriority = signal<string>('all');
+  selectedSeverity = signal<string>('all');
+  selectedReproducibility = signal<string>('all');
   selectedLabel = signal<string>('all');
   selectedDueDateFilter = signal<string>('all');
+  sortBy = signal<string>('created_at');
+  sortOrder = signal<'asc' | 'desc'>('desc');
   searchQuery = signal<string>('');
 
   projectFilterOptions = computed<SelectOption[]>(() => [
@@ -540,6 +662,23 @@ export class TasksComponent {
     { value: 'low', label: 'Low' }
   ];
 
+  severityFilterOptions: SelectOption[] = [
+    { value: 'all', label: 'All Severities' },
+    { value: 'critical', label: 'Critical' },
+    { value: 'major', label: 'Major' },
+    { value: 'minor', label: 'Minor' },
+    { value: 'trivial', label: 'Trivial' }
+  ];
+
+  reproducibilityFilterOptions: SelectOption[] = [
+    { value: 'all', label: 'All Reproducibility' },
+    { value: 'always', label: 'Always' },
+    { value: 'often', label: 'Often' },
+    { value: 'sometimes', label: 'Sometimes' },
+    { value: 'rarely', label: 'Rarely' },
+    { value: 'unable', label: 'Unable to Reproduce' }
+  ];
+
   labelFilterOptions = computed<SelectOption[]>(() => [
     { value: 'all', label: 'All Labels' },
     ...this.availableLabels().map(lbl => ({
@@ -557,10 +696,21 @@ export class TasksComponent {
     { value: 'no_date', label: 'No Due Date' }
   ];
 
+  sortOptions: SelectOption[] = [
+    { value: 'created_at', label: 'Created Date' },
+    { value: 'updated_at', label: 'Last Updated' },
+    { value: 'priority', label: 'Priority' },
+    { value: 'severity', label: 'Severity' },
+    { value: 'due_date', label: 'Due Date' },
+    { value: 'title', label: 'Title / Key' },
+    { value: 'status', label: 'Status' }
+  ];
+
   showCreateModal = signal<boolean>(false);
   createDefaultStatus = signal<string>('');
   editingTask = signal<Task | null>(null);
   activeDetailTask = signal<Task | null>(null);
+  restrictedToastMessage = signal<string>('');
 
   constructor(
     public taskService: TaskService,
@@ -568,19 +718,74 @@ export class TasksComponent {
     public workflowService: WorkflowService,
     public workspaceService: WorkspaceService,
     public taskShareService: TaskShareService
-  ) {}
+  ) {
+    effect(() => {
+      const filters = {
+        selectedProjectId: this.selectedProjectId(),
+        selectedType: this.selectedType(),
+        selectedPriority: this.selectedPriority(),
+        selectedSeverity: this.selectedSeverity(),
+        selectedReproducibility: this.selectedReproducibility(),
+        selectedLabel: this.selectedLabel(),
+        selectedDueDateFilter: this.selectedDueDateFilter(),
+        sortBy: this.sortBy(),
+        sortOrder: this.sortOrder(),
+        searchQuery: this.searchQuery()
+      };
+      localStorage.setItem('bilo_board_filters', JSON.stringify(filters));
+    });
+  }
+
+  toggleSortOrder() {
+    this.sortOrder.update(o => o === 'asc' ? 'desc' : 'asc');
+  }
+
+  ngOnInit() {
+    const explicitId = this.projectService.explicitBoardProjectId();
+    if (explicitId) {
+      this.selectedProjectId.set(explicitId);
+      this.projectService.explicitBoardProjectId.set(null);
+    } else {
+      const saved = localStorage.getItem('bilo_board_filters');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (parsed.selectedProjectId !== undefined) this.selectedProjectId.set(parsed.selectedProjectId);
+          if (parsed.selectedType !== undefined) this.selectedType.set(parsed.selectedType);
+          if (parsed.selectedPriority !== undefined) this.selectedPriority.set(parsed.selectedPriority);
+          if (parsed.selectedSeverity !== undefined) this.selectedSeverity.set(parsed.selectedSeverity);
+          if (parsed.selectedReproducibility !== undefined) this.selectedReproducibility.set(parsed.selectedReproducibility);
+          if (parsed.selectedLabel !== undefined) this.selectedLabel.set(parsed.selectedLabel);
+          if (parsed.selectedDueDateFilter !== undefined) this.selectedDueDateFilter.set(parsed.selectedDueDateFilter);
+          if (parsed.sortBy !== undefined) this.sortBy.set(parsed.sortBy);
+          if (parsed.sortOrder !== undefined) this.sortOrder.set(parsed.sortOrder);
+          if (parsed.searchQuery !== undefined) this.searchQuery.set(parsed.searchQuery);
+        } catch (e) {}
+      } else {
+        this.selectedProjectId.set('all');
+      }
+    }
+  }
 
   onProjectChange(projId: string) {
     this.selectedProjectId.set(projId);
+    if (projId !== 'all') {
+      const proj = this.projectService.projects().find(p => p.id === projId);
+      if (proj) {
+        this.projectService.activeProject.set(proj);
+      }
+    }
   }
 
   activeColumns = computed<Workflow[]>(() => {
-    return this.workflowService.getWorkflowsForProject(this.selectedProjectId());
+    const activeProjId = this.projectService.activeProject()?.id;
+    return this.workflowService.getWorkflowsForProject(activeProjId || this.selectedProjectId());
   });
 
   availableLabels = computed<string[]>(() => {
     const list = this.taskService.tasks();
-    const projId = this.selectedProjectId();
+    const activeProjId = this.projectService.activeProject()?.id;
+    const projId = activeProjId || this.selectedProjectId();
     const set = new Set<string>();
     list.forEach(t => {
       if (projId === 'all' || t.project_id === projId) {
@@ -596,27 +801,39 @@ export class TasksComponent {
     return (
       this.selectedType() !== 'all' ||
       this.selectedPriority() !== 'all' ||
+      this.selectedSeverity() !== 'all' ||
+      this.selectedReproducibility() !== 'all' ||
       this.selectedLabel() !== 'all' ||
       this.selectedDueDateFilter() !== 'all' ||
+      this.sortOrder() !== 'desc' ||
       this.searchQuery().trim() !== ''
     );
   });
 
   filteredTasks = computed(() => {
-    const list = this.taskService.tasks();
+    let list = [...this.taskService.tasks()];
+    const activeProjId = this.projectService.activeProject()?.id;
+    if (activeProjId) {
+      list = list.filter(t => t.project_id === activeProjId);
+    }
     const projId = this.selectedProjectId();
     const type = this.selectedType();
     const priority = this.selectedPriority();
+    const severity = this.selectedSeverity();
+    const repro = this.selectedReproducibility();
     const label = this.selectedLabel().toLowerCase();
     const dueFilter = this.selectedDueDateFilter();
     const q = this.searchQuery().toLowerCase().trim();
+    const sort = this.sortBy();
 
     const todayStr = new Date().toISOString().split('T')[0];
 
-    return list.filter(t => {
+    list = list.filter(t => {
       if (projId !== 'all' && t.project_id !== projId) return false;
       if (type !== 'all' && t.type !== type) return false;
       if (priority !== 'all' && t.priority !== priority) return false;
+      if (severity !== 'all' && (t.severity || '').toLowerCase() !== severity) return false;
+      if (repro !== 'all' && (t.reproducibility || '').toLowerCase() !== repro) return false;
 
       if (label !== 'all') {
         if (!t.labels || !t.labels.some(l => l.toLowerCase() === label)) return false;
@@ -649,6 +866,44 @@ export class TasksComponent {
 
       return true;
     });
+
+    // Sorting
+    const mult = this.sortOrder() === 'asc' ? 1 : -1;
+    const priorityWeight: Record<string, number> = { urgent: 4, high: 3, medium: 2, low: 1 };
+    const severityWeight: Record<string, number> = { critical: 4, major: 3, minor: 2, trivial: 1 };
+
+    list.sort((a, b) => {
+      let diff = 0;
+      if (sort === 'created_at') {
+        const da = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const db = b.created_at ? new Date(b.created_at).getTime() : 0;
+        diff = da - db;
+      } else if (sort === 'updated_at') {
+        const da = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+        const db = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+        diff = da - db;
+      } else if (sort === 'priority') {
+        const pa = priorityWeight[(a.priority || 'medium').toLowerCase()] || 0;
+        const pb = priorityWeight[(b.priority || 'medium').toLowerCase()] || 0;
+        diff = pa - pb;
+      } else if (sort === 'severity') {
+        const sa = severityWeight[(a.severity || '').toLowerCase()] || 0;
+        const sb = severityWeight[(b.severity || '').toLowerCase()] || 0;
+        diff = sa - sb;
+      } else if (sort === 'due_date') {
+        if (!a.due_date && !b.due_date) diff = 0;
+        else if (!a.due_date) diff = 1;
+        else if (!b.due_date) diff = -1;
+        else diff = a.due_date.localeCompare(b.due_date);
+      } else if (sort === 'title') {
+        diff = a.title.localeCompare(b.title);
+      } else if (sort === 'status') {
+        diff = (a.status || '').localeCompare(b.status || '');
+      }
+      return diff * mult;
+    });
+
+    return list;
   });
 
   getColumnTasks(statusName: string): Task[] {
@@ -671,8 +926,51 @@ export class TasksComponent {
     return p ? p.name : '';
   }
 
-  getTypeIcon(type: string): string {
-    switch (type) {
+  isReportedTask(t: Task): boolean {
+    if (!t) return false;
+    return !!(t.is_app_report || t.report_category || t.labels?.includes('app-report') || t.title?.startsWith('[App Report]'));
+  }
+
+  getReportCategory(t: Task): string {
+    if (t?.report_category) return t.report_category;
+    if (t?.labels?.includes('ui_ux')) return 'ui_ux';
+    if (t?.labels?.includes('feature')) return 'feature';
+    if (t?.labels?.includes('other')) return 'other';
+    return 'bug';
+  }
+
+  getTypeLabel(t: Task): string {
+    if (this.isReportedTask(t)) {
+      const cat = this.getReportCategory(t);
+      switch (cat) {
+        case 'ui_ux': return 'UI / UX';
+        case 'feature': return 'Feature';
+        case 'other': return 'Other';
+        case 'bug': default: return 'Bug';
+      }
+    }
+    return t.type || 'task';
+  }
+
+  getTypeBadgeClass(t: Task): string {
+    if (this.isReportedTask(t)) {
+      return 'badge-' + this.getReportCategory(t);
+    }
+    return t.type || 'task';
+  }
+
+  getTypeIcon(t: Task | string): string {
+    if (typeof t === 'object' && t !== null && this.isReportedTask(t)) {
+      const cat = this.getReportCategory(t);
+      switch (cat) {
+        case 'ui_ux': return 'fi fi-rr-layout-fluid';
+        case 'feature': return 'fi fi-rr-rocket';
+        case 'other': return 'fi fi-rr-info';
+        case 'bug': default: return 'fi fi-rr-bug';
+      }
+    }
+    const typeStr = (typeof t === 'string' ? t : t?.type || '').toLowerCase();
+    switch (typeStr) {
       case 'story': return 'fi fi-rr-book-alt';
       case 'bug': return 'fi fi-rr-bug';
       case 'epic': return 'fi fi-rr-rocket';
@@ -689,6 +987,13 @@ export class TasksComponent {
   async drop(event: CdkDragDrop<Task[]>, targetColumn: Workflow) {
     const task: Task = event.item.data;
     if (task && task.status !== targetColumn.name) {
+      const allowed = this.workflowService.canTransition(task.status, targetColumn.id, task.project_id);
+      if (!allowed) {
+        this.restrictedToastMessage.set(`Workflow Rule: Transitioning from "${task.status}" to "${targetColumn.name}" is restricted.`);
+        setTimeout(() => this.restrictedToastMessage.set(''), 4500);
+        return;
+      }
+
       await this.taskService.updateTask(task.id, {
         status: targetColumn.name,
         workflow_id: targetColumn.id
@@ -697,11 +1002,17 @@ export class TasksComponent {
   }
 
   resetFilters() {
+    this.selectedProjectId.set('all');
     this.selectedType.set('all');
     this.selectedPriority.set('all');
+    this.selectedSeverity.set('all');
+    this.selectedReproducibility.set('all');
     this.selectedLabel.set('all');
     this.selectedDueDateFilter.set('all');
+    this.sortBy.set('created_at');
+    this.sortOrder.set('desc');
     this.searchQuery.set('');
+    localStorage.removeItem('bilo_board_filters');
   }
 
   openCreateModal(defaultStatus: string = '') {

@@ -107,7 +107,6 @@ import { Project, Workflow } from '../../core/models/project.model';
       display: flex;
       flex-direction: column;
       gap: 0.6rem;
-      max-height: 320px;
       overflow-y: auto;
       padding-right: 0.25rem;
       margin-bottom: 1rem;
@@ -190,14 +189,16 @@ export class WorkflowModalComponent implements OnInit {
   constructor(private workflowService: WorkflowService) {}
 
   ngOnInit() {
-    const existing = this.workflowService.globalWorkflows();
+    const projId = this.project?.id || 'global';
+    const existing = this.workflowService.getWorkflowsForProject(projId);
     this.columns = JSON.parse(JSON.stringify(existing));
   }
 
   async addNewWorkflowColumn() {
     if (!this.newColumnName.trim()) return;
     const name = this.newColumnName.trim();
-    const created = await this.workflowService.createWorkflow('global', name);
+    const projId = this.project?.id || 'global';
+    const created = await this.workflowService.createWorkflow(projId, name);
     this.columns.push(JSON.parse(JSON.stringify(created)));
     this.newColumnName = '';
   }
@@ -218,11 +219,12 @@ export class WorkflowModalComponent implements OnInit {
   }
 
   async saveWorkflowChanges() {
+    const projId = this.project?.id || 'global';
     for (const delId of this.deletedColumnIds) {
-      await this.workflowService.deleteWorkflow(delId);
+      await this.workflowService.deleteWorkflow(delId, projId);
     }
 
-    await this.workflowService.updateWorkflowPositions('global', this.columns);
+    await this.workflowService.updateWorkflowPositions(projId, this.columns);
     this.close.emit();
   }
 }

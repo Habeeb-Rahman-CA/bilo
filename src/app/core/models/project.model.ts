@@ -1,11 +1,25 @@
 export type TaskType = 'story' | 'bug' | 'task' | 'epic';
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
+export type TaskSeverity = 'critical' | 'major' | 'minor' | 'trivial';
+export type TaskReproducibility = 'always' | 'often' | 'sometimes' | 'rarely' | 'unable';
+
+export type ProjectRole = 'owner' | 'admin' | 'member' | 'viewer';
 
 export interface UserProfile {
   id: string;
   email: string;
   display_name?: string;
   avatar_url?: string;
+  created_at: string;
+}
+
+export interface ProjectMember {
+  id: string;
+  project_id: string;
+  user_id: string;
+  role: ProjectRole;
+  user_email?: string;
+  user_name?: string;
   created_at: string;
 }
 
@@ -16,6 +30,8 @@ export interface Workflow {
   name: string;
   color: string;
   position: number;
+  allow_all_transitions?: boolean;
+  allowed_transitions?: string[]; // IDs of workflows allowed to transition INTO this workflow
   created_at: string;
 }
 
@@ -38,6 +54,7 @@ export interface Project {
 export interface ProjectActivity {
   id: string;
   project_id: string;
+  user_id?: string;
   action: string;
   description: string;
   timestamp: string;
@@ -53,6 +70,11 @@ export interface Task {
   type: TaskType;
   status: string; // Workflow column name or workflow_id
   priority: TaskPriority;
+  severity?: TaskSeverity;
+  reproducibility?: TaskReproducibility;
+  reporter?: string;
+  is_app_report?: boolean;
+  report_category?: string;
   labels?: string[];
   assignee?: string;
   due_date?: string;
@@ -70,6 +92,7 @@ export interface TaskComment {
   user_id?: string;
   author_name: string;
   content: string;
+  attachments?: string[];
   created_at: string;
   updated_at?: string;
 }
@@ -80,6 +103,8 @@ export interface TaskStatusHistory {
   user_id?: string;
   from_status?: string;
   to_status: string;
+  action_type?: string;
+  details?: string;
   changed_by?: string;
   created_at: string;
 }

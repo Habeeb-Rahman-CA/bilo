@@ -15,7 +15,7 @@ import { getTaskKey } from '../../core/utils/task-key.util';
       <!-- Header -->
       <div class="view-header-strip paper-panel">
         <div class="view-header-left">
-          <span class="badge-mono">06 ARCHIVE</span>
+          <span class="badge-mono">05 ARCHIVE</span>
           <h2 class="view-header-title">Completed Work & Audit</h2>
         </div>
 
@@ -60,7 +60,12 @@ import { getTaskKey } from '../../core/utils/task-key.util';
                     <div class="row-left">
                       <span class="status-dot dot-emerald"></span>
                       <span class="task-title">{{ t.title }}</span>
-                      <span class="badge-mono">{{ t.type }}</span>
+                      @if (isReportedTask(t)) {
+                        <span class="app-report-badge font-mono" title="Reported directly by user via App Report">
+                          <i class="fi fi-rr-paper-plane"></i> User Report
+                        </span>
+                      }
+                      <span class="badge-mono">{{ getTypeLabel(t) }}</span>
                     </div>
 
                     <div class="row-right font-mono">
@@ -166,6 +171,29 @@ import { getTaskKey } from '../../core/utils/task-key.util';
       align-items: center;
       gap: 0.5rem;
     }
+    .app-report-badge {
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 0.35rem !important;
+      padding: 0.18rem 0.55rem !important;
+      font-size: 0.65rem !important;
+      font-weight: 800 !important;
+      letter-spacing: 0.04em !important;
+      text-transform: uppercase !important;
+      border-radius: var(--radius-xs, 4px) !important;
+      background: rgba(244, 63, 94, 0.2) !important;
+      color: #f43f5e !important;
+      border: 1px solid rgba(244, 63, 94, 0.5) !important;
+      box-shadow: 0 1px 4px rgba(244, 63, 94, 0.2) !important;
+      line-height: 1.2 !important;
+      white-space: nowrap !important;
+      vertical-align: middle !important;
+      flex-shrink: 0 !important;
+    }
+    .app-report-badge i {
+      font-size: 0.725rem !important;
+      color: #f43f5e !important;
+    }
     .task-title {
       font-size: 0.825rem;
       color: var(--text-main);
@@ -216,11 +244,19 @@ export class ArchiveComponent {
     public projectService: ProjectService
   ) { }
 
-  completedTasks = computed(() =>
-    this.taskService.tasks().filter(t => t.completed || t.status.toLowerCase() === 'done')
-  );
+  completedTasks = computed(() => {
+    const list = this.taskService.tasks();
+    const activeProjId = this.projectService.activeProject()?.id;
+    const workspaceTasks = activeProjId ? list.filter(t => t.project_id === activeProjId) : list;
+    return workspaceTasks.filter(t => t.completed || t.status.toLowerCase() === 'done');
+  });
 
-  activities = computed(() => this.projectService.activities());
+  activities = computed(() => {
+    const list = this.projectService.activities();
+    const activeProjId = this.projectService.activeProject()?.id;
+    if (!activeProjId) return list;
+    return list.filter(a => a.project_id === activeProjId);
+  });
 
   private createStyledSheet(
     headers: string[],
@@ -305,7 +341,7 @@ export class ArchiveComponent {
       'Work category (Task, Bug, Story, Epic)',
       'Urgency priority level',
       'Completion status state',
-      'Parent project repository',
+      'Parent workspace project',
       'Assigned team member',
       'Target due date (YYYY-MM-DD)',
       'Timestamp when task was logged'
@@ -333,7 +369,7 @@ export class ArchiveComponent {
       'Urgency priority level',
       'Current workflow state (Todo, In Progress, Done)',
       'Completion status indicator (YES/NO)',
-      'Parent project repository',
+      'Parent workspace project',
       'Assigned team member',
       'Target due date (YYYY-MM-DD)',
       'Timestamp when task was logged'
@@ -357,7 +393,7 @@ export class ArchiveComponent {
     const projectHeaders = ['Project Key', 'Project Name', 'Description', 'Status', 'Total Tasks', 'Completed Tasks', 'Progress (%)'];
     const projectDescriptions = [
       'Unique project code identifier',
-      'Name of repository project',
+      'Name of workspace project',
       'Project overview and objectives',
       'Lifecycle status (Active, Completed)',
       'Total count of assigned tasks',
@@ -409,6 +445,32 @@ export class ArchiveComponent {
     if (!id) return 'General';
     const p = this.projectService.projects().find(item => item.id === id);
     return p ? p.name : 'General';
+  }
+
+  isReportedTask(t: Task): boolean {
+    if (!t) return false;
+    return !!(t.is_app_report || t.report_category || t.labels?.includes('app-report') || t.title?.startsWith('[App Report]'));
+  }
+
+  getReportCategory(t: Task): string {
+    if (t?.report_category) return t.report_category;
+    if (t?.labels?.includes('ui_ux')) return 'ui_ux';
+    if (t?.labels?.includes('feature')) return 'feature';
+    if (t?.labels?.includes('other')) return 'other';
+    return 'bug';
+  }
+
+  getTypeLabel(t: Task): string {
+    if (this.isReportedTask(t)) {
+      const cat = this.getReportCategory(t);
+      switch (cat) {
+        case 'ui_ux': return 'UI / UX';
+        case 'feature': return 'Feature';
+        case 'other': return 'Other';
+        case 'bug': default: return 'Bug';
+      }
+    }
+    return t.type || 'task';
   }
 
   formatDate(iso: string): string {

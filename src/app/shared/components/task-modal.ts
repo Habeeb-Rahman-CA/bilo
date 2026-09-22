@@ -4,14 +4,16 @@ import { FormsModule } from '@angular/forms';
 import { TaskService } from '../../core/services/task.service';
 import { ProjectService } from '../../core/services/project.service';
 import { WorkflowService } from '../../core/services/workflow.service';
-import { Task, TaskPriority, TaskType, Workflow } from '../../core/models/project.model';
+import { TaskShareService } from '../../core/services/task-share.service';
+import { Task, TaskPriority, TaskSeverity, TaskReproducibility, TaskType, Workflow } from '../../core/models/project.model';
 import { DatePickerComponent } from './date-picker';
 import { SelectComponent, SelectOption } from './select';
+import { RichEditorComponent } from './rich-editor';
 
 @Component({
   selector: 'app-task-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule, DatePickerComponent, SelectComponent],
+  imports: [CommonModule, FormsModule, DatePickerComponent, SelectComponent, RichEditorComponent],
   template: `
     <div class="modal-overlay" (click)="close.emit()">
       <div class="modal-card paper-panel font-mono" (click)="$event.stopPropagation()">
@@ -29,7 +31,7 @@ import { SelectComponent, SelectOption } from './select';
 
         <form (ngSubmit)="saveTask()" class="modal-form">
           <div class="form-body">
-            @if (submitted && (!title.trim() || !projectId)) {
+            @if (submitted && !title.trim()) {
               <div class="form-error-banner font-mono">
                 <i class="fi fi-rr-triangle-warning"></i>
                 <span>Please complete all required fields below before saving.</span>
@@ -56,22 +58,10 @@ import { SelectComponent, SelectOption } from './select';
               }
             </div>
 
-            <!-- Type & Project Row -->
-            <div class="form-row">
-              <div class="form-group half">
-                <label class="form-label">ISSUE TYPE</label>
-                <app-select [options]="typeOptions" [(value)]="type" placeholder="Select type..."></app-select>
-              </div>
-
-              <div class="form-group half">
-                <label class="form-label">PROJECT <span class="text-rose">*</span></label>
-                <app-select [options]="projectOptions" [(value)]="projectId" placeholder="Select project..."></app-select>
-                @if (submitted && !projectId) {
-                  <span class="field-error-text font-mono">
-                    <i class="fi fi-rr-exclamation"></i> Project selection is required
-                  </span>
-                }
-              </div>
+            <!-- Issue Type -->
+            <div class="form-group">
+              <label class="form-label">ISSUE TYPE</label>
+              <app-select [options]="typeOptions" [(value)]="type" placeholder="Select type..."></app-select>
             </div>
 
             <!-- Priority & Status Row -->
@@ -94,17 +84,30 @@ import { SelectComponent, SelectOption } from './select';
               </div>
             }
 
+            <!-- Severity & Reproducibility Row (Only for Bug) -->
+            @if (type === 'bug') {
+              <div class="form-row">
+                <div class="form-group half">
+                  <label class="form-label">SEVERITY</label>
+                  <app-select [options]="severityOptions" [(value)]="severity" placeholder="Select severity..."></app-select>
+                </div>
+
+                <div class="form-group half">
+                  <label class="form-label">REPRODUCIBILITY</label>
+                  <app-select [options]="reproducibilityOptions" [(value)]="reproducibility" placeholder="Select reproducibility..."></app-select>
+                </div>
+              </div>
+            }
+
             <!-- Assignee & Due Date Row -->
             <div class="form-row">
               <div class="form-group half">
                 <label class="form-label">ASSIGNEE</label>
-                <input
-                  type="text"
-                  class="form-input"
-                  [(ngModel)]="assignee"
-                  name="assignee"
-                  placeholder="Self"
-                />
+                <app-select
+                  [options]="assigneeOptions"
+                  [(value)]="assignee"
+                  placeholder="Select assignee..."
+                ></app-select>
               </div>
 
               <div class="form-group half">
@@ -133,17 +136,11 @@ import { SelectComponent, SelectOption } from './select';
             <div class="form-group">
               <div class="label-with-hint">
                 <label class="form-label">DESCRIPTION / NOTES</label>
-                <span class="desc-hint font-mono">Press Ctrl+Enter to save</span>
               </div>
-              <textarea
-                class="form-textarea"
-                rows="3"
-                [(ngModel)]="description"
-                name="description"
-                (keydown.control.enter)="saveTask(); $event.preventDefault()"
-                (keydown.meta.enter)="saveTask(); $event.preventDefault()"
-                placeholder="Acceptance criteria, technical notes, or reference URLs..."
-              ></textarea>
+              <app-rich-editor
+                [(value)]="description"
+                placeholder="Acceptance criteria, headers, bullet points, technical notes..."
+              ></app-rich-editor>
             </div>
 
             <!-- Attachments Section (Image Only) -->
@@ -158,10 +155,11 @@ import { SelectComponent, SelectOption } from './select';
               <div
                 class="attachment-dropzone"
                 [class.drag-over]="isDraggingOver()"
+                [class.is-uploading]="uploadingAttachments()"
                 (dragover)="onDragOver($event)"
                 (dragleave)="onDragLeave($event)"
                 (drop)="onDrop($event)"
-                (click)="fileInput.click()"
+                (click)="!uploadingAttachments() && fileInput.click()"
               >
                 <input
                   #fileInput
@@ -171,13 +169,23 @@ import { SelectComponent, SelectOption } from './select';
                   (change)="onFileSelected($event)"
                   style="display: none;"
                 />
-                <div class="dropzone-content">
-                  <i class="fi fi-rr-picture dropzone-icon"></i>
-                  <div class="dropzone-text">
-                    <span class="dropzone-title">Click to upload or drag & drop images</span>
-                    <span class="dropzone-sub">PNG, JPG, WEBP, GIF supported</span>
+                @if (uploadingAttachments()) {
+                  <div class="dropzone-content font-mono">
+                    <i class="fi fi-rr-spinner spinner dropzone-icon text-cyan"></i>
+                    <div class="dropzone-text">
+                      <span class="dropzone-title text-cyan">Uploading {{ uploadCount() }} image(s)...</span>
+                      <span class="dropzone-sub">Generating image preview, please wait...</span>
+                    </div>
                   </div>
-                </div>
+                } @else {
+                  <div class="dropzone-content">
+                    <i class="fi fi-rr-picture dropzone-icon"></i>
+                    <div class="dropzone-text">
+                      <span class="dropzone-title">Click to upload or drag & drop images</span>
+                      <span class="dropzone-sub">PNG, JPG, WEBP, GIF supported</span>
+                    </div>
+                  </div>
+                }
               </div>
 
               <!-- Thumbnails Grid -->
@@ -553,11 +561,16 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
   type: TaskType = 'task';
   status: string = '';
   priority: TaskPriority = 'medium';
-  assignee = 'Self';
+  severity: TaskSeverity | '' = '';
+  reproducibility: TaskReproducibility | '' = '';
+  assignee = 'Unassigned';
+  assigneeOptions: SelectOption[] = [];
   dueDate = '';
   labelsInput = '';
 
   attachments = signal<string[]>([]);
+  uploadingAttachments = signal<boolean>(false);
+  uploadCount = signal<number>(0);
   previewImage = signal<string | null>(null);
   isDraggingOver = signal<boolean>(false);
 
@@ -573,6 +586,21 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
     { value: 'high', label: 'High' },
     { value: 'medium', label: 'Medium' },
     { value: 'low', label: 'Low' }
+  ];
+
+  severityOptions: SelectOption[] = [
+    { value: 'critical', label: 'Critical' },
+    { value: 'major', label: 'Major' },
+    { value: 'minor', label: 'Minor' },
+    { value: 'trivial', label: 'Trivial' }
+  ];
+
+  reproducibilityOptions: SelectOption[] = [
+    { value: 'always', label: 'Always' },
+    { value: 'often', label: 'Often' },
+    { value: 'sometimes', label: 'Sometimes' },
+    { value: 'rarely', label: 'Rarely' },
+    { value: 'unable', label: 'Unable to Reproduce' }
   ];
 
   get projectOptions(): SelectOption[] {
@@ -598,32 +626,48 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
   constructor(
     private taskService: TaskService,
     public projectService: ProjectService,
-    public workflowService: WorkflowService
+    public workflowService: WorkflowService,
+    private taskShareService: TaskShareService
   ) { }
 
-  ngOnInit() {
+  async ngOnInit() {
     if (this.taskToEdit) {
       this.title = this.taskToEdit.title;
       this.description = this.taskToEdit.description || '';
-      this.projectId = this.taskToEdit.project_id || '';
+      this.projectId = this.taskToEdit.project_id || this.projectService.activeProject()?.id || (this.projectService.projects()[0]?.id || '');
       this.type = this.taskToEdit.type || 'task';
       this.status = this.taskToEdit.status || '';
       this.priority = this.taskToEdit.priority || 'medium';
-      this.assignee = this.taskToEdit.assignee || 'Self';
+      this.severity = this.taskToEdit.severity || '';
+      this.reproducibility = this.taskToEdit.reproducibility || '';
+      this.assignee = (this.taskToEdit.assignee && this.taskToEdit.assignee !== 'Self') ? this.taskToEdit.assignee : 'Unassigned';
       this.dueDate = this.taskToEdit.due_date || '';
       this.labelsInput = (this.taskToEdit.labels || []).join(', ');
       if (this.taskToEdit.attachments && Array.isArray(this.taskToEdit.attachments)) {
         this.attachments.set([...this.taskToEdit.attachments]);
       }
     } else {
-      if (this.defaultProjectId && this.defaultProjectId !== 'ALL') {
+      const activeProjId = this.projectService.activeProject()?.id;
+      if (activeProjId) {
+        this.projectId = activeProjId;
+      } else if (this.defaultProjectId && this.defaultProjectId !== 'ALL' && this.defaultProjectId !== 'all') {
         this.projectId = this.defaultProjectId;
       } else {
-        const active = this.projectService.activeProject() || this.projectService.projects()[0];
-        if (active) this.projectId = active.id;
+        this.projectId = this.projectService.projects()[0]?.id || '';
       }
+      this.severity = '';
+      this.reproducibility = '';
       if (this.defaultStatus) this.status = this.defaultStatus;
       if (this.defaultDueDate) this.dueDate = this.defaultDueDate;
+    }
+    await this.loadAssigneeOptions();
+  }
+
+  async loadAssigneeOptions() {
+    const opts = await this.projectService.getWorkspaceMemberOptions(this.projectId, this.assignee);
+    this.assigneeOptions = opts as SelectOption[];
+    if (!this.assignee || this.assignee === 'Self') {
+      this.assignee = 'Unassigned';
     }
   }
 
@@ -668,19 +712,36 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
     }
   }
 
-  processFiles(files: File[]) {
+  async processFiles(files: File[]) {
     const imageFiles = files.filter(f => f.type.startsWith('image/'));
-    if (imageFiles.length === 0) return;
+    if (imageFiles.length === 0) {
+      this.taskShareService.showToast('Please select valid image files.');
+      return;
+    }
 
-    for (const file of imageFiles) {
-      const reader = new FileReader();
-      reader.onload = (e: ProgressEvent<FileReader>) => {
-        const result = e.target?.result as string;
-        if (result) {
-          this.attachments.update(curr => [...curr, result]);
+    this.uploadingAttachments.set(true);
+    this.uploadCount.set(imageFiles.length);
+
+    try {
+      for (const file of imageFiles) {
+        const imgData = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (ev) => resolve((ev.target?.result as string) || '');
+          reader.onerror = () => reject(new Error('Failed to read image file'));
+          reader.readAsDataURL(file);
+        });
+
+        if (imgData) {
+          this.attachments.update(curr => [...curr, imgData]);
         }
-      };
-      reader.readAsDataURL(file);
+      }
+      this.taskShareService.showToast(`${imageFiles.length} image(s) attached.`);
+    } catch (err) {
+      console.error('Error uploading image file:', err);
+      this.taskShareService.showToast('Failed to load image file. Please try again.');
+    } finally {
+      this.uploadingAttachments.set(false);
+      this.uploadCount.set(0);
     }
   }
 
@@ -690,7 +751,11 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
 
   async saveTask() {
     this.submitted = true;
-    if (!this.title.trim() || !this.projectId) return;
+    if (!this.title.trim()) return;
+
+    if (!this.projectId) {
+      this.projectId = this.projectService.activeProject()?.id || (this.projectService.projects()[0]?.id || '');
+    }
 
     const parsedLabels = this.labelsInput
       .split(',')
@@ -703,6 +768,9 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
       : (this.defaultStatus || (available.length > 0 ? available[0].name : 'todo'));
     const activeWf = available.find(w => w.name === finalStatus) || (available.length > 0 ? available[0] : undefined);
 
+    const targetSeverity = (this.type === 'bug' && this.severity) ? (this.severity as TaskSeverity) : undefined;
+    const targetReproducibility = (this.type === 'bug' && this.reproducibility) ? (this.reproducibility as TaskReproducibility) : undefined;
+
     let resTask: Task | undefined = undefined;
 
     if (this.isEditMode && this.taskToEdit) {
@@ -714,6 +782,8 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
         type: this.type,
         status: finalStatus,
         priority: this.priority,
+        severity: targetSeverity,
+        reproducibility: targetReproducibility,
         assignee: this.assignee,
         due_date: this.dueDate,
         labels: parsedLabels,
@@ -729,6 +799,8 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
         type: this.type,
         status: finalStatus,
         priority: this.priority,
+        severity: targetSeverity,
+        reproducibility: targetReproducibility,
         assignee: this.assignee,
         due_date: this.dueDate,
         labels: parsedLabels,

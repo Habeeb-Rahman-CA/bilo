@@ -99,18 +99,6 @@ import { WorkflowModalComponent } from '../../shared/components/workflow-modal';
                 <p class="project-desc">{{ p.description }}</p>
               }
 
-              @if (p.repository_url) {
-                <a
-                  [href]="p.repository_url"
-                  target="_blank"
-                  class="repo-link font-mono"
-                  (click)="$event.stopPropagation()"
-                >
-                  <i class="fi fi-brands-github"></i>
-                  <span class="repo-url-text">{{ p.repository_url }}</span>
-                </a>
-              }
-
               <!-- Task Progress Meter -->
               <div class="progress-section">
                 <div class="progress-labels font-mono">
@@ -576,10 +564,11 @@ export class ProjectsComponent {
   }
 
   openProjectBoard(projectId: string) {
+    this.projectService.explicitBoardProjectId.set(projectId);
     const proj = this.projectService.projects().find(p => p.id === projectId);
     if (proj) {
       this.projectService.activeProject.set(proj);
     }
-    this.workspaceService.setWorkspace('04 TASKS');
+    this.workspaceService.setWorkspace('03 TASKS');
   }
 }

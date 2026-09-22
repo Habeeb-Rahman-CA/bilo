@@ -1,6 +1,7 @@
 import { Injectable, signal } from '@angular/core';
+import { ThemeService } from './theme.service';
 
-export type WorkspaceSection = '01 TODAY' | '02 PROJECTS' | '03 BACKLOG' | '04 TASKS' | '05 CALENDAR' | '06 ARCHIVE';
+export type WorkspaceSection = '01 TODAY' | '02 BACKLOG' | '03 TASKS' | '04 CALENDAR' | '05 ARCHIVE' | '06 SETTINGS';
 
 export interface WorkspaceItem {
   id: WorkspaceSection;
@@ -13,21 +14,22 @@ export interface WorkspaceItem {
 
 const WORKSPACE_HASH_MAP: Record<string, WorkspaceSection> = {
   'today': '01 TODAY',
-  'projects': '02 PROJECTS',
-  'backlog': '03 BACKLOG',
-  'tasks': '04 TASKS',
-  'board': '04 TASKS',
-  'calendar': '05 CALENDAR',
-  'archive': '06 ARCHIVE'
+  'dashboard': '01 TODAY',
+  'backlog': '02 BACKLOG',
+  'tasks': '03 TASKS',
+  'board': '03 TASKS',
+  'calendar': '04 CALENDAR',
+  'archive': '05 ARCHIVE',
+  'settings': '06 SETTINGS'
 };
 
 const WORKSPACE_SECTION_TO_HASH: Record<WorkspaceSection, string> = {
   '01 TODAY': 'today',
-  '02 PROJECTS': 'projects',
-  '03 BACKLOG': 'backlog',
-  '04 TASKS': 'tasks',
-  '05 CALENDAR': 'calendar',
-  '06 ARCHIVE': 'archive'
+  '02 BACKLOG': 'backlog',
+  '03 TASKS': 'tasks',
+  '04 CALENDAR': 'calendar',
+  '05 ARCHIVE': 'archive',
+  '06 SETTINGS': 'settings'
 };
 
 @Injectable({
@@ -39,17 +41,18 @@ export class WorkspaceService {
   commandPaletteOpen = signal<boolean>(false);
   shortcutsModalOpen = signal<boolean>(false);
   globalCreateTaskModalOpen = signal<boolean>(false);
+  reportIssueModalOpen = signal<boolean>(false);
 
   readonly workspaces: WorkspaceItem[] = [
-    { id: '01 TODAY', key: '1', name: 'TODAY', code: '01', icon: 'fi fi-rr-sun', desc: 'Focus dashboard & metrics' },
-    { id: '02 PROJECTS', key: '2', name: 'PROJECTS', code: '02', icon: 'fi fi-rr-folder', desc: 'Project overview & metrics' },
-    { id: '03 BACKLOG', key: '3', name: 'BACKLOG', code: '03', icon: 'fi fi-rr-list-check', desc: 'Jira-style task backlog with comprehensive filters' },
-    { id: '04 TASKS', key: '4', name: 'BOARD', code: '04', icon: 'fi fi-rr-layout-fluid', desc: 'Kanban workflow board' },
-    { id: '05 CALENDAR', key: '5', name: 'CALENDAR', code: '05', icon: 'fi fi-rr-calendar', desc: 'Jira-style month calendar of created & closed tasks' },
-    { id: '06 ARCHIVE', key: '6', name: 'ARCHIVE', code: '06', icon: 'fi fi-rr-box-alt', desc: 'Completed task history & exports' }
+    { id: '01 TODAY', key: '1', name: 'DASHBOARD', code: '01', icon: 'fi fi-rr-dashboard', desc: 'Workspace dashboard & metrics' },
+    { id: '02 BACKLOG', key: '2', name: 'BACKLOG', code: '02', icon: 'fi fi-rr-list-check', desc: 'Workspace task backlog' },
+    { id: '03 TASKS', key: '3', name: 'BOARD', code: '03', icon: 'fi fi-rr-layout-fluid', desc: 'Kanban workflow board' },
+    { id: '04 CALENDAR', key: '4', name: 'CALENDAR', code: '04', icon: 'fi fi-rr-calendar', desc: 'Workspace month calendar' },
+    { id: '05 ARCHIVE', key: '5', name: 'ARCHIVE', code: '05', icon: 'fi fi-rr-box-alt', desc: 'Completed work history & exports' },
+    { id: '06 SETTINGS', key: '6', name: 'SETTINGS', code: '06', icon: 'fi fi-rr-settings', desc: 'Workspace settings & status workflow' }
   ];
 
-  constructor() {
+  constructor(public themeService: ThemeService) {
     this.initKeyboardListeners();
     this.initHashListener();
   }
@@ -110,6 +113,14 @@ export class WorkspaceService {
     this.globalCreateTaskModalOpen.set(false);
   }
 
+  openReportIssueModal() {
+    this.reportIssueModalOpen.set(true);
+  }
+
+  closeReportIssueModal() {
+    this.reportIssueModalOpen.set(false);
+  }
+
   private initKeyboardListeners() {
     if (typeof window === 'undefined') return;
 
@@ -132,6 +143,10 @@ export class WorkspaceService {
 
       // Escape closes modals
       if (e.key === 'Escape') {
+        if (this.reportIssueModalOpen()) {
+          this.reportIssueModalOpen.set(false);
+          return;
+        }
         if (this.globalCreateTaskModalOpen()) {
           this.globalCreateTaskModalOpen.set(false);
           return;
@@ -162,6 +177,13 @@ export class WorkspaceService {
           e.preventDefault();
           this.setWorkspace(item.id);
         }
+        return;
+      }
+
+      // Toggle theme shortcut (T or t)
+      if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        this.themeService.toggleTheme();
         return;
       }
 

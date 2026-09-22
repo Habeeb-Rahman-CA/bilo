@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { WorkspaceService } from '../../core/services/workspace.service';
 import { TaskService } from '../../core/services/task.service';
 import { ProjectService } from '../../core/services/project.service';
+import { ThemeService } from '../../core/services/theme.service';
 
 interface PaletteItem {
   id: string;
@@ -20,16 +21,17 @@ interface PaletteItem {
   standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
-    <div class="modal-overlay" (click)="close()">
+    <div class="modal-overlay" (click)="close()" role="dialog" aria-modal="true" aria-label="Command Palette">
       <div class="command-palette-card paper-panel" (click)="$event.stopPropagation()">
         <!-- Search Header -->
         <div class="palette-header">
-          <i class="fi fi-rr-search search-icon"></i>
+          <i class="fi fi-rr-search search-icon" aria-hidden="true"></i>
           <input
             #searchInput
             type="text"
             class="palette-input font-mono"
             placeholder="Type a command, task, project, or workspace..."
+            aria-label="Search command, task, project, or workspace"
             [ngModel]="searchQuery()"
             (ngModelChange)="onSearchInput($event)"
             (keydown)="onKeydown($event)"
@@ -39,14 +41,16 @@ interface PaletteItem {
         <!-- Results List Container -->
         <div #paletteBody class="palette-body">
           @if (filteredItems().length === 0) {
-            <div class="empty-results font-mono">
+            <div class="empty-results font-mono" role="status">
               <p>No matching commands found for "{{ searchQuery() }}"</p>
             </div>
           } @else {
-            <div class="results-list">
+            <div class="results-list" role="listbox" aria-label="Command palette results">
               @for (item of filteredItems(); track item.id; let idx = $index) {
                 <div
                   class="palette-item"
+                  role="option"
+                  [attr.aria-selected]="selectedIndex() === idx"
                   [class.selected]="selectedIndex() === idx"
                   (mouseenter)="selectedIndex.set(idx)"
                   (click)="execute(item)"
@@ -201,7 +205,8 @@ export class CommandPaletteComponent implements AfterViewInit {
   constructor(
     public workspaceService: WorkspaceService,
     public taskService: TaskService,
-    public projectService: ProjectService
+    public projectService: ProjectService,
+    public themeService: ThemeService
   ) { }
 
   ngAfterViewInit() {
@@ -235,6 +240,19 @@ export class CommandPaletteComponent implements AfterViewInit {
 
     // Quick Actions
     list.push({
+      id: 'action-toggle-theme',
+      type: 'action',
+      title: this.themeService.isDarkMode() ? 'Action: Switch to Light Theme' : 'Action: Switch to Black & Grey Dark Theme',
+      subtitle: 'Toggle workspace theme styling and color system',
+      badge: 'THEME',
+      icon: this.themeService.isDarkMode() ? 'fi fi-rr-sun' : 'fi fi-rr-moon-stars',
+      action: () => {
+        this.themeService.toggleTheme();
+        this.close();
+      }
+    });
+
+    list.push({
       id: 'action-new-task',
       type: 'action',
       title: 'Action: Create New Task',
@@ -255,7 +273,20 @@ export class CommandPaletteComponent implements AfterViewInit {
       badge: 'PROJ',
       icon: 'fi fi-rr-folder-add',
       action: () => {
-        this.workspaceService.setWorkspace('02 PROJECTS');
+        this.workspaceService.setWorkspace('06 SETTINGS');
+        this.close();
+      }
+    });
+
+    list.push({
+      id: 'action-report-issue',
+      type: 'action',
+      title: 'Action: Submit Feedback & Bug Report',
+      subtitle: 'Submit feedback, feature requests, or bug reports directly to project bilo',
+      badge: 'FEEDBACK',
+      icon: 'fi fi-rr-bug text-rose',
+      action: () => {
+        this.workspaceService.openReportIssueModal();
         this.close();
       }
     });
@@ -270,7 +301,7 @@ export class CommandPaletteComponent implements AfterViewInit {
         badge: t.type.toUpperCase(),
         icon: t.type === 'bug' ? 'fi fi-rr-bug' : 'fi fi-rr-check-circle',
         action: () => {
-          this.workspaceService.setWorkspace('04 TASKS');
+          this.workspaceService.setWorkspace('03 TASKS');
           this.close();
         }
       });
@@ -287,7 +318,7 @@ export class CommandPaletteComponent implements AfterViewInit {
         icon: 'fi fi-rr-box',
         action: () => {
           this.projectService.activeProject.set(p);
-          this.workspaceService.setWorkspace('02 PROJECTS');
+          this.workspaceService.setWorkspace('06 SETTINGS');
           this.close();
         }
       });

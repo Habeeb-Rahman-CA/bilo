@@ -1,0 +1,101 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { WorkspaceService } from './workspace.service';
+import { ThemeService } from './theme.service';
+
+describe('WorkspaceService', () => {
+  let themeService: ThemeService;
+  let service: WorkspaceService;
+
+  beforeEach(() => {
+    localStorage.clear();
+    window.location.hash = '';
+    themeService = new ThemeService();
+    service = new WorkspaceService(themeService);
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    window.location.hash = '';
+  });
+
+  it('should initialize with default 01 TODAY workspace when no hash or localStorage exists', () => {
+    expect(service.activeWorkspace()).toBe('01 TODAY');
+  });
+
+  it('should initialize workspace from localStorage', () => {
+    localStorage.setItem('bilo_active_workspace', '03 TASKS');
+    const newService = new WorkspaceService(themeService);
+    expect(newService.activeWorkspace()).toBe('03 TASKS');
+  });
+
+  it('should change active workspace and update localStorage and hash when setWorkspace is called', () => {
+    service.setWorkspace('02 BACKLOG');
+    expect(service.activeWorkspace()).toBe('02 BACKLOG');
+    expect(localStorage.getItem('bilo_active_workspace')).toBe('02 BACKLOG');
+    expect(window.location.hash).toBe('#backlog');
+  });
+
+  it('should toggle command palette state', () => {
+    expect(service.commandPaletteOpen()).toBe(false);
+    service.toggleCommandPalette();
+    expect(service.commandPaletteOpen()).toBe(true);
+    service.toggleCommandPalette();
+    expect(service.commandPaletteOpen()).toBe(false);
+  });
+
+  it('should open and close global create task modal', () => {
+    expect(service.globalCreateTaskModalOpen()).toBe(false);
+    service.openCreateTaskModal();
+    expect(service.globalCreateTaskModalOpen()).toBe(true);
+    service.closeCreateTaskModal();
+    expect(service.globalCreateTaskModalOpen()).toBe(false);
+  });
+
+  it('should open and close report issue modal', () => {
+    expect(service.reportIssueModalOpen()).toBe(false);
+    service.openReportIssueModal();
+    expect(service.reportIssueModalOpen()).toBe(true);
+    service.closeReportIssueModal();
+    expect(service.reportIssueModalOpen()).toBe(false);
+  });
+
+  it('should open and close shortcuts modal', () => {
+    expect(service.shortcutsModalOpen()).toBe(false);
+    service.toggleShortcutsModal();
+    expect(service.shortcutsModalOpen()).toBe(true);
+  });
+
+  it('should handle keyboard shortcut Cmd+K for command palette', () => {
+    expect(service.commandPaletteOpen()).toBe(false);
+
+    const event = new KeyboardEvent('keydown', { key: 'k', metaKey: true });
+    window.dispatchEvent(event);
+
+    expect(service.commandPaletteOpen()).toBe(true);
+  });
+
+  it('should handle keyboard shortcut Escape to close open modal', () => {
+    service.openCreateTaskModal();
+    expect(service.globalCreateTaskModalOpen()).toBe(true);
+
+    const event = new KeyboardEvent('keydown', { key: 'Escape' });
+    window.dispatchEvent(event);
+
+    expect(service.globalCreateTaskModalOpen()).toBe(false);
+  });
+
+  it('should switch workspace via numeric key shortcuts 1-6', () => {
+    const event = new KeyboardEvent('keydown', { key: '3' });
+    window.dispatchEvent(event);
+
+    expect(service.activeWorkspace()).toBe('03 TASKS');
+  });
+
+  it('should toggle theme on T shortcut when not in input element', () => {
+    const spy = vi.spyOn(themeService, 'toggleTheme');
+    const event = new KeyboardEvent('keydown', { key: 't' });
+    window.dispatchEvent(event);
+
+    expect(spy).toHaveBeenCalled();
+  });
+});

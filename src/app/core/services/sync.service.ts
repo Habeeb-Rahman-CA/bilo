@@ -130,10 +130,15 @@ export class SyncService {
   private async executeOp(op: PendingSyncOp): Promise<boolean> {
     const sb = this.supabaseService.supabase;
     const { type, payload } = op;
+    const { data: authData } = await sb.auth.getUser();
+    const currentUserId = authData?.user?.id;
 
     switch (type) {
       case 'CREATE_TASK': {
         const cleanPayload = this.sanitizeTaskPayload(payload);
+        if (currentUserId && !cleanPayload.user_id) {
+          cleanPayload.user_id = currentUserId;
+        }
         let { error } = await sb.from('tasks').upsert([cleanPayload]);
         if (error && error.code === 'PGRST204') {
           delete cleanPayload.attachments;
@@ -144,11 +149,14 @@ export class SyncService {
       }
       case 'UPDATE_TASK': {
         const { id, ...updates } = this.sanitizeTaskPayload(payload);
-        const cleanUpdates = { ...updates };
-        let { error } = await sb.from('tasks').update(cleanUpdates).eq('id', id);
+        const cleanUpdates: any = { id, ...updates };
+        if (currentUserId && !cleanUpdates.user_id) {
+          cleanUpdates.user_id = currentUserId;
+        }
+        let { error } = await sb.from('tasks').upsert([cleanUpdates]);
         if (error && error.code === 'PGRST204') {
           delete cleanUpdates.attachments;
-          const retry = await sb.from('tasks').update(cleanUpdates).eq('id', id);
+          const retry = await sb.from('tasks').upsert([cleanUpdates]);
           return !retry.error;
         }
         return !error;
@@ -159,6 +167,9 @@ export class SyncService {
       }
       case 'CREATE_PROJECT': {
         const cleanPayload = { ...payload };
+        if (currentUserId && !cleanPayload.user_id) {
+          cleanPayload.user_id = currentUserId;
+        }
         let { error } = await sb.from('projects').upsert([cleanPayload]);
         if (error && error.code === 'PGRST204') {
           delete cleanPayload.image_url;
@@ -189,6 +200,9 @@ export class SyncService {
         if (!cleanPayload.task_id || !this.isValidUuid(cleanPayload.task_id)) {
           return true;
         }
+        if (currentUserId && !cleanPayload.user_id) {
+          cleanPayload.user_id = currentUserId;
+        }
         const { error } = await sb.from('task_comments').upsert([cleanPayload]);
         if (error && error.code === '23503') {
           console.warn('[bilo Sync] task_comments FK missing, resolved gracefully:', cleanPayload);
@@ -210,6 +224,9 @@ export class SyncService {
         if (!cleanPayload.task_id || !this.isValidUuid(cleanPayload.task_id)) {
           return true;
         }
+        if (currentUserId && !cleanPayload.user_id) {
+          cleanPayload.user_id = currentUserId;
+        }
         const { error } = await sb.from('task_status_history').upsert([cleanPayload]);
         if (error && error.code === '23503') {
           console.warn('[bilo Sync] task_status_history FK missing, resolved gracefully:', cleanPayload);
@@ -218,7 +235,11 @@ export class SyncService {
         return !error;
       }
       case 'ADD_PROJECT_ACTIVITY': {
-        const { error } = await sb.from('project_activities').upsert([payload]);
+        const cleanPayload = { ...payload };
+        if (currentUserId && !cleanPayload.user_id) {
+          cleanPayload.user_id = currentUserId;
+        }
+        const { error } = await sb.from('project_activities').upsert([cleanPayload]);
         return !error;
       }
       default:

@@ -1,4 +1,4 @@
-import { Component, signal, computed, OnInit } from '@angular/core';
+import { Component, signal, computed, effect, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TaskService } from '../../core/services/task.service';
@@ -11,17 +11,18 @@ import { getTaskKey } from '../../core/utils/task-key.util';
 import { TaskDetailModalComponent } from '../../shared/components/task-detail-modal';
 import { TaskModalComponent } from '../../shared/components/task-modal';
 import { SelectComponent, SelectOption } from '../../shared/components/select';
+import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
 
 @Component({
   selector: 'app-backlog',
   standalone: true,
-  imports: [CommonModule, FormsModule, TaskDetailModalComponent, TaskModalComponent, SelectComponent],
+  imports: [CommonModule, FormsModule, TaskDetailModalComponent, TaskModalComponent, SelectComponent, ConfirmModalComponent],
   template: `
     <div class="backlog-workspace font-mono">
       <!-- Top Banner Bar -->
       <div class="view-header-strip paper-panel">
         <div class="view-header-left">
-          <span class="badge-mono">03 BACKLOG</span>
+          <span class="badge-mono">02 BACKLOG</span>
           <h2 class="view-header-title">Task Backlog</h2>
           <span class="badge-mono text-muted">{{ filteredTasks().length }} of {{ allTasks().length }} Tasks</span>
         </div>
@@ -49,17 +50,6 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
         </div>
 
         <div class="filter-dropdowns">
-          <!-- Project Filter -->
-          <div class="filter-group">
-            <span class="filter-label">PROJECT:</span>
-            <app-select
-              [options]="projectFilterOptions()"
-              [value]="selectedProject()"
-              (valueChange)="selectedProject.set($event)"
-              [compact]="true"
-            ></app-select>
-          </div>
-
           <!-- Type Filter -->
           <div class="filter-group">
             <span class="filter-label">TYPE:</span>
@@ -82,6 +72,50 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
             ></app-select>
           </div>
 
+          <!-- Severity Filter -->
+          <div class="filter-group">
+            <span class="filter-label">SEVERITY:</span>
+            <app-select
+              [options]="severityFilterOptions"
+              [value]="selectedSeverity()"
+              (valueChange)="selectedSeverity.set($event)"
+              [compact]="true"
+            ></app-select>
+          </div>
+
+          <!-- Reproducibility Filter -->
+          <div class="filter-group">
+            <span class="filter-label">REPRO:</span>
+            <app-select
+              [options]="reproducibilityFilterOptions"
+              [value]="selectedReproducibility()"
+              (valueChange)="selectedReproducibility.set($event)"
+              [compact]="true"
+            ></app-select>
+          </div>
+
+          <!-- Label Filter -->
+          <div class="filter-group">
+            <span class="filter-label">LABEL:</span>
+            <app-select
+              [options]="labelFilterOptions()"
+              [value]="selectedLabel()"
+              (valueChange)="selectedLabel.set($event)"
+              [compact]="true"
+            ></app-select>
+          </div>
+
+          <!-- Due Date Filter -->
+          <div class="filter-group">
+            <span class="filter-label">DUE DATE:</span>
+            <app-select
+              [options]="dueDateFilterOptions"
+              [value]="selectedDueDateFilter()"
+              (valueChange)="selectedDueDateFilter.set($event)"
+              [compact]="true"
+            ></app-select>
+          </div>
+
           <!-- Status Filter -->
           <div class="filter-group">
             <span class="filter-label">STATUS:</span>
@@ -93,8 +127,8 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
             ></app-select>
           </div>
 
-          <!-- Sort By -->
-          <div class="filter-group">
+          <!-- Sort By & Direction -->
+          <div class="filter-group sort-group">
             <span class="filter-label">SORT:</span>
             <app-select
               [options]="sortOptions"
@@ -102,6 +136,15 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
               (valueChange)="sortBy.set($event)"
               [compact]="true"
             ></app-select>
+            <button
+              type="button"
+              class="btn btn-secondary btn-xs sort-dir-btn font-mono"
+              (click)="toggleSortOrder()"
+              [title]="'Sort order: ' + sortOrder().toUpperCase()"
+            >
+              <i [class]="sortOrder() === 'asc' ? 'fi fi-rr-arrow-small-up' : 'fi fi-rr-arrow-small-down'"></i>
+              <span>{{ sortOrder().toUpperCase() }}</span>
+            </button>
           </div>
 
           @if (hasActiveFilters()) {
@@ -181,9 +224,9 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                 </div>
 
                 <!-- Type Icon & Label -->
-                <div class="cell-type" [title]="'Type: ' + (t.type || 'task')">
-                  <i [class]="getTypeIcon(t.type)" [style.color]="getTypeColor(t.type)"></i>
-                  <span class="type-name">{{ t.type || 'task' }}</span>
+                <div class="cell-type" [title]="'Type / Category: ' + getTypeLabel(t)">
+                  <i [class]="getTypeIcon(t)" [style.color]="getTypeColor(t)"></i>
+                  <span class="type-name">{{ getTypeLabel(t) }}</span>
                 </div>
 
                 <!-- Task Key / Identifier -->
@@ -198,6 +241,11 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                 <!-- Title / Summary -->
                 <div class="cell-summary">
                   <span class="summary-text" [class.completed]="t.completed || isDone(t.status)">{{ t.title }}</span>
+                  @if (isReportedTask(t)) {
+                    <span class="app-report-badge font-mono" title="Reported directly by user via App Report">
+                      <i class="fi fi-rr-paper-plane"></i> User Report
+                    </span>
+                  }
                 </div>
 
                 <!-- Project -->
@@ -229,7 +277,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                       <i class="fi fi-rr-calendar"></i> {{ t.due_date }}
                     </span>
                   } @else {
-                    <span class="no-due">-</span>
+                    <span class="no-due">No due date</span>
                   }
                 </div>
 
@@ -246,7 +294,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
 
                 <!-- Actions -->
                 <div class="cell-actions" (click)="$event.stopPropagation()">
-                  <button class="action-btn btn-danger-action" (click)="deleteTask(t.id)" title="Delete task permanently">
+                  <button class="action-btn btn-danger-action" (click)="deleteTask(t)" title="Delete task permanently">
                     <i class="fi fi-rr-trash"></i>
                   </button>
                 </div>
@@ -268,6 +316,18 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
           [task]="dt"
           (close)="activeDetailTask.set(null)"
         ></app-task-detail-modal>
+      }
+
+      @if (confirmState(); as cs) {
+        <app-confirm-modal
+          [isOpen]="cs.open"
+          [title]="cs.title"
+          [message]="cs.message"
+          confirmText="Delete"
+          type="danger"
+          (confirm)="handleConfirm()"
+          (cancel)="confirmState.set(null)"
+        />
       }
     </div>
   `,
@@ -481,7 +541,31 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       flex: 1;
       display: flex;
       align-items: center;
+      gap: 0.5rem;
       overflow: hidden;
+    }
+    .app-report-badge {
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 0.35rem !important;
+      padding: 0.18rem 0.55rem !important;
+      font-size: 0.65rem !important;
+      font-weight: 800 !important;
+      letter-spacing: 0.04em !important;
+      text-transform: uppercase !important;
+      border-radius: var(--radius-xs, 4px) !important;
+      background: rgba(244, 63, 94, 0.2) !important;
+      color: #f43f5e !important;
+      border: 1px solid rgba(244, 63, 94, 0.5) !important;
+      box-shadow: 0 1px 4px rgba(244, 63, 94, 0.2) !important;
+      line-height: 1.2 !important;
+      white-space: nowrap !important;
+      vertical-align: middle !important;
+      flex-shrink: 0 !important;
+    }
+    .app-report-badge i {
+      font-size: 0.725rem !important;
+      color: #f43f5e !important;
     }
     .summary-text {
       color: var(--text-main);
@@ -557,7 +641,12 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       color: var(--accent-rose);
       font-weight: 700;
     }
-    .no-due { color: var(--text-subtle); }
+    .no-due {
+      color: var(--text-subtle);
+      font-style: italic;
+      font-size: 0.7rem;
+      opacity: 0.75;
+    }
 
     .cell-created {
       width: 110px;
@@ -603,6 +692,140 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       color: #ffffff;
       border-color: #f43f5e;
     }
+
+    /* ==========================================================================
+       Mobile Backlog Optimizations (< 768px & < 480px)
+       Only show important data: Checkbox, Key/Title, Priority, Status.
+       Hide project, created date, due date, action button, and type label text.
+       ========================================================================== */
+    @media (max-width: 768px) {
+      .backlog-workspace {
+        padding: 0.5rem;
+        gap: 0.65rem;
+      }
+
+      /* Horizontal Scrolling Filter Toolbar on Mobile */
+      .filter-toolbar {
+        padding: 0.5rem 0.65rem;
+        gap: 0.5rem;
+      }
+
+      .filter-dropdowns {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        padding-bottom: 0.2rem;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .filter-label {
+        display: none;
+      }
+
+      .filter-group {
+        flex-shrink: 0;
+      }
+
+      /* Backlog Table Container & Row */
+      .backlog-table-container {
+        border-radius: var(--radius-xs);
+        overflow-x: hidden;
+      }
+
+      .table-header-row {
+        padding: 0.5rem 0.65rem;
+        gap: 0.5rem;
+      }
+
+      /* Hide non-essential columns on mobile */
+      .table-header-row .cell-project,
+      .table-header-row .cell-due,
+      .table-header-row .cell-created,
+      .table-header-row .cell-actions,
+      .task-table-row .cell-project,
+      .task-table-row .cell-due,
+      .task-table-row .cell-created,
+      .task-table-row .cell-actions {
+        display: none !important;
+      }
+
+      .table-header-row .cell-type {
+        display: none !important;
+      }
+
+      /* Compact mobile task row */
+      .task-table-row {
+        padding: 0.55rem 0.65rem;
+        gap: 0.45rem;
+      }
+
+      .cell-check {
+        width: 20px;
+        flex-shrink: 0;
+      }
+
+      .cell-type {
+        width: auto;
+        flex-shrink: 0;
+      }
+
+      .type-name {
+        display: none;
+      }
+
+      .cell-key {
+        width: auto;
+        min-width: 60px;
+        flex-shrink: 0;
+        font-size: 0.7rem;
+      }
+
+      .cell-summary {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .summary-text {
+        font-size: 0.775rem;
+      }
+
+      .cell-priority {
+        width: auto;
+        flex-shrink: 0;
+      }
+
+      .priority-badge {
+        font-size: 0.625rem;
+        padding: 0.08rem 0.3rem;
+      }
+
+      .cell-status {
+        width: 90px;
+        flex-shrink: 0;
+      }
+
+      .batch-bar {
+        padding: 0.4rem 0.65rem;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.4rem;
+      }
+
+      .batch-actions {
+        flex-wrap: wrap;
+        width: 100%;
+        justify-content: flex-start;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .cell-key {
+        font-size: 0.675rem;
+      }
+
+      .cell-status {
+        width: 82px;
+      }
+    }
   `]
 })
 export class BacklogComponent implements OnInit {
@@ -611,16 +834,12 @@ export class BacklogComponent implements OnInit {
   selectedType = signal<string>('ALL');
   selectedPriority = signal<string>('ALL');
   selectedStatus = signal<string>('ALL');
+  selectedSeverity = signal<string>('ALL');
+  selectedReproducibility = signal<string>('ALL');
+  selectedLabel = signal<string>('ALL');
+  selectedDueDateFilter = signal<string>('ALL');
   sortBy = signal<string>('created_at');
-
-  projectFilterOptions = computed<SelectOption[]>(() => [
-    { value: 'ALL', label: 'All Projects', icon: 'fi fi-rr-apps' },
-    ...this.projectService.projects().map(p => ({
-      value: p.id,
-      label: p.name,
-      icon: 'fi fi-rr-folder'
-    }))
-  ]);
+  sortOrder = signal<'asc' | 'desc'>('desc');
 
   typeFilterOptions: SelectOption[] = [
     { value: 'ALL', label: 'All Types' },
@@ -638,6 +857,32 @@ export class BacklogComponent implements OnInit {
     { value: 'low', label: 'Low' }
   ];
 
+  severityFilterOptions: SelectOption[] = [
+    { value: 'ALL', label: 'All Severities' },
+    { value: 'critical', label: 'Critical' },
+    { value: 'major', label: 'Major' },
+    { value: 'minor', label: 'Minor' },
+    { value: 'trivial', label: 'Trivial' }
+  ];
+
+  reproducibilityFilterOptions: SelectOption[] = [
+    { value: 'ALL', label: 'All Reproducibility' },
+    { value: 'always', label: 'Always' },
+    { value: 'often', label: 'Often' },
+    { value: 'sometimes', label: 'Sometimes' },
+    { value: 'rarely', label: 'Rarely' },
+    { value: 'unable', label: 'Unable to Reproduce' }
+  ];
+
+  dueDateFilterOptions: SelectOption[] = [
+    { value: 'ALL', label: 'All Due Dates' },
+    { value: 'overdue', label: 'Overdue' },
+    { value: 'today', label: 'Due Today' },
+    { value: 'week', label: 'Due This Week' },
+    { value: 'has_date', label: 'Has Due Date' },
+    { value: 'no_date', label: 'No Due Date' }
+  ];
+
   statusFilterOptions = computed<SelectOption[]>(() => [
     { value: 'ALL', label: 'All Statuses' },
     ...this.workflowService.globalWorkflows().map(w => ({
@@ -646,12 +891,34 @@ export class BacklogComponent implements OnInit {
     }))
   ]);
 
+  labelFilterOptions = computed<SelectOption[]>(() => [
+    { value: 'ALL', label: 'All Labels' },
+    ...this.availableLabels().map(lbl => ({
+      value: lbl,
+      label: `#${lbl}`
+    }))
+  ]);
+
   sortOptions: SelectOption[] = [
     { value: 'created_at', label: 'Created Date' },
+    { value: 'updated_at', label: 'Last Updated' },
     { value: 'priority', label: 'Priority' },
+    { value: 'severity', label: 'Severity' },
     { value: 'due_date', label: 'Due Date' },
-    { value: 'title', label: 'Title' }
+    { value: 'title', label: 'Title / Key' },
+    { value: 'status', label: 'Status' }
   ];
+
+  availableLabels = computed<string[]>(() => {
+    const list = this.taskService.tasks();
+    const set = new Set<string>();
+    list.forEach(t => {
+      t.labels?.forEach(l => {
+        if (l.trim()) set.add(l.trim().toLowerCase());
+      });
+    });
+    return Array.from(set).sort();
+  });
 
   rowStatusOptions = computed<SelectOption[]>(() =>
     this.workflowService.globalWorkflows().map(w => ({
@@ -671,7 +938,44 @@ export class BacklogComponent implements OnInit {
     public workflowService: WorkflowService,
     public workspaceService: WorkspaceService,
     public taskShareService: TaskShareService
-  ) { }
+  ) {
+    const saved = localStorage.getItem('bilo_backlog_filters');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.searchQuery !== undefined) this.searchQuery.set(parsed.searchQuery);
+        if (parsed.selectedType !== undefined) this.selectedType.set(parsed.selectedType);
+        if (parsed.selectedPriority !== undefined) this.selectedPriority.set(parsed.selectedPriority);
+        if (parsed.selectedStatus !== undefined) this.selectedStatus.set(parsed.selectedStatus);
+        if (parsed.selectedSeverity !== undefined) this.selectedSeverity.set(parsed.selectedSeverity);
+        if (parsed.selectedReproducibility !== undefined) this.selectedReproducibility.set(parsed.selectedReproducibility);
+        if (parsed.selectedLabel !== undefined) this.selectedLabel.set(parsed.selectedLabel);
+        if (parsed.selectedDueDateFilter !== undefined) this.selectedDueDateFilter.set(parsed.selectedDueDateFilter);
+        if (parsed.sortBy !== undefined) this.sortBy.set(parsed.sortBy);
+        if (parsed.sortOrder !== undefined) this.sortOrder.set(parsed.sortOrder);
+      } catch (e) {}
+    }
+
+    effect(() => {
+      const filters = {
+        searchQuery: this.searchQuery(),
+        selectedType: this.selectedType(),
+        selectedPriority: this.selectedPriority(),
+        selectedStatus: this.selectedStatus(),
+        selectedSeverity: this.selectedSeverity(),
+        selectedReproducibility: this.selectedReproducibility(),
+        selectedLabel: this.selectedLabel(),
+        selectedDueDateFilter: this.selectedDueDateFilter(),
+        sortBy: this.sortBy(),
+        sortOrder: this.sortOrder()
+      };
+      localStorage.setItem('bilo_backlog_filters', JSON.stringify(filters));
+    });
+  }
+
+  toggleSortOrder() {
+    this.sortOrder.update(o => o === 'asc' ? 'desc' : 'asc');
+  }
 
   getTaskKeyStr(t: Task): string {
     return getTaskKey(t, this.projectService.projects());
@@ -686,20 +990,31 @@ export class BacklogComponent implements OnInit {
   hasActiveFilters = computed(() => {
     return (
       this.searchQuery().trim() !== '' ||
-      this.selectedProject() !== 'ALL' ||
       this.selectedType() !== 'ALL' ||
       this.selectedPriority() !== 'ALL' ||
-      this.selectedStatus() !== 'ALL'
+      this.selectedStatus() !== 'ALL' ||
+      this.selectedSeverity() !== 'ALL' ||
+      this.selectedReproducibility() !== 'ALL' ||
+      this.selectedLabel() !== 'ALL' ||
+      this.selectedDueDateFilter() !== 'ALL' ||
+      this.sortOrder() !== 'desc'
     );
   });
 
   filteredTasks = computed(() => {
     let list = [...this.allTasks()];
+    const activeWorkspaceProjId = this.projectService.activeProject()?.id;
+    if (activeWorkspaceProjId) {
+      list = list.filter(t => t.project_id === activeWorkspaceProjId);
+    }
     const q = this.searchQuery().toLowerCase().trim();
-    const proj = this.selectedProject();
     const type = this.selectedType().toLowerCase();
     const pri = this.selectedPriority().toLowerCase();
     const st = this.selectedStatus().toLowerCase();
+    const sev = this.selectedSeverity().toLowerCase();
+    const repro = this.selectedReproducibility().toLowerCase();
+    const lbl = this.selectedLabel().toLowerCase();
+    const dueFilter = this.selectedDueDateFilter().toLowerCase();
     const sort = this.sortBy();
 
     if (q) {
@@ -708,10 +1023,6 @@ export class BacklogComponent implements OnInit {
         (t.description && t.description.toLowerCase().includes(q)) ||
         t.id.toLowerCase().includes(q)
       );
-    }
-
-    if (proj !== 'ALL') {
-      list = list.filter(t => t.project_id === proj);
     }
 
     if (type !== 'all') {
@@ -726,25 +1037,62 @@ export class BacklogComponent implements OnInit {
       list = list.filter(t => this.normalizeStatus(t.status).toLowerCase() === st);
     }
 
+    if (sev !== 'all') {
+      list = list.filter(t => (t.severity || '').toLowerCase() === sev);
+    }
+
+    if (repro !== 'all') {
+      list = list.filter(t => (t.reproducibility || '').toLowerCase() === repro);
+    }
+
+    if (lbl !== 'all') {
+      list = list.filter(t => (t.labels || []).some(l => l.toLowerCase() === lbl));
+    }
+
+    if (dueFilter !== 'all') {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const weekAhead = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
+      if (dueFilter === 'overdue') list = list.filter(t => t.due_date && t.due_date < todayStr && !t.completed);
+      else if (dueFilter === 'today') list = list.filter(t => t.due_date === todayStr);
+      else if (dueFilter === 'week') list = list.filter(t => t.due_date && t.due_date >= todayStr && t.due_date <= weekAhead);
+      else if (dueFilter === 'has_date') list = list.filter(t => !!t.due_date);
+      else if (dueFilter === 'no_date') list = list.filter(t => !t.due_date);
+    }
+
     // Sort logic
+    const mult = this.sortOrder() === 'asc' ? 1 : -1;
     const priorityWeight: Record<string, number> = { urgent: 4, high: 3, medium: 2, low: 1 };
+    const severityWeight: Record<string, number> = { critical: 4, major: 3, minor: 2, trivial: 1 };
+
     list.sort((a, b) => {
+      let diff = 0;
       if (sort === 'created_at') {
         const da = a.created_at ? new Date(a.created_at).getTime() : 0;
         const db = b.created_at ? new Date(b.created_at).getTime() : 0;
-        return db - da;
+        diff = da - db;
+      } else if (sort === 'updated_at') {
+        const da = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+        const db = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+        diff = da - db;
       } else if (sort === 'priority') {
         const pa = priorityWeight[(a.priority || 'medium').toLowerCase()] || 0;
         const pb = priorityWeight[(b.priority || 'medium').toLowerCase()] || 0;
-        return pb - pa;
+        diff = pa - pb;
+      } else if (sort === 'severity') {
+        const sa = severityWeight[(a.severity || '').toLowerCase()] || 0;
+        const sb = severityWeight[(b.severity || '').toLowerCase()] || 0;
+        diff = sa - sb;
       } else if (sort === 'due_date') {
-        if (!a.due_date) return 1;
-        if (!b.due_date) return -1;
-        return a.due_date.localeCompare(b.due_date);
+        if (!a.due_date && !b.due_date) diff = 0;
+        else if (!a.due_date) diff = 1;
+        else if (!b.due_date) diff = -1;
+        else diff = a.due_date.localeCompare(b.due_date);
       } else if (sort === 'title') {
-        return a.title.localeCompare(b.title);
+        diff = a.title.localeCompare(b.title);
+      } else if (sort === 'status') {
+        diff = (a.status || '').localeCompare(b.status || '');
       }
-      return 0;
+      return diff * mult;
     });
 
     return list;
@@ -752,11 +1100,16 @@ export class BacklogComponent implements OnInit {
 
   resetFilters() {
     this.searchQuery.set('');
-    this.selectedProject.set('ALL');
     this.selectedType.set('ALL');
     this.selectedPriority.set('ALL');
     this.selectedStatus.set('ALL');
+    this.selectedSeverity.set('ALL');
+    this.selectedReproducibility.set('ALL');
+    this.selectedLabel.set('ALL');
+    this.selectedDueDateFilter.set('ALL');
     this.sortBy.set('created_at');
+    this.sortOrder.set('desc');
+    localStorage.removeItem('bilo_backlog_filters');
   }
 
   isAllSelected(): boolean {
@@ -808,20 +1161,46 @@ export class BacklogComponent implements OnInit {
     this.clearSelection();
   }
 
-  async batchDelete() {
+  confirmState = signal<{ open: boolean; title: string; message: string; action: () => void } | null>(null);
+
+  batchDelete() {
     const ids = this.selectedTaskIds();
-    for (const id of ids) {
-      await this.taskService.deleteTask(id);
-    }
-    this.clearSelection();
+    if (ids.length === 0) return;
+    this.confirmState.set({
+      open: true,
+      title: 'Delete Selected Tasks',
+      message: `Are you sure you want to permanently delete ${ids.length} selected task${ids.length > 1 ? 's' : ''}?`,
+      action: async () => {
+        for (const id of ids) {
+          await this.taskService.deleteTask(id);
+        }
+        this.clearSelection();
+      }
+    });
   }
 
   async updateStatus(id: string, statusVal: string) {
     await this.taskService.updateTask(id, { status: statusVal, completed: statusVal === 'done' });
   }
 
-  async deleteTask(id: string) {
-    await this.taskService.deleteTask(id);
+  deleteTask(t: Task) {
+    this.confirmState.set({
+      open: true,
+      title: 'Delete Task',
+      message: `Are you sure you want to permanently delete task "${t.title}"?`,
+      action: async () => {
+        await this.taskService.deleteTask(t.id);
+        this.selectedTaskIds.update(ids => ids.filter(id => id !== t.id));
+      }
+    });
+  }
+
+  handleConfirm() {
+    const current = this.confirmState();
+    if (current && current.action) {
+      current.action();
+    }
+    this.confirmState.set(null);
   }
 
   openDetail(t: Task) {
@@ -834,19 +1213,63 @@ export class BacklogComponent implements OnInit {
     return p ? p.name : 'General';
   }
 
-  getTypeIcon(type: string): string {
-    const t = (type || '').toLowerCase();
-    switch (t) {
+  isReportedTask(t: Task): boolean {
+    if (!t) return false;
+    return !!(t.is_app_report || t.report_category || t.labels?.includes('app-report') || t.title?.startsWith('[App Report]'));
+  }
+
+  getReportCategory(t: Task): string {
+    if (t?.report_category) return t.report_category;
+    if (t?.labels?.includes('ui_ux')) return 'ui_ux';
+    if (t?.labels?.includes('feature')) return 'feature';
+    if (t?.labels?.includes('other')) return 'other';
+    return 'bug';
+  }
+
+  getTypeLabel(t: Task): string {
+    if (this.isReportedTask(t)) {
+      const cat = this.getReportCategory(t);
+      switch (cat) {
+        case 'ui_ux': return 'UI / UX';
+        case 'feature': return 'Feature';
+        case 'other': return 'Other';
+        case 'bug': default: return 'Bug';
+      }
+    }
+    return t.type || 'task';
+  }
+
+  getTypeIcon(t: Task | string): string {
+    if (typeof t === 'object' && t !== null && this.isReportedTask(t)) {
+      const cat = this.getReportCategory(t);
+      switch (cat) {
+        case 'ui_ux': return 'fi fi-rr-layout-fluid';
+        case 'feature': return 'fi fi-rr-rocket';
+        case 'other': return 'fi fi-rr-info';
+        case 'bug': default: return 'fi fi-rr-bug';
+      }
+    }
+    const typeStr = (typeof t === 'string' ? t : t?.type || '').toLowerCase();
+    switch (typeStr) {
       case 'story': return 'fi fi-rr-book-alt';
       case 'bug': return 'fi fi-rr-bug';
       case 'epic': return 'fi fi-rr-rocket';
-      default: return 'fi fi-rr-check-circle';
+      default: return 'fi fi-rr-checkbox';
     }
   }
 
-  getTypeColor(type: string): string {
-    const t = (type || '').toLowerCase();
-    switch (t) {
+  getTypeColor(t: Task | string): string {
+    if (typeof t === 'object' && t !== null && this.isReportedTask(t)) {
+      const cat = this.getReportCategory(t);
+      switch (cat) {
+        case 'ui_ux': return '#06b6d4';
+        case 'feature': return '#f59e0b';
+        case 'other': return '#71717a';
+        case 'bug': default: return '#f43f5e';
+      }
+    }
+    const typeStr = (typeof t === 'string' ? t : t?.type || '').toLowerCase();
+    switch (typeStr) {
       case 'story': return '#0284c7';
       case 'bug': return '#dc2626';
       case 'epic': return '#7c3aed';

@@ -1,82 +1,224 @@
-@if (workspaceService.maintenanceMode()) {
-  <app-maintenance />
-} @else {
+@if (authService.isAuthenticated()) {
 <div class="app-shell">
   <!-- Top Bar Header: System Name (Left), Command Palette Search (Middle), Help Icon (Right) -->
   <header class="app-header paper-panel">
-    <!-- Left End: System Name & Mobile Menu Toggle -->
+    <!-- Left End: System Name Logo -->
     <div class="header-brand font-mono">
-      <button class="mobile-menu-toggle btn btn-ghost btn-xs" (click)="mobileMenuOpen.set(!mobileMenuOpen())"
-        title="Toggle Menu">
-        <i [class]="mobileMenuOpen() ? 'fi fi-rr-cross' : 'fi fi-rr-menu-burger'"></i>
-      </button>
       <app-bilo-logo size="sm" [showText]="true"></app-bilo-logo>
     </div>
 
     <!-- Middle: Command Palette Search Bar -->
     <div class="header-center">
       <button class="cmd-search-bar font-mono" (click)="workspaceService.toggleCommandPalette()"
-        title="Search or type a command">
+        title="Search or type a command" aria-label="Search workspace and tasks (Cmd+K)">
         <i class="fi fi-rr-search search-icon"></i>
-        <span class="search-placeholder">Search workspace, tasks, projects...</span>
+        <span class="search-placeholder">Search workspace, tasks...</span>
       </button>
     </div>
 
-    <!-- Right End: Offline Badge & Help Icon -->
+    <!-- Right End: Offline Badge & Action Buttons -->
     <div class="header-right font-mono">
       @if (canInstallPwa()) {
-        <button class="btn btn-primary btn-xs" (click)="installPwa()" title="Install Bilo Desktop Standalone App">
-          <i class="fi fi-rr-download"></i> Install App
+        <button class="btn btn-primary btn-xs pwa-install-btn" (click)="installPwa()" title="Install Bilo Desktop Standalone App" aria-label="Install Bilo Desktop Standalone App">
+          <i class="fi fi-rr-download"></i> <span class="pwa-text">Install</span>
         </button>
       }
       @if (!syncService.isOnline()) {
-        <span class="badge-mono badge-amber" title="Offline Mode - Changes saved locally">
-          <i class="fi fi-rr-wifi-slash"></i> OFFLINE ({{ syncService.pendingSyncQueue().length }})
+        <span class="badge-mono badge-amber offline-header-badge" title="Offline Mode - Changes saved locally" role="status">
+          <i class="fi fi-rr-wifi-slash"></i> <span class="offline-text">OFFLINE</span> ({{ syncService.pendingSyncQueue().length }})
         </span>
       }
-      <button class="btn btn-ghost btn-sm nav-bell-btn" (click)="togglePushNotificationModal()"
-        [title]="pushService.notificationsEnabled() ? 'Push Notifications Active' : 'Push Notifications Center'">
-        <i class="fi fi-rr-bell-ring help-icon" [class.text-amber]="pushService.notificationsEnabled()"></i>
-        @if (pushService.notificationsEnabled()) {
-          <span class="bell-active-dot"></span>
+
+      <!-- Light / Dark Theme Mode Toggle -->
+      <button class="btn btn-ghost btn-sm theme-toggle-btn" (click)="themeService.toggleTheme()"
+        [title]="themeService.isDarkMode() ? 'Switch to Light Craft Paper Theme' : 'Switch to Dark Theme (Black & Grey)'"
+        [attr.aria-label]="themeService.isDarkMode() ? 'Switch to Light Theme' : 'Switch to Dark Theme'">
+        <i [class]="themeService.isDarkMode() ? 'fi fi-rr-sun' : 'fi fi-rr-moon-stars'"></i>
+      </button>
+
+      <!-- Notifications Menu Icon & Popover -->
+      <div class="notification-menu-container font-mono">
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm nav-bell-btn"
+          [class.active]="notificationMenuOpen()"
+          (click)="toggleNotificationMenu($event)"
+          [title]="pushService.notificationsEnabled() ? 'Notifications Center' : 'Notifications Off'"
+          [attr.aria-expanded]="notificationMenuOpen()"
+          aria-label="Notifications Center"
+        >
+          <i class="fi fi-rr-bell-ring help-icon" [class.text-amber]="pushService.notificationsEnabled()"></i>
+          @if (pushService.notificationsEnabled() || pushService.notificationHistory().length > 0) {
+            <span class="bell-active-dot"></span>
+          }
+        </button>
+
+        @if (notificationMenuOpen()) {
+          <div class="notification-menu-popover paper-panel font-mono" (click)="$event.stopPropagation()">
+            <div class="notif-popover-header">
+              <div class="notif-header-left">
+                <i class="fi fi-rr-bell text-amber"></i>
+                <span class="notif-title">NOTIFICATIONS</span>
+                <span class="badge-mono">{{ pushService.notificationHistory().length }}</span>
+              </div>
+              @if (pushService.notificationHistory().length > 0) {
+                <button class="btn btn-ghost btn-xs text-rose" (click)="pushService.clearHistory()">Clear</button>
+              }
+            </div>
+
+            <div class="notif-popover-body">
+              @if (pushService.notificationHistory().length === 0) {
+                <div class="empty-notif-box">
+                  <i class="fi fi-rr-bell-slash text-muted"></i>
+                  <p>No recent notifications</p>
+                </div>
+              } @else {
+                <div class="notif-list">
+                  @for (log of pushService.notificationHistory(); track log.id) {
+                    <div class="notif-item">
+                      <div class="notif-item-header">
+                        <span class="notif-item-title">{{ log.title }}</span>
+                        <span class="notif-item-time">{{ log.time }}</span>
+                      </div>
+                      <p class="notif-item-body">{{ log.body }}</p>
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+
+            <div class="notif-popover-footer">
+              <button
+                class="btn btn-secondary btn-xs full-width-btn"
+                (click)="openNotificationSettings()"
+              >
+                <i class="fi fi-rr-settings"></i> Notification Settings
+              </button>
+            </div>
+          </div>
         }
-      </button>
-      <button class="btn btn-ghost btn-sm help-btn" (click)="workspaceService.toggleShortcutsModal()"
-        title="Help & Reference (?)">
-        <i class="fi fi-rr-interrogation help-icon"></i>
-      </button>
+      </div>
+
+      <!-- Workspace Selection Dropdown -->
+      <app-workspace-switcher
+        (createWorkspace)="createProjectModalOpen.set(true)"
+      ></app-workspace-switcher>
+
+      <!-- User Profile Menu Icon & Dropdown Popover (Rightmost) -->
+      <div class="user-menu-container font-mono">
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm user-menu-btn"
+          [class.has-avatar]="!!authService.userAvatar()"
+          [class.active]="userMenuOpen()"
+          (click)="toggleUserMenu($event)"
+          [title]="'Account: ' + authService.userEmail()"
+        >
+          @if (authService.userAvatar(); as avatar) {
+            <img [src]="avatar" class="user-header-avatar" alt="Avatar" />
+          } @else {
+            <i class="fi fi-rr-user"></i>
+          }
+          <span class="user-status-dot"></span>
+        </button>
+
+        @if (userMenuOpen()) {
+          <div class="user-menu-popover paper-panel font-mono" (click)="$event.stopPropagation()">
+            <div class="user-info-card">
+              <div class="user-avatar-circle">
+                @if (authService.userAvatar(); as avatar) {
+                  <img [src]="avatar" class="user-popover-avatar" alt="Avatar" />
+                } @else {
+                  <i class="fi fi-rr-user-check text-emerald"></i>
+                }
+              </div>
+              <div class="user-details">
+                <span class="user-display-name">{{ userName() }}</span>
+                <span class="user-email-address">{{ authService.userEmail() }}</span>
+              </div>
+            </div>
+
+            <div class="user-menu-actions">
+              <button
+                type="button"
+                class="user-action-btn"
+                (click)="userMenuOpen.set(false); editProfileModalOpen.set(true)"
+              >
+                <i class="fi fi-rr-user-pen text-emerald"></i>
+                <span>Edit Profile</span>
+              </button>
+
+              @if (projectService.activeProject(); as activeProj) {
+                <button
+                  type="button"
+                  class="user-action-btn"
+                  (click)="userMenuOpen.set(false); projectAccessModalOpen.set(true)"
+                >
+                  <i class="fi fi-rr-users-alt text-cyan"></i>
+                  <span>Team Invite & Access</span>
+                </button>
+              }
+
+              <button
+                type="button"
+                class="user-action-btn"
+                (click)="userMenuOpen.set(false); workspaceService.openReportIssueModal()"
+              >
+                <i class="fi fi-rr-bug text-rose"></i>
+                <span>Submit Feedback & Bug Report</span>
+              </button>
+
+              <button
+                type="button"
+                class="user-action-btn"
+                (click)="userMenuOpen.set(false); workspaceService.toggleShortcutsModal()"
+              >
+                <i class="fi fi-rr-interrogation text-amber"></i>
+                <span>Help & Shortcuts (?)</span>
+              </button>
+
+              <div class="user-menu-divider"></div>
+
+              <button
+                type="button"
+                class="user-action-btn btn-signout text-rose"
+                (click)="signOutUser()"
+              >
+                <i class="fi fi-rr-sign-out-alt"></i>
+                <span>Sign Out</span>
+              </button>
+            </div>
+          </div>
+        }
+      </div>
     </div>
   </header>
 
-  <!-- Mobile Sidebar Backdrop Overlay -->
-  @if (mobileMenuOpen()) {
-  <div class="mobile-sidebar-backdrop" (click)="mobileMenuOpen.set(false)"></div>
-  }
-
   <!-- App Body Layout: Left Sidebar + Main Workspace View -->
   <div class="app-body">
-    <!-- Left Sidebar: Collapsible Workspace Navigation -->
-    <aside class="app-sidebar paper-panel font-mono" [class.collapsed]="sidebarCollapsed()"
-      [class.mobile-open]="mobileMenuOpen()">
+    <!-- Left Sidebar: Collapsible Workspace Navigation (Desktop) -->
+    <aside class="app-sidebar paper-panel font-mono" [class.collapsed]="sidebarCollapsed()" aria-label="Sidebar Navigation">
       <div class="sidebar-header">
-        @if (!sidebarCollapsed() || mobileMenuOpen()) {
+        @if (!sidebarCollapsed()) {
         <div class="sidebar-brand-box">
           <span class="sidebar-label">WORKSPACE</span>
         </div>
         }
         <button class="collapse-toggle-btn desktop-only" (click)="toggleSidebar()"
-          [title]="sidebarCollapsed() ? 'Expand Sidebar' : 'Collapse Sidebar'">
+          [title]="sidebarCollapsed() ? 'Expand Sidebar' : 'Collapse Sidebar'"
+          [attr.aria-label]="sidebarCollapsed() ? 'Expand Sidebar Navigation' : 'Collapse Sidebar Navigation'">
           <i [class]="sidebarCollapsed() ? 'fi fi-rr-angle-small-right' : 'fi fi-rr-angle-small-left'"></i>
         </button>
       </div>
 
-      <nav class="sidebar-nav">
+      <nav class="sidebar-nav" aria-label="Desktop Workspace Sections">
         @for (ws of workspaceService.workspaces; track ws.id) {
         <button class="sidebar-tab-btn" [class.active]="workspaceService.activeWorkspace() === ws.id"
-          (click)="selectWorkspace(ws.id)" [title]="ws.code + ' ' + ws.name">
+          (click)="selectWorkspace(ws.id)" [title]="ws.code + ' ' + ws.name"
+          [attr.aria-label]="ws.code + ' ' + ws.name">
           <div class="tab-left">
             <i [class]="ws.icon"></i>
-            @if (!sidebarCollapsed() || mobileMenuOpen()) {
+            @if (!sidebarCollapsed()) {
             <span class="ws-code">{{ ws.code }}</span>
             <span class="ws-name">{{ ws.name }}</span>
             }
@@ -117,32 +259,77 @@
       }
 
       @switch (workspaceService.activeWorkspace()) {
-      @case ('01 TODAY') {
-      <app-today />
-      }
-      @case ('02 PROJECTS') {
-      <app-projects />
-      }
-      @case ('03 BACKLOG') {
-      <app-backlog />
-      }
-      @case ('04 TASKS') {
-      <app-tasks />
-      }
-      @case ('05 CALENDAR') {
-      <app-calendar />
-      }
-      @case ('06 ARCHIVE') {
-      <app-archive />
-      }
-      @default {
-      <app-today />
-      }
+        @case ('01 TODAY') {
+        <app-today />
+        }
+        @case ('02 BACKLOG') {
+        <app-backlog />
+        }
+        @case ('03 TASKS') {
+        <app-tasks />
+        }
+        @case ('04 CALENDAR') {
+        <app-calendar />
+        }
+        @case ('05 ARCHIVE') {
+        <app-archive />
+        }
+        @case ('06 SETTINGS') {
+        <app-settings />
+        }
+        @default {
+        <app-today />
+        }
       }
     </main>
+
+    @if (taskShareService.activeSharedTask(); as sharedTask) {
+      <app-task-detail-modal [task]="sharedTask" (close)="taskShareService.closeSharedTaskModal()"
+        (editTask)="onEditSharedTask($event)" />
+    }
   </div>
 
-  <!-- Clean Paper Footer -->
+  <!-- Fixed Mobile Bottom Navigation Bar -->
+  <nav class="app-bottom-bar paper-panel font-mono" aria-label="Mobile Navigation Bar">
+    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '01 TODAY'"
+      (click)="selectWorkspace('01 TODAY')" title="Dashboard" aria-label="Dashboard Section">
+      <i class="fi fi-rr-sun"></i>
+      <span class="bottom-tab-label">Dashboard</span>
+    </button>
+    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '02 BACKLOG'"
+      (click)="selectWorkspace('02 BACKLOG')" title="Backlog" aria-label="Backlog Section">
+      <i class="fi fi-rr-list-check"></i>
+      <span class="bottom-tab-label">Backlog</span>
+    </button>
+
+    <!-- Center Action: New Task (+) Icon Button -->
+    <button class="bottom-bar-center-btn" (click)="workspaceService.openCreateTaskModal()" title="Create New Task" aria-label="Create New Task">
+      <i class="fi fi-rr-plus"></i>
+    </button>
+
+    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '03 TASKS'"
+      (click)="selectWorkspace('03 TASKS')" title="Board" aria-label="Kanban Board Section">
+      <i class="fi fi-rr-layout-fluid"></i>
+      <span class="bottom-tab-label">Board</span>
+    </button>
+    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '04 CALENDAR'"
+      (click)="selectWorkspace('04 CALENDAR')" title="Calendar" aria-label="Calendar Section">
+      <i class="fi fi-rr-calendar"></i>
+      <span class="bottom-tab-label">Calendar</span>
+    </button>
+    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '05 ARCHIVE'"
+      (click)="selectWorkspace('05 ARCHIVE')" title="Archive" aria-label="Archive Section">
+      <i class="fi fi-rr-box-alt"></i>
+      <span class="bottom-tab-label">Archive</span>
+    </button>
+    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '06 SETTINGS'"
+      (click)="selectWorkspace('06 SETTINGS')" title="Settings" aria-label="Settings Section">
+      <i class="fi fi-rr-settings"></i>
+      <span class="bottom-tab-label">Settings</span>
+    </button>
+  </nav>
+
+  <!-- Clean Paper Footer (Desktop) -->
   <footer class="app-footer paper-panel font-mono">
     <div class="footer-left">
       @if (syncService.isOnline()) {
@@ -176,33 +363,56 @@
   <app-task-modal (close)="workspaceService.closeCreateTaskModal()" />
   }
 
-  <!-- Deep Link Shared Task Detail Modal -->
-  @if (taskShareService.activeSharedTask(); as sharedTask) {
-  <app-task-detail-modal [task]="sharedTask" (close)="taskShareService.closeSharedTaskModal()"
-    (editTask)="onEditSharedTask($event)" />
+  @if (workspaceService.reportIssueModalOpen()) {
+  <app-report-issue-modal (close)="workspaceService.closeReportIssueModal()" />
   }
+
+
 
   @if (editingSharedTask()) {
   <app-task-modal [taskToEdit]="editingSharedTask()" (close)="closeEditSharedModal()" />
   }
 
-  @if (pushNotificationModalOpen()) {
-  <app-push-notification-modal (close)="pushNotificationModalOpen.set(false)" />
+  @if (authService.authModalOpen()) {
+    <app-auth-modal (close)="authService.closeAuthModal()" />
   }
+
+  @if (projectAccessModalOpen() && projectService.activeProject(); as activeProj) {
+    <app-project-access-modal [project]="activeProj" (close)="projectAccessModalOpen.set(false)" />
+  }
+
+  @if (createProjectModalOpen()) {
+    <app-project-modal (close)="createProjectModalOpen.set(false)"></app-project-modal>
+  }
+
+  @if (editProfileModalOpen()) {
+    <app-edit-profile-modal (close)="editProfileModalOpen.set(false)" />
+  }
+
+  <app-join-workspace-modal
+    [isOpen]="!!incomingInviteProjectId()"
+    [project]="incomingInviteProject()"
+    [role]="incomingInviteRole()"
+    (join)="acceptWorkspaceInvite()"
+    (cancel)="clearInviteState()"
+  />
 
   <!-- Toast Notification for Copy Share Link & Push Service -->
   @if (taskShareService.toastMessage(); as msg) {
-  <div class="task-share-toast paper-panel font-mono">
+  <div class="task-share-toast paper-panel font-mono" role="status" aria-live="polite">
     <i class="fi fi-rr-check-circle text-emerald"></i>
     <span>{{ msg }}</span>
   </div>
   }
 
   @if (pushService.toastMessage(); as pushMsg) {
-  <div class="task-share-toast paper-panel font-mono">
+  <div class="task-share-toast paper-panel font-mono" role="status" aria-live="polite">
     <i class="fi fi-rr-bell text-amber"></i>
     <span>{{ pushMsg }}</span>
   </div>
   }
 </div>
+} @else {
+  <!-- Dedicated Sign In / Sign Up Landing Page -->
+  <app-auth-page (authenticated)="selectWorkspace('01 TODAY')" />
 }
