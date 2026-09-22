@@ -10,6 +10,10 @@ describe('WorkflowService', () => {
     localStorage.clear();
     mockSupabaseService = {
       supabase: {
+        channel: vi.fn().mockReturnValue({
+          on: vi.fn().mockReturnThis(),
+          subscribe: vi.fn()
+        }),
         from: vi.fn().mockReturnValue({
           select: vi.fn().mockReturnThis(),
           order: vi.fn().mockResolvedValue({ data: [], error: null }),

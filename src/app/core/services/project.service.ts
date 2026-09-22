@@ -22,6 +22,53 @@ export class ProjectService {
   ) {
     this.loadFromStorage();
     this.loadFromSupabase();
+    this.subscribeToRealtimeProjects();
+  }
+
+  private realtimeChannel: any = null;
+
+  subscribeToRealtimeProjects() {
+    if (this.realtimeChannel) return;
+    try {
+      this.realtimeChannel = this.supabaseService.supabase
+        .channel('realtime:projects')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'projects' },
+          (payload: any) => this.handleRealtimeProjectChange(payload)
+        )
+        .subscribe();
+    } catch (e) {
+      console.warn('[ProjectService] Realtime subscription skipped in fallback mode', e);
+    }
+  }
+
+  handleRealtimeProjectChange(payload: any) {
+    if (!payload || !payload.eventType) return;
+
+    const eventType = payload.eventType;
+    const newRecord = payload.new as Project;
+    const oldRecord = payload.old as Project;
+
+    if (eventType === 'INSERT' && newRecord && newRecord.id) {
+      this.projects.update(current => {
+        if (current.some(p => p.id === newRecord.id)) return current;
+        return [...current, newRecord];
+      });
+    } else if (eventType === 'UPDATE' && newRecord && newRecord.id) {
+      this.projects.update(current =>
+        current.map(p => (p.id === newRecord.id ? { ...p, ...newRecord } : p))
+      );
+      if (this.activeProject()?.id === newRecord.id) {
+        this.activeProject.update(curr => (curr ? { ...curr, ...newRecord } : newRecord));
+      }
+    } else if (eventType === 'DELETE' && oldRecord && oldRecord.id) {
+      this.projects.update(current => current.filter(p => p.id !== oldRecord.id));
+      if (this.activeProject()?.id === oldRecord.id) {
+        const remaining = this.projects();
+        this.activeProject.set(remaining.length > 0 ? remaining[0] : null);
+      }
+    }
   }
 
   loadFromStorage() {

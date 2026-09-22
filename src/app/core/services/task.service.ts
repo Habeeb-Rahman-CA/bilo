@@ -24,6 +24,48 @@ export class TaskService {
   ) {
     this.loadFromStorage();
     this.loadTasksFromSupabase();
+    this.subscribeToRealtimeTasks();
+  }
+
+  private realtimeChannel: any = null;
+
+  subscribeToRealtimeTasks() {
+    if (this.realtimeChannel) return;
+    try {
+      this.realtimeChannel = this.supabaseService.supabase
+        .channel('realtime:tasks')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'tasks' },
+          (payload: any) => this.handleRealtimeTaskChange(payload)
+        )
+        .subscribe();
+    } catch (e) {
+      console.warn('[TaskService] Realtime subscription skipped in fallback mode', e);
+    }
+  }
+
+  handleRealtimeTaskChange(payload: any) {
+    if (!payload || !payload.eventType) return;
+
+    const eventType = payload.eventType;
+    const newRecord = payload.new as Task;
+    const oldRecord = payload.old as Task;
+
+    if (eventType === 'INSERT' && newRecord && newRecord.id) {
+      this.tasks.update(current => {
+        if (current.some(t => t.id === newRecord.id)) return current;
+        const { normalized } = this.normalizeTaskStatuses([newRecord]);
+        return [...current, normalized[0]];
+      });
+    } else if (eventType === 'UPDATE' && newRecord && newRecord.id) {
+      this.tasks.update(current => {
+        const { normalized } = this.normalizeTaskStatuses([newRecord]);
+        return current.map(t => (t.id === newRecord.id ? { ...t, ...normalized[0] } : t));
+      });
+    } else if (eventType === 'DELETE' && oldRecord && oldRecord.id) {
+      this.tasks.update(current => current.filter(t => t.id !== oldRecord.id));
+    }
   }
 
   normalizeTaskStatuses(tasks: Task[]): { normalized: Task[]; hasChanges: boolean } {

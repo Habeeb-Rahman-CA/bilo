@@ -40,6 +40,54 @@ export class WorkflowService {
   constructor(private supabaseService: SupabaseService) {
     this.loadFromStorage();
     this.loadAllWorkflows();
+    this.subscribeToRealtimeWorkflows();
+  }
+
+  private realtimeChannel: any = null;
+
+  subscribeToRealtimeWorkflows() {
+    if (this.realtimeChannel) return;
+    try {
+      this.realtimeChannel = this.supabaseService.supabase
+        .channel('realtime:workflows')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'workflows' },
+          (payload: any) => this.handleRealtimeWorkflowChange(payload)
+        )
+        .subscribe();
+    } catch (e) {
+      console.warn('[WorkflowService] Realtime subscription skipped in fallback mode', e);
+    }
+  }
+
+  handleRealtimeWorkflowChange(payload: any) {
+    if (!payload || !payload.eventType) return;
+
+    const eventType = payload.eventType;
+    const newRecord = payload.new as Workflow;
+    const oldRecord = payload.old as Workflow;
+
+    if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRecord && newRecord.id) {
+      const pid = newRecord.project_id || 'global';
+      this.workflowsByProject.update(map => {
+        const current = map[pid] || [];
+        const exists = current.some(w => w.id === newRecord.id);
+        let updated: Workflow[];
+        if (exists) {
+          updated = current.map(w => (w.id === newRecord.id ? { ...w, ...newRecord } : w));
+        } else {
+          updated = [...current, newRecord];
+        }
+        return { ...map, [pid]: updated };
+      });
+    } else if (eventType === 'DELETE' && oldRecord && oldRecord.id) {
+      const pid = oldRecord.project_id || 'global';
+      this.workflowsByProject.update(map => {
+        const current = map[pid] || [];
+        return { ...map, [pid]: current.filter(w => w.id !== oldRecord.id) };
+      });
+    }
   }
 
   loadFromStorage() {
