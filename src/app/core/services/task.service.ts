@@ -224,6 +224,8 @@ export class TaskService {
       severity: taskData.severity,
       reproducibility: taskData.reproducibility,
       reporter: taskData.reporter || currentUser?.email || 'User',
+      is_app_report: taskData.is_app_report || false,
+      report_category: taskData.report_category,
       labels: taskData.labels || [],
       attachments: taskData.attachments || [],
       assignee: taskData.assignee || 'Unassigned',
@@ -248,6 +250,8 @@ export class TaskService {
       severity: newTask.severity,
       reproducibility: newTask.reproducibility,
       reporter: newTask.reporter,
+      is_app_report: newTask.is_app_report,
+      report_category: newTask.report_category,
       labels: newTask.labels,
       attachments: newTask.attachments,
       assignee: newTask.assignee,
@@ -265,7 +269,9 @@ export class TaskService {
       user_id: currentUser?.id,
       from_status: '',
       to_status: initialStatus,
-      changed_by: newTask.assignee || currentUser?.email || 'User',
+      action_type: 'created',
+      details: `Created task with initial status "${initialStatus}"`,
+      changed_by: currentUser?.email ? currentUser.email.split('@')[0] : 'User',
       created_at: newTask.created_at
     };
     this.recordStatusHistory(historyEntry);
@@ -302,20 +308,97 @@ export class TaskService {
 
     if (updatedTask) {
       const taskObj: Task = updatedTask;
+      const currentUser = this.authService.user();
+      const updaterName = currentUser?.email ? currentUser.email.split('@')[0] : (taskObj.assignee || 'User');
+
+      // 1) Status Change
       if (updates.status && existingTask && updates.status.trim().toLowerCase() !== existingTask.status.trim().toLowerCase()) {
         const historyEntry: TaskStatusHistory = {
           id: crypto.randomUUID(),
           task_id: id,
           from_status: existingTask.status,
           to_status: updates.status,
-          changed_by: updates.assignee || existingTask.assignee || 'Self',
+          action_type: 'status',
+          details: `Moved status from "${existingTask.status}" to "${updates.status}"`,
+          changed_by: updaterName,
           created_at: new Date().toISOString()
         };
         this.recordStatusHistory(historyEntry);
         this.projectService.logActivity(taskObj.project_id, 'Status Updated', `Task "${taskObj.title}" moved to ${updates.status}`);
         this.pushNotificationService.notifyTaskStatusChanged(taskObj.title, existingTask.status, updates.status);
-      } else {
-        this.projectService.logActivity(taskObj.project_id, 'Task Updated', `Updated task "${taskObj.title}"`);
+      }
+
+      // 2) Assignee Change
+      if (updates.assignee !== undefined && updates.assignee !== existingTask.assignee) {
+        const oldVal = existingTask.assignee || 'Unassigned';
+        const newVal = updates.assignee || 'Unassigned';
+        this.recordStatusHistory({
+          id: crypto.randomUUID(),
+          task_id: id,
+          from_status: taskObj.status,
+          to_status: taskObj.status,
+          action_type: 'assignee',
+          details: `Changed assignee from "${oldVal}" to "${newVal}"`,
+          changed_by: updaterName,
+          created_at: new Date().toISOString()
+        });
+      }
+
+      // 3) Priority Change
+      if (updates.priority !== undefined && updates.priority !== existingTask.priority) {
+        this.recordStatusHistory({
+          id: crypto.randomUUID(),
+          task_id: id,
+          from_status: taskObj.status,
+          to_status: taskObj.status,
+          action_type: 'priority',
+          details: `Changed priority to "${updates.priority.toUpperCase()}"`,
+          changed_by: updaterName,
+          created_at: new Date().toISOString()
+        });
+      }
+
+      // 4) Title Change
+      if (updates.title !== undefined && updates.title.trim() !== existingTask.title.trim()) {
+        this.recordStatusHistory({
+          id: crypto.randomUUID(),
+          task_id: id,
+          from_status: taskObj.status,
+          to_status: taskObj.status,
+          action_type: 'title',
+          details: `Updated title to "${updates.title.trim()}"`,
+          changed_by: updaterName,
+          created_at: new Date().toISOString()
+        });
+      }
+
+      // 5) Description Change
+      if (updates.description !== undefined && updates.description !== existingTask.description) {
+        this.recordStatusHistory({
+          id: crypto.randomUUID(),
+          task_id: id,
+          from_status: taskObj.status,
+          to_status: taskObj.status,
+          action_type: 'description',
+          details: `Updated task description`,
+          changed_by: updaterName,
+          created_at: new Date().toISOString()
+        });
+      }
+
+      // 6) Due Date Change
+      if (updates.due_date !== undefined && updates.due_date !== existingTask.due_date) {
+        const dateVal = updates.due_date ? updates.due_date : 'None';
+        this.recordStatusHistory({
+          id: crypto.randomUUID(),
+          task_id: id,
+          from_status: taskObj.status,
+          to_status: taskObj.status,
+          action_type: 'due_date',
+          details: `Updated due date to ${dateVal}`,
+          changed_by: updaterName,
+          created_at: new Date().toISOString()
+        });
       }
 
       this.saveToStorage();
@@ -459,12 +542,12 @@ export class TaskService {
     return localComments;
   }
 
-  async addComment(taskId: string, content: string, authorName: string = 'Self'): Promise<TaskComment> {
+  async addComment(taskId: string, content: string, authorName: string = 'User', attachments: string[] = []): Promise<TaskComment> {
     const currentUser = this.authService.user();
-    const displayName = authorName !== 'Self' ? authorName : (
+    const displayName = authorName !== 'User' && authorName !== 'Self' ? authorName : (
       currentUser?.user_metadata?.['display_name'] ||
       currentUser?.user_metadata?.['full_name'] ||
-      (currentUser?.email ? currentUser.email.split('@')[0] : 'Self')
+      (currentUser?.email ? currentUser.email.split('@')[0] : 'User')
     );
 
     const newComm: TaskComment = {
@@ -473,12 +556,25 @@ export class TaskService {
       user_id: currentUser?.id,
       author_name: displayName,
       content,
+      attachments: attachments && attachments.length > 0 ? attachments : undefined,
       created_at: new Date().toISOString()
     };
 
     const task = this.tasks().find(t => t.id === taskId);
     if (task) {
       this.projectService.logActivity(task.project_id, 'Comment Added', `Added comment on "${task.title}"`);
+      this.recordStatusHistory({
+        id: crypto.randomUUID(),
+        task_id: taskId,
+        from_status: task.status,
+        to_status: task.status,
+        action_type: 'comment',
+        details: attachments && attachments.length > 0
+          ? `Added a comment with ${attachments.length} image attachment(s)`
+          : `Added a comment`,
+        changed_by: displayName,
+        created_at: newComm.created_at
+      });
     }
 
     // Update signal state immediately

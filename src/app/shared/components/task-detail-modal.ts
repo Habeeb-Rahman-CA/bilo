@@ -5,6 +5,7 @@ import { TaskService } from '../../core/services/task.service';
 import { ProjectService } from '../../core/services/project.service';
 import { WorkflowService } from '../../core/services/workflow.service';
 import { TaskShareService } from '../../core/services/task-share.service';
+import { AuthService } from '../../core/services/auth.service';
 import { Task, TaskComment, TaskStatusHistory, TaskPriority, TaskSeverity, TaskReproducibility, TaskType, Workflow } from '../../core/models/project.model';
 import { getTaskKey } from '../../core/utils/task-key.util';
 import { SelectComponent, SelectOption } from './select';
@@ -23,8 +24,8 @@ import { RichEditorComponent } from './rich-editor';
         <div class="detail-nav-bar paper-panel">
           <div class="nav-left">
             <div class="header-type-row font-mono">
-              <span class="badge" [class]="'badge-' + task.type">
-                <i [class]="getTypeIcon(task.type)"></i> {{ task.type }}
+              <span class="badge" [class]="getBadgeClass(task)">
+                <i [class]="getTypeIcon(task)"></i> {{ getTypeLabel(task) }}
               </span>
               <span
                 class="task-key-badge font-mono clickable-key"
@@ -39,6 +40,11 @@ import { RichEditorComponent } from './rich-editor';
               @if (getProjectName(task.project_id); as projName) {
                 <span class="project-pill font-mono">
                   <i class="fi fi-rr-folder text-amber"></i> {{ projName }}
+                </span>
+              }
+              @if (isReportedTask()) {
+                <span class="app-report-badge font-mono" title="Reported directly by user via App Report">
+                  <i class="fi fi-rr-paper-plane"></i> User Report
                 </span>
               }
             </div>
@@ -74,7 +80,14 @@ import { RichEditorComponent } from './rich-editor';
                 (dblclick)="startEditingTitle()"
                 title="Double-click to edit title"
               >
-                <span>{{ task.title }}</span>
+                <div class="title-text-wrap" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                  <span>{{ task.title }}</span>
+                  @if (isReportedTask()) {
+                    <span class="app-report-badge font-mono" title="Reported directly by user via App Report">
+                      <i class="fi fi-rr-paper-plane"></i> User Report
+                    </span>
+                  }
+                </div>
                 <i class="fi fi-rr-edit edit-hint-icon" (click)="startEditingTitle()" title="Edit title"></i>
               </h2>
             }
@@ -169,8 +182,12 @@ import { RichEditorComponent } from './rich-editor';
                       <span class="attachment-count-badge font-mono">{{ task.attachments.length }}</span>
                     }
                   </h4>
-                  <button type="button" class="btn-ghost-edit" (click)="detailFileInput.click()" title="Add image attachment">
-                    <i class="fi fi-rr-plus"></i> Add Image
+                  <button type="button" class="btn-ghost-edit" [disabled]="uploadingDetailAttachments()" (click)="detailFileInput.click()" title="Add image attachment">
+                    @if (uploadingDetailAttachments()) {
+                      <i class="fi fi-rr-spinner spinner text-cyan"></i> Uploading...
+                    } @else {
+                      <i class="fi fi-rr-plus"></i> Add Image
+                    }
                   </button>
                   <input
                     #detailFileInput
@@ -182,22 +199,29 @@ import { RichEditorComponent } from './rich-editor';
                   />
                 </div>
 
-                @if (task.attachments && task.attachments.length > 0) {
+                @if ((task.attachments && task.attachments.length > 0) || uploadingDetailAttachments()) {
                   <div class="detail-attachment-grid">
-                    @for (img of task.attachments; track $index) {
-                      <div class="detail-thumb-card" (click)="previewImageModal.set(img)">
-                        <img [src]="img" alt="Attachment" />
-                        <div class="detail-thumb-overlay">
-                          <i class="fi fi-rr-eye zoom-icon"></i>
-                          <button
-                            type="button"
-                            class="thumb-remove-btn"
-                            (click)="$event.stopPropagation(); removeDetailAttachment($index)"
-                            title="Remove image"
-                          >
-                            <i class="fi fi-rr-trash"></i>
-                          </button>
+                    @if (task.attachments) {
+                      @for (img of task.attachments; track $index) {
+                        <div class="detail-thumb-card" (click)="previewImageModal.set(img)">
+                          <img [src]="img" alt="Attachment" />
+                          <div class="detail-thumb-overlay">
+                            <i class="fi fi-rr-eye zoom-icon"></i>
+                            <button
+                              type="button"
+                              class="thumb-remove-btn"
+                              (click)="$event.stopPropagation(); removeDetailAttachment($index)"
+                              title="Remove image"
+                            >
+                              <i class="fi fi-rr-trash"></i>
+                            </button>
+                          </div>
                         </div>
+                      }
+                    }
+                    @if (uploadingDetailAttachments()) {
+                      <div class="detail-thumb-card thumb-loading font-mono">
+                        <i class="fi fi-rr-spinner spinner text-cyan"></i>
                       </div>
                     }
                   </div>
@@ -228,7 +252,7 @@ import { RichEditorComponent } from './rich-editor';
                     [class.active]="activeTab() === 'history'"
                     (click)="activeTab.set('history')"
                   >
-                    <i class="fi fi-rr-time-past"></i> Status History
+                    <i class="fi fi-rr-list-check"></i> Activity Log
                     <span class="activity-badge">{{ statusHistory().length }}</span>
                   </button>
                 </div>
@@ -237,17 +261,71 @@ import { RichEditorComponent } from './rich-editor';
                 @if (activeTab() === 'comments') {
                   <div class="tab-pane">
                     <!-- New Comment Input Box -->
-                    <div class="add-comment-box">
+                    <div
+                      class="add-comment-box"
+                      [class.drag-over]="isDraggingOverComment()"
+                      (dragover)="onCommentDragOver($event)"
+                      (dragleave)="onCommentDragLeave($event)"
+                      (drop)="onCommentDrop($event)"
+                    >
+                      <input
+                        #commentFileInput
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        (change)="onCommentFileSelected($event)"
+                        style="display: none;"
+                      />
+
                       <textarea
                         class="form-textarea comment-input"
                         rows="2"
-                        placeholder="Write a comment or update..."
+                        placeholder="Write a comment or update... (drag & drop images or click attach)"
                         [(ngModel)]="newCommentText"
                       ></textarea>
+
+                      <!-- Pre-post Attachment Previews -->
+                      @if (commentAttachments().length > 0) {
+                        <div class="comment-previews-grid">
+                          @for (img of commentAttachments(); track $index) {
+                            <div class="comment-preview-card">
+                              <img [src]="img" alt="Attachment preview" />
+                              <button
+                                type="button"
+                                class="remove-comment-img"
+                                (click)="removeCommentAttachment($index)"
+                                title="Remove attached image"
+                              >
+                                <i class="fi fi-rr-cross"></i>
+                              </button>
+                            </div>
+                          }
+                        </div>
+                      }
+
                       <div class="comment-btn-row">
                         <button
+                          type="button"
+                          class="btn btn-ghost btn-xs attach-img-btn"
+                          [disabled]="uploadingCommentAttachments()"
+                          (click)="commentFileInput.click()"
+                          title="Attach image or screenshot to comment"
+                        >
+                          @if (uploadingCommentAttachments()) {
+                            <i class="fi fi-rr-spinner spinner text-cyan"></i>
+                            <span>Uploading...</span>
+                          } @else {
+                            <i class="fi fi-rr-picture text-cyan"></i>
+                            <span>Attach Image</span>
+                            @if (commentAttachments().length > 0) {
+                              <span class="attachment-badge font-mono">{{ commentAttachments().length }}</span>
+                            }
+                          }
+                        </button>
+
+                        <button
                           class="btn btn-primary btn-sm"
-                          [disabled]="!newCommentText.trim()"
+                          [disabled]="!newCommentText.trim() && commentAttachments().length === 0"
                           (click)="submitComment()"
                         >
                           <i class="fi fi-rr-paper-plane"></i> Post Comment
@@ -329,7 +407,21 @@ import { RichEditorComponent } from './rich-editor';
                                   </div>
                                 </div>
                               } @else {
-                                <p class="text">{{ c.content }}</p>
+                                @if (c.content) {
+                                  <p class="text">{{ c.content }}</p>
+                                }
+                                @if (c.attachments && c.attachments.length > 0) {
+                                  <div class="comment-attached-images">
+                                    @for (img of c.attachments; track $index) {
+                                      <div class="comment-img-card" (click)="previewImageModal.set(img)" title="Click to view full image">
+                                        <img [src]="img" alt="Attached image" />
+                                        <div class="img-hover-overlay">
+                                          <i class="fi fi-rr-search-alt"></i>
+                                        </div>
+                                      </div>
+                                    }
+                                  </div>
+                                }
                               }
                             </div>
                           </div>
@@ -339,38 +431,74 @@ import { RichEditorComponent } from './rich-editor';
                   </div>
                 }
 
-                <!-- Status History Tab Content -->
+                <!-- Activity Log Tab Content -->
                 @if (activeTab() === 'history') {
                   <div class="tab-pane">
-                    <div class="history-timeline font-mono">
+                    <div class="activity-timeline-container font-mono">
                       @if (statusHistory().length === 0) {
                         <div class="empty-activity font-mono">
                           <i class="fi fi-rr-time-past text-subtle"></i>
-                          <span>No status history logged for this task yet.</span>
+                          <span>No activity logged for this task yet.</span>
                         </div>
                       } @else {
-                        @for (h of statusHistory(); track h.id) {
-                          <div class="history-item paper-panel">
-                            <div class="history-icon-col">
-                              <i class="fi fi-rr-arrows-repeat text-cyan"></i>
-                            </div>
-                            <div class="history-details font-mono">
-                              <div class="history-transition font-mono">
-                                @if (h.from_status) {
-                                  <span class="status-chip old-status">{{ h.from_status }}</span>
-                                  <i class="fi fi-rr-arrow-right arrow-icon"></i>
-                                  <span class="status-chip new-status">{{ h.to_status }}</span>
-                                } @else {
-                                  <span class="status-chip new-status">Created as {{ h.to_status }}</span>
+                        <div class="activity-timeline">
+                          @for (h of statusHistory(); track h.id) {
+                            <div class="activity-item">
+                              <!-- Timeline Icon Node -->
+                              <div class="activity-node" [class]="h.action_type || 'status'">
+                                <i [class]="getActionIcon(h.action_type)"></i>
+                              </div>
+
+                              <!-- Activity Glass Card -->
+                              <div class="activity-card glass-panel">
+                                <div class="activity-card-header">
+                                  <div class="activity-meta-left">
+                                    <span class="action-badge" [class]="h.action_type || 'status'">
+                                      {{ getActionBadge(h.action_type) }}
+                                    </span>
+                                    <span class="activity-user">
+                                      <i class="fi fi-rr-user"></i>
+                                      <span>{{ (h.changed_by && h.changed_by !== 'Self') ? h.changed_by : 'User' }}</span>
+                                    </span>
+                                  </div>
+
+                                  <span class="activity-time" [title]="h.created_at">
+                                    <i class="fi fi-rr-clock"></i>
+                                    <span>{{ formatDate(h.created_at) }}</span>
+                                  </span>
+                                </div>
+
+                                @if (h.details) {
+                                  <div class="activity-details-box">
+                                    <i class="fi fi-rr-info"></i>
+                                    <span>{{ h.details }}</span>
+                                  </div>
+                                }
+
+                                @if (h.from_status || (h.to_status && !h.details)) {
+                                  <div class="activity-transition-flow">
+                                    @if (h.from_status) {
+                                      <div class="state-pill old-state">
+                                        <i class="fi fi-rr-minus-small"></i>
+                                        <span>{{ h.from_status }}</span>
+                                      </div>
+                                      <i class="fi fi-rr-arrow-right flow-arrow"></i>
+                                      <div class="state-pill new-state">
+                                        <i class="fi fi-rr-check-circle"></i>
+                                        <span>{{ h.to_status }}</span>
+                                      </div>
+                                    } @else {
+                                      <div class="state-pill new-state">
+                                        <i class="fi fi-rr-play-alt"></i>
+                                        <span>Set to {{ h.to_status }}</span>
+                                      </div>
+                                    }
+                                  </div>
                                 }
                               </div>
-                              <div class="history-meta font-mono">
-                                <span class="user-name"><i class="fi fi-rr-user"></i> {{ h.changed_by || 'Self' }}</span>
-                                <span class="time-stamp" [title]="h.created_at"><i class="fi fi-rr-clock"></i> {{ formatDate(h.created_at) }}</span>
-                              </div>
                             </div>
-                          </div>
-                        }
+                          }
+                        </div>
                       }
                     </div>
                   </div>
@@ -390,15 +518,27 @@ import { RichEditorComponent } from './rich-editor';
                 ></app-select>
               </div>
 
-              <div class="meta-group">
-                <label class="meta-label">Issue Type</label>
-                <app-select
-                  [options]="typeOptions"
-                  [value]="task.type"
-                  (valueChange)="updateType($event)"
-                  placeholder="Select type..."
-                ></app-select>
-              </div>
+              @if (isReportedTask()) {
+                <div class="meta-group">
+                  <label class="meta-label">Report Category</label>
+                  <app-select
+                    [options]="reportCategoryOptions"
+                    [value]="getReportCategory()"
+                    (valueChange)="updateReportCategory($event)"
+                    placeholder="Select category..."
+                  ></app-select>
+                </div>
+              } @else {
+                <div class="meta-group">
+                  <label class="meta-label">Issue Type</label>
+                  <app-select
+                    [options]="typeOptions"
+                    [value]="task.type"
+                    (valueChange)="updateType($event)"
+                    placeholder="Select type..."
+                  ></app-select>
+                </div>
+              }
 
               <div class="meta-group">
                 <label class="meta-label">Priority</label>
@@ -410,7 +550,7 @@ import { RichEditorComponent } from './rich-editor';
                 ></app-select>
               </div>
 
-              @if (task.type === 'bug') {
+              @if (task.type === 'bug' || (isReportedTask() && getReportCategory() === 'bug')) {
                 <div class="meta-group">
                   <label class="meta-label">Severity</label>
                   <app-select
@@ -443,10 +583,10 @@ import { RichEditorComponent } from './rich-editor';
               </div>
 
               <div class="meta-group">
-                <label class="meta-label">Reporter / Creator</label>
+                <label class="meta-label">Reporter</label>
                 <div class="meta-subval font-mono meta-user-pill">
                   <i class="fi fi-rr-user-add text-cyan"></i>
-                  <span>{{ (task.reporter && task.reporter !== 'Self') ? task.reporter : 'User' }}</span>
+                  <span>{{ getReporterDisplayName(task.reporter) }}</span>
                 </div>
               </div>
 
@@ -669,6 +809,29 @@ import { RichEditorComponent } from './rich-editor';
       font-size: 1.45rem;
       font-weight: 700;
       color: var(--text-main);
+    }
+    .app-report-badge {
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 0.35rem !important;
+      padding: 0.18rem 0.55rem !important;
+      font-size: 0.65rem !important;
+      font-weight: 800 !important;
+      letter-spacing: 0.04em !important;
+      text-transform: uppercase !important;
+      border-radius: var(--radius-xs, 4px) !important;
+      background: rgba(244, 63, 94, 0.2) !important;
+      color: #f43f5e !important;
+      border: 1px solid rgba(244, 63, 94, 0.5) !important;
+      box-shadow: 0 1px 4px rgba(244, 63, 94, 0.2) !important;
+      line-height: 1.2 !important;
+      white-space: nowrap !important;
+      vertical-align: middle !important;
+      flex-shrink: 0 !important;
+    }
+    .app-report-badge i {
+      font-size: 0.725rem !important;
+      color: #f43f5e !important;
     }
     .task-title.editable-field {
       display: flex;
@@ -1014,6 +1177,14 @@ import { RichEditorComponent } from './rich-editor';
       flex-direction: column;
       gap: 0.5rem;
       width: 100%;
+      border: 1px dashed transparent;
+      border-radius: var(--radius-xs);
+      padding: 0.25rem;
+      transition: var(--transition-fast);
+    }
+    .add-comment-box.drag-over {
+      border-color: var(--accent-cyan);
+      background: rgba(56, 189, 248, 0.08);
     }
     .comment-input {
       font-size: 0.85rem;
@@ -1022,10 +1193,118 @@ import { RichEditorComponent } from './rich-editor';
       box-sizing: border-box;
       min-height: 60px;
     }
+    .comment-previews-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      padding: 0.25rem 0;
+    }
+    .comment-preview-card {
+      position: relative;
+      width: 60px;
+      height: 60px;
+      border-radius: var(--radius-xs);
+      border: 1px solid var(--border-medium);
+      overflow: hidden;
+      background: var(--bg-canvas);
+    }
+    .comment-preview-card img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .remove-comment-img {
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      background: rgba(244, 63, 94, 0.9);
+      border: none;
+      color: #ffffff;
+      width: 18px;
+      height: 18px;
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.65rem;
+      cursor: pointer;
+    }
+    .remove-comment-img:hover {
+      background: #f43f5e;
+    }
     .comment-btn-row {
       display: flex;
-      justify-content: flex-end;
+      justify-content: space-between;
+      align-items: center;
       width: 100%;
+    }
+    .attach-img-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      color: var(--text-muted);
+      font-weight: 600;
+      padding: 0.25rem 0.55rem;
+      border-radius: var(--radius-xs);
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-surface-subtle);
+      cursor: pointer;
+      transition: var(--transition-fast);
+    }
+    .attach-img-btn:hover {
+      color: var(--accent-cyan);
+      background: var(--bg-surface-hover);
+      border-color: var(--border-medium);
+    }
+    .attachment-badge {
+      background: var(--accent-cyan);
+      color: #000000;
+      font-size: 0.65rem;
+      padding: 0.05rem 0.35rem;
+      border-radius: 10px;
+      font-weight: 700;
+    }
+
+    .comment-attached-images {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+    .comment-img-card {
+      position: relative;
+      width: 96px;
+      height: 96px;
+      border-radius: var(--radius-xs);
+      border: 1px solid var(--border-medium);
+      overflow: hidden;
+      background: var(--bg-canvas);
+      cursor: pointer;
+      transition: var(--transition-fast);
+    }
+    .comment-img-card:hover {
+      border-color: var(--accent-cyan);
+      transform: translateY(-1px);
+    }
+    .comment-img-card img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .img-hover-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ffffff;
+      font-size: 0.85rem;
+      opacity: 0;
+      transition: var(--transition-fast);
+    }
+    .comment-img-card:hover .img-hover-overlay {
+      opacity: 1;
     }
     .comments-list {
       display: flex;
@@ -1049,59 +1328,219 @@ import { RichEditorComponent } from './rich-editor';
       border: 1px dashed var(--border-subtle);
       border-radius: var(--radius-md);
     }
-    .history-timeline {
+    /* Activity Timeline Styles */
+    .activity-timeline-container {
+      padding: 0.5rem 0.2rem;
+    }
+    .activity-timeline {
+      position: relative;
       display: flex;
       flex-direction: column;
-      gap: 0.6rem;
+      gap: 0.85rem;
+      padding-left: 1.75rem;
     }
-    .history-item {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      padding: 0.65rem 0.85rem;
-      background: var(--bg-surface-subtle);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-xs);
+    .activity-timeline::before {
+      content: '';
+      position: absolute;
+      left: 13px;
+      top: 14px;
+      bottom: 14px;
+      width: 2px;
+      background: linear-gradient(
+        180deg,
+        var(--accent-cyan) 0%,
+        var(--border-subtle) 30%,
+        var(--border-subtle) 90%,
+        transparent 100%
+      );
+      opacity: 0.5;
     }
-    .history-icon-col {
+    .activity-item {
+      position: relative;
       display: flex;
-      align-items: center;
-      justify-content: center;
+      flex-direction: column;
+    }
+    .activity-node {
+      position: absolute;
+      left: -1.75rem;
+      top: 10px;
+      transform: translateX(-50%);
       width: 28px;
       height: 28px;
       border-radius: 50%;
-      background: rgba(6, 182, 212, 0.12);
-      flex-shrink: 0;
-    }
-    .history-details {
-      display: flex;
-      flex-direction: column;
-      gap: 0.25rem;
-      flex: 1;
-    }
-    .history-transition {
       display: flex;
       align-items: center;
-      gap: 0.4rem;
-      font-size: 0.8rem;
+      justify-content: center;
+      font-size: 0.75rem;
+      z-index: 2;
+      background: var(--bg-surface);
+      border: 2px solid var(--border-subtle);
+      box-shadow: 0 0 0 3px var(--bg-canvas);
+      transition: all 0.2s ease;
     }
-    .status-chip {
-      font-size: 0.7rem;
-      padding: 0.1rem 0.45rem;
-      border-radius: var(--radius-xs);
-      font-weight: 600;
+    .activity-node.created, .activity-node.status {
+      border-color: rgba(6, 182, 212, 0.6);
+      color: var(--accent-cyan);
+      background: rgba(6, 182, 212, 0.12);
+    }
+    .activity-node.assignee {
+      border-color: rgba(168, 85, 247, 0.6);
+      color: #a855f7;
+      background: rgba(168, 85, 247, 0.12);
+    }
+    .activity-node.priority {
+      border-color: rgba(245, 158, 11, 0.6);
+      color: #f59e0b;
+      background: rgba(245, 158, 11, 0.12);
+    }
+    .activity-node.title, .activity-node.description {
+      border-color: rgba(59, 130, 246, 0.6);
+      color: #3b82f6;
+      background: rgba(59, 130, 246, 0.12);
+    }
+    .activity-node.due_date {
+      border-color: rgba(16, 185, 129, 0.6);
+      color: #10b981;
+      background: rgba(16, 185, 129, 0.12);
+    }
+    .activity-node.comment {
+      border-color: rgba(99, 102, 241, 0.6);
+      color: #6366f1;
+      background: rgba(99, 102, 241, 0.12);
+    }
+    .activity-card {
+      background: var(--bg-surface-subtle);
       border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 0.65rem 0.85rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      transition: all 0.15s ease;
     }
-    .old-status {
-      background: var(--bg-canvas);
+    .activity-card:hover {
+      border-color: rgba(6, 182, 212, 0.3);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+    .activity-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .activity-meta-left {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .action-badge {
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      text-transform: uppercase;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+    }
+    .action-badge.created, .action-badge.status {
+      background: rgba(6, 182, 212, 0.12);
+      color: var(--accent-cyan);
+      border: 1px solid rgba(6, 182, 212, 0.3);
+    }
+    .action-badge.assignee {
+      background: rgba(168, 85, 247, 0.12);
+      color: #a855f7;
+      border: 1px solid rgba(168, 85, 247, 0.3);
+    }
+    .action-badge.priority {
+      background: rgba(245, 158, 11, 0.12);
+      color: #f59e0b;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+    .action-badge.title, .action-badge.description {
+      background: rgba(59, 130, 246, 0.12);
+      color: #3b82f6;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+    .action-badge.due_date {
+      background: rgba(16, 185, 129, 0.12);
+      color: #10b981;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .action-badge.comment {
+      background: rgba(99, 102, 241, 0.12);
+      color: #6366f1;
+      border: 1px solid rgba(99, 102, 241, 0.3);
+    }
+    .activity-user {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.775rem;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+    .activity-user i {
+      font-size: 0.75rem;
       color: var(--text-muted);
     }
-    .new-status {
-      background: rgba(6, 182, 212, 0.15);
-      color: var(--accent-cyan);
-      border-color: rgba(6, 182, 212, 0.3);
+    .activity-time {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.7rem;
+      color: var(--text-muted);
     }
-    .arrow-icon {
+    .activity-time i {
+      font-size: 0.7rem;
+    }
+    .activity-details-box {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.4rem;
+      font-size: 0.775rem;
+      color: var(--text-muted);
+      background: var(--bg-surface);
+      padding: 0.45rem 0.65rem;
+      border-radius: var(--radius-xs);
+      border-left: 2px solid var(--accent-cyan);
+      word-break: break-word;
+    }
+    .activity-details-box i {
+      font-size: 0.75rem;
+      margin-top: 2px;
+      color: var(--accent-cyan);
+      flex-shrink: 0;
+    }
+    .activity-transition-flow {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .state-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.2rem 0.55rem;
+      border-radius: var(--radius-xs);
+      font-size: 0.725rem;
+      font-weight: 600;
+    }
+    .state-pill.old-state {
+      background: var(--bg-canvas);
+      color: var(--text-muted);
+      border: 1px dashed var(--border-subtle);
+    }
+    .state-pill.new-state {
+      background: rgba(6, 182, 212, 0.12);
+      color: var(--accent-cyan);
+      border: 1px solid rgba(6, 182, 212, 0.35);
+    }
+    .flow-arrow {
       font-size: 0.7rem;
       color: var(--text-subtle);
     }
@@ -1401,6 +1840,13 @@ export class TaskDetailModalComponent implements OnInit {
     { value: 'epic', label: 'Epic', icon: 'fi fi-rr-rocket text-amber' }
   ];
 
+  reportCategoryOptions: SelectOption[] = [
+    { value: 'bug', label: 'Bug / Defect', icon: 'fi fi-rr-bug text-rose' },
+    { value: 'ui_ux', label: 'UI / UX Issue', icon: 'fi fi-rr-layout-fluid text-cyan' },
+    { value: 'feature', label: 'Feature Request', icon: 'fi fi-rr-rocket text-amber' },
+    { value: 'other', label: 'Other Issue', icon: 'fi fi-rr-info text-subtle' }
+  ];
+
   severityOptions: SelectOption[] = [
     { value: 'critical', label: 'Critical', icon: 'fi fi-rr-triangle-warning text-rose' },
     { value: 'major', label: 'Major', icon: 'fi fi-rr-angle-up text-rose' },
@@ -1422,7 +1868,8 @@ export class TaskDetailModalComponent implements OnInit {
     private taskService: TaskService,
     private projectService: ProjectService,
     private workflowService: WorkflowService,
-    public taskShareService: TaskShareService
+    public taskShareService: TaskShareService,
+    public authService: AuthService
   ) { }
 
   @HostListener('window:keydown.escape')
@@ -1464,7 +1911,10 @@ export class TaskDetailModalComponent implements OnInit {
     const val = newAssignee === 'Unassigned' ? '' : newAssignee;
     if (val !== (this.task.assignee || '')) {
       const updated = await this.taskService.updateTask(this.task.id, { assignee: val });
-      if (updated) this.task = updated;
+      if (updated) {
+        this.task = updated;
+        await this.refreshHistory();
+      }
     }
   }
 
@@ -1489,8 +1939,38 @@ export class TaskDetailModalComponent implements OnInit {
     return proj ? proj.name : null;
   }
 
-  getTypeIcon(type: string): string {
-    switch (type) {
+  getTypeLabel(t?: Task): string {
+    if (this.isReportedTask()) {
+      const cat = this.getReportCategory();
+      switch (cat) {
+        case 'ui_ux': return 'UI / UX Issue';
+        case 'feature': return 'Feature Request';
+        case 'other': return 'Other Issue';
+        case 'bug': default: return 'Bug / Defect';
+      }
+    }
+    return t?.type || this.task?.type || 'task';
+  }
+
+  getBadgeClass(t?: Task): string {
+    if (this.isReportedTask()) {
+      return 'badge-' + this.getReportCategory();
+    }
+    return 'badge-' + (t?.type || this.task?.type || 'task');
+  }
+
+  getTypeIcon(t?: Task | string): string {
+    if (this.isReportedTask()) {
+      const cat = this.getReportCategory();
+      switch (cat) {
+        case 'ui_ux': return 'fi fi-rr-layout-fluid';
+        case 'feature': return 'fi fi-rr-rocket';
+        case 'other': return 'fi fi-rr-info';
+        case 'bug': default: return 'fi fi-rr-bug';
+      }
+    }
+    const typeStr = (typeof t === 'string' ? t : t?.type || this.task?.type || '').toLowerCase();
+    switch (typeStr) {
       case 'story': return 'fi fi-rr-book-alt';
       case 'bug': return 'fi fi-rr-bug';
       case 'epic': return 'fi fi-rr-rocket';
@@ -1541,7 +2021,10 @@ export class TaskDetailModalComponent implements OnInit {
     this.isEditingDesc.set(false);
     if (this.descInputText !== (this.task.description || '')) {
       const updated = await this.taskService.updateTask(this.task.id, { description: this.descInputText });
-      if (updated) this.task = updated;
+      if (updated) {
+        this.task = updated;
+        await this.refreshHistory();
+      }
     }
   }
 
@@ -1567,7 +2050,10 @@ export class TaskDetailModalComponent implements OnInit {
       .map(l => l.trim().toLowerCase())
       .filter(l => l.length > 0);
     const updated = await this.taskService.updateTask(this.task.id, { labels: parsed });
-    if (updated) this.task = updated;
+    if (updated) {
+      this.task = updated;
+      await this.refreshHistory();
+    }
   }
 
   // Metadata Field Handlers
@@ -1586,29 +2072,96 @@ export class TaskDetailModalComponent implements OnInit {
     }
   }
 
+  getActionIcon(actionType?: string): string {
+    switch (actionType) {
+      case 'created': return 'fi fi-rr-sparkles';
+      case 'status': return 'fi fi-rr-arrows-repeat';
+      case 'assignee': return 'fi fi-rr-user-add';
+      case 'priority': return 'fi fi-rr-flag';
+      case 'title': return 'fi fi-rr-edit';
+      case 'description': return 'fi fi-rr-document';
+      case 'due_date': return 'fi fi-rr-calendar';
+      case 'comment': return 'fi fi-rr-comment-alt-middle';
+      default: return 'fi fi-rr-time-past';
+    }
+  }
+
+  getActionBadge(actionType?: string): string {
+    if (!actionType) return 'STATUS';
+    return actionType.toUpperCase().replace('_', ' ');
+  }
+
+  async refreshHistory() {
+    if (this.task) {
+      const historyList = await this.taskService.loadStatusHistoryForTask(this.task.id);
+      this.statusHistory.set(historyList);
+    }
+  }
+
   async updatePriority(newPriority: TaskPriority) {
     const updated = await this.taskService.updateTask(this.task.id, { priority: newPriority });
-    if (updated) this.task = updated;
+    if (updated) {
+      this.task = updated;
+      await this.refreshHistory();
+    }
   }
 
   async updateType(newType: TaskType) {
     const updated = await this.taskService.updateTask(this.task.id, { type: newType });
-    if (updated) this.task = updated;
+    if (updated) {
+      this.task = updated;
+      await this.refreshHistory();
+    }
+  }
+
+  isReportedTask(): boolean {
+    if (!this.task) return false;
+    return !!(this.task.is_app_report || this.task.report_category || this.task.labels?.includes('app-report') || this.task.title?.startsWith('[App Report]'));
+  }
+
+  getReportCategory(): string {
+    if (this.task?.report_category) {
+      return this.task.report_category;
+    }
+    if (this.task?.labels?.includes('ui_ux')) return 'ui_ux';
+    if (this.task?.labels?.includes('feature')) return 'feature';
+    if (this.task?.labels?.includes('other')) return 'other';
+    return 'bug';
+  }
+
+  async updateReportCategory(newCategory: string) {
+    const updated = await this.taskService.updateTask(this.task.id, {
+      report_category: newCategory,
+      is_app_report: true
+    });
+    if (updated) {
+      this.task = updated;
+      await this.refreshHistory();
+    }
   }
 
   async updateSeverity(newSeverity: string) {
     const updated = await this.taskService.updateTask(this.task.id, { severity: newSeverity as TaskSeverity });
-    if (updated) this.task = updated;
+    if (updated) {
+      this.task = updated;
+      await this.refreshHistory();
+    }
   }
 
   async updateReproducibility(newReproducibility: string) {
     const updated = await this.taskService.updateTask(this.task.id, { reproducibility: newReproducibility as TaskReproducibility });
-    if (updated) this.task = updated;
+    if (updated) {
+      this.task = updated;
+      await this.refreshHistory();
+    }
   }
 
   async updateDueDate(newDueDate: string) {
     const updated = await this.taskService.updateTask(this.task.id, { due_date: newDueDate });
-    if (updated) this.task = updated;
+    if (updated) {
+      this.task = updated;
+      await this.refreshHistory();
+    }
   }
 
   async updateAssignee(event: Event) {
@@ -1619,11 +2172,93 @@ export class TaskDetailModalComponent implements OnInit {
     }
   }
 
+  commentAttachments = signal<string[]>([]);
+  isDraggingOverComment = signal<boolean>(false);
+  uploadingCommentAttachments = signal<boolean>(false);
+  uploadingCommentCount = signal<number>(0);
+  uploadingDetailAttachments = signal<boolean>(false);
+  uploadingDetailCount = signal<number>(0);
+
   async submitComment() {
-    if (!this.newCommentText.trim()) return;
-    const added = await this.taskService.addComment(this.task.id, this.newCommentText.trim());
+    const text = this.newCommentText.trim();
+    const attachments = this.commentAttachments();
+    if (!text && attachments.length === 0) return;
+
+    const added = await this.taskService.addComment(
+      this.task.id,
+      text,
+      'User',
+      attachments
+    );
     this.comments.update(list => [...list, added]);
     this.newCommentText = '';
+    this.commentAttachments.set([]);
+    await this.refreshHistory();
+  }
+
+  onCommentFileSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    if (input.files && input.files.length > 0) {
+      this.processCommentFiles(Array.from(input.files));
+      input.value = '';
+    }
+  }
+
+  onCommentDragOver(event: DragEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    this.isDraggingOverComment.set(true);
+  }
+
+  onCommentDragLeave(event: DragEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    this.isDraggingOverComment.set(false);
+  }
+
+  onCommentDrop(event: DragEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    this.isDraggingOverComment.set(false);
+    if (event.dataTransfer?.files && event.dataTransfer.files.length > 0) {
+      this.processCommentFiles(Array.from(event.dataTransfer.files));
+    }
+  }
+
+  async processCommentFiles(files: File[]) {
+    const imageFiles = files.filter(f => f.type.startsWith('image/'));
+    if (imageFiles.length === 0) {
+      this.taskShareService.showToast('Please select valid image files.');
+      return;
+    }
+
+    this.uploadingCommentAttachments.set(true);
+    this.uploadingCommentCount.set(imageFiles.length);
+
+    try {
+      for (const file of imageFiles) {
+        const imgData = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e: ProgressEvent<FileReader>) => resolve((e.target?.result as string) || '');
+          reader.onerror = () => reject(new Error('Failed to read image file'));
+          reader.readAsDataURL(file);
+        });
+        if (imgData) {
+          this.commentAttachments.update(curr => [...curr, imgData]);
+        }
+      }
+      this.taskShareService.showToast(`${imageFiles.length} image(s) attached to comment draft.`);
+    } catch (e) {
+      console.error('Error processing comment image:', e);
+      this.taskShareService.showToast('Failed to process image for comment. Please try again.');
+    } finally {
+      this.uploadingCommentAttachments.set(false);
+      this.uploadingCommentCount.set(0);
+    }
+  }
+
+  removeCommentAttachment(index: number) {
+    this.commentAttachments.update(curr => curr.filter((_, i) => i !== index));
   }
 
   startEditingComment(comment: TaskComment) {
@@ -1685,24 +2320,40 @@ export class TaskDetailModalComponent implements OnInit {
 
     const files = Array.from(input.files).filter(f => f.type.startsWith('image/'));
     input.value = '';
-    if (files.length === 0) return;
-
-    const currentAttachments = [...(this.task.attachments || [])];
-    const newImgs: string[] = [];
-
-    for (const file of files) {
-      const imgData = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve((e.target?.result as string) || '');
-        reader.readAsDataURL(file);
-      });
-      if (imgData) newImgs.push(imgData);
+    if (files.length === 0) {
+      this.taskShareService.showToast('Please select valid image files.');
+      return;
     }
 
-    if (newImgs.length > 0) {
-      const updatedAttachments = [...currentAttachments, ...newImgs];
-      const updated = await this.taskService.updateTask(this.task.id, { attachments: updatedAttachments });
-      if (updated) this.task = updated;
+    this.uploadingDetailAttachments.set(true);
+    this.uploadingDetailCount.set(files.length);
+
+    try {
+      const currentAttachments = [...(this.task.attachments || [])];
+      const newImgs: string[] = [];
+
+      for (const file of files) {
+        const imgData = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve((e.target?.result as string) || '');
+          reader.onerror = () => reject(new Error('Failed to read image file'));
+          reader.readAsDataURL(file);
+        });
+        if (imgData) newImgs.push(imgData);
+      }
+
+      if (newImgs.length > 0) {
+        const updatedAttachments = [...currentAttachments, ...newImgs];
+        const updated = await this.taskService.updateTask(this.task.id, { attachments: updatedAttachments });
+        if (updated) this.task = updated;
+        this.taskShareService.showToast(`${newImgs.length} image attachment(s) added successfully.`);
+      }
+    } catch (e) {
+      console.error('Error adding image attachment:', e);
+      this.taskShareService.showToast('Failed to upload image attachment. Please try again.');
+    } finally {
+      this.uploadingDetailAttachments.set(false);
+      this.uploadingDetailCount.set(0);
     }
   }
 
@@ -1723,5 +2374,23 @@ export class TaskDetailModalComponent implements OnInit {
       hour: '2-digit',
       minute: '2-digit'
     });
+  }
+
+  getReporterDisplayName(reporter?: string): string {
+    if (!reporter || reporter === 'Self') return 'User';
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidRegex.test(reporter)) {
+      const options = this.assigneeOptions;
+      const found = options.find(o => o.value === reporter);
+      if (found) return found.label;
+      const currentUser = this.authService.user();
+      if (currentUser && currentUser.id === reporter) {
+        return currentUser.user_metadata?.['display_name'] ||
+               currentUser.user_metadata?.['full_name'] ||
+               (currentUser.email ? currentUser.email.split('@')[0] : 'User');
+      }
+      return 'User';
+    }
+    return reporter;
   }
 }

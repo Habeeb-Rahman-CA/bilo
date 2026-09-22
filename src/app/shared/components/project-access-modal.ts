@@ -5,11 +5,12 @@ import { ProjectService } from '../../core/services/project.service';
 import { AuthService } from '../../core/services/auth.service';
 import { Project, ProjectMember, ProjectRole } from '../../core/models/project.model';
 import { ConfirmModalComponent } from './confirm-modal';
+import { SelectComponent, SelectOption } from './select';
 
 @Component({
   selector: 'app-project-access-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule, ConfirmModalComponent],
+  imports: [CommonModule, FormsModule, ConfirmModalComponent, SelectComponent],
   template: `
     <div class="modal-overlay" (click)="closeModal()">
       <div class="modal-card access-modal-card paper-panel" (click)="$event.stopPropagation()">
@@ -41,11 +42,13 @@ import { ConfirmModalComponent } from './confirm-modal';
             <i class="fi fi-rr-link text-cyan"></i> INVITE VIA LINK
           </label>
           <div class="invite-link-controls">
-            <select class="form-select role-select" [(ngModel)]="inviteRole">
-              <option value="member">Member</option>
-              <option value="admin">Admin</option>
-              <option value="viewer">Viewer</option>
-            </select>
+            <app-select
+              class="role-select"
+              [options]="roleOptions"
+              [(value)]="inviteRole"
+              [searchable]="false"
+              [compact]="true"
+            ></app-select>
             <input
               type="text"
               class="form-input link-input"
@@ -57,7 +60,7 @@ import { ConfirmModalComponent } from './confirm-modal';
               @if (linkCopied()) {
                 <i class="fi fi-rr-check text-emerald"></i> Copied!
               } @else {
-                <i class="fi fi-rr-copy"></i> Copy Link
+                <i class="fi fi-rr-copy"></i> Copy
               }
             </button>
           </div>
@@ -73,11 +76,13 @@ import { ConfirmModalComponent } from './confirm-modal';
               placeholder="Enter User ID or Email"
               [(ngModel)]="newUserId"
             />
-            <select class="form-select role-select" [(ngModel)]="newRole">
-              <option value="admin">Admin</option>
-              <option value="member">Member</option>
-              <option value="viewer">Viewer</option>
-            </select>
+            <app-select
+              class="role-select"
+              [options]="roleOptions"
+              [(value)]="newRole"
+              [searchable]="false"
+              [compact]="true"
+            ></app-select>
             <button
               class="btn btn-primary btn-sm"
               [disabled]="submitting() || !newUserId.trim()"
@@ -233,7 +238,9 @@ import { ConfirmModalComponent } from './confirm-modal';
       flex: 1;
     }
     .role-select {
-      width: 100px;
+      width: 110px;
+      min-width: 110px;
+      flex-shrink: 0;
     }
     .members-section {
       display: flex;
@@ -347,6 +354,12 @@ export class ProjectAccessModalComponent implements OnInit {
   newRole: ProjectRole = 'member';
   inviteRole: ProjectRole = 'member';
   linkCopied = signal<boolean>(false);
+
+  roleOptions: SelectOption[] = [
+    { value: 'member', label: 'Member' },
+    { value: 'admin', label: 'Admin' },
+    { value: 'viewer', label: 'Viewer' }
+  ];
 
   message = signal<string>('');
   isError = signal<boolean>(false);

@@ -28,7 +28,7 @@ export interface CalendarDayCell {
       <!-- Calendar Header Strip -->
       <div class="view-header-strip paper-panel">
         <div class="view-header-left">
-          <span class="badge-mono">05 CALENDAR</span>
+          <span class="badge-mono">04 CALENDAR</span>
           <h2 class="view-header-title">{{ monthTitle() }}</h2>
           <div class="nav-btn-group">
             <button class="btn btn-secondary btn-xs" (click)="prevMonth()" title="Previous Month">

@@ -211,7 +211,7 @@ import { Project } from '../../core/models/project.model';
     .switcher-popover {
       position: absolute;
       top: calc(100% + 6px);
-      left: 0;
+      right: 0;
       width: 280px;
       z-index: 1500;
       background: var(--bg-surface);

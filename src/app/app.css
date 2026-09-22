@@ -93,6 +93,7 @@
 .header-right {
   display: flex;
   align-items: center;
+  gap: 1rem;
   justify-content: flex-end;
 }
 
@@ -117,21 +118,48 @@
 
 .user-menu-container {
   position: relative;
-  display: inline-block;
+  display: flex;
 }
 
 .user-menu-btn {
   position: relative;
-  padding: 0.35rem 0.6rem;
   font-size: 1rem;
   color: var(--text-muted);
+  transition: var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Icon Mode (No profile image uploaded) */
+.user-menu-btn:not(.has-avatar) {
+  padding: 0.35rem 0.6rem;
   border-radius: var(--radius-xs);
 }
 
-.user-menu-btn:hover,
-.user-menu-btn.active {
+.user-menu-btn:not(.has-avatar):hover,
+.user-menu-btn:not(.has-avatar).active {
   color: var(--text-main);
   background: var(--bg-surface-hover);
+}
+
+/* Avatar Mode (Image uploaded) - 100% Circular hover with zero box outline */
+.user-menu-btn.has-avatar {
+  padding: 0 !important;
+  width: 36px;
+  height: 36px;
+  border-radius: 50% !important;
+  background: transparent !important;
+  border: 2px solid transparent;
+  overflow: visible;
+}
+
+.user-menu-btn.has-avatar:hover,
+.user-menu-btn.has-avatar.active {
+  background: transparent !important;
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.25);
+  border-radius: 50% !important;
 }
 
 .user-status-dot {
@@ -144,11 +172,17 @@
   background: var(--accent-emerald, #10b981);
 }
 
+.user-menu-btn.has-avatar .user-status-dot {
+  top: -1px;
+  right: -1px;
+  border: 1.5px solid var(--bg-surface);
+}
+
 .user-menu-popover {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  width: 240px;
+  width: 250px;
   z-index: 1500;
   background: var(--bg-surface);
   border: 1px solid var(--border-medium);
@@ -170,8 +204,8 @@
 }
 
 .user-avatar-circle {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   background: rgba(16, 185, 129, 0.15);
   display: flex;
@@ -179,6 +213,23 @@
   justify-content: center;
   font-size: 0.95rem;
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.user-header-avatar {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+
+.user-popover-avatar {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
 }
 
 .user-details {
@@ -209,12 +260,13 @@
   padding: 0.35rem;
   display: flex;
   flex-direction: column;
+  gap: 0.15rem;
 }
 
 .user-action-btn {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.6rem;
   width: 100%;
   padding: 0.45rem 0.65rem;
   font-family: var(--font-mono);
@@ -226,10 +278,17 @@
   cursor: pointer;
   transition: var(--transition-fast);
   text-align: left;
+  color: var(--text-main);
 }
 
 .user-action-btn:hover {
   background: var(--bg-surface-hover);
+}
+
+.user-menu-divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 0.25rem 0;
 }
 
 .user-action-btn.btn-signout {
@@ -982,3 +1041,29 @@
 .clickable-key:hover .link-icon {
   opacity: 1;
 }
+
+/* Red User Report Badge for High Visibility */
+.app-report-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.35rem !important;
+  padding: 0.18rem 0.55rem !important;
+  font-size: 0.65rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+  border-radius: var(--radius-xs, 4px) !important;
+  background: rgba(244, 63, 94, 0.2) !important;
+  color: #f43f5e !important;
+  border: 1px solid rgba(244, 63, 94, 0.5) !important;
+  box-shadow: 0 1px 4px rgba(244, 63, 94, 0.2) !important;
+  line-height: 1.2 !important;
+  white-space: nowrap !important;
+  vertical-align: middle !important;
+  flex-shrink: 0 !important;
+}
+.app-report-badge i {
+  font-size: 0.725rem !important;
+  color: #f43f5e !important;
+}
+

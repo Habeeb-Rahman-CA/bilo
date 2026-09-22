@@ -7,7 +7,7 @@ import { AuthService } from '../../core/services/auth.service';
 import { TaskShareService } from '../../core/services/task-share.service';
 import { SelectComponent, SelectOption } from './select';
 import { RichEditorComponent } from './rich-editor';
-import { TaskPriority, TaskSeverity, TaskReproducibility } from '../../core/models/project.model';
+import { TaskPriority, TaskSeverity, TaskReproducibility, TaskType } from '../../core/models/project.model';
 
 @Component({
   selector: 'app-report-issue-modal',
@@ -21,8 +21,7 @@ import { TaskPriority, TaskSeverity, TaskReproducibility } from '../../core/mode
           <div class="header-left">
             <i class="fi fi-rr-bug text-rose icon-lg"></i>
             <div>
-              <h3>Report Application Issue / Bug</h3>
-              <span class="header-subtext">Issue will be raised under project <strong class="text-cyan">{{ getTargetProjectName() }}</strong></span>
+              <h3>Submit Feedback & Bug Report</h3>
             </div>
           </div>
           <button type="button" class="btn btn-ghost btn-xs close-btn" (click)="close.emit()" title="Close">
@@ -87,18 +86,6 @@ import { TaskPriority, TaskSeverity, TaskReproducibility } from '../../core/mode
               </div>
             }
 
-            <!-- Reporter Info -->
-            <div class="form-group">
-              <label class="form-label">REPORTER NAME / EMAIL</label>
-              <input
-                type="text"
-                class="form-input"
-                [(ngModel)]="reporter"
-                name="reporter"
-                placeholder="Your email or display name..."
-              />
-            </div>
-
             <!-- Description / Steps to Reproduce -->
             <div class="form-group">
               <label class="form-label">DESCRIPTION & STEPS TO REPRODUCE</label>
@@ -121,10 +108,11 @@ import { TaskPriority, TaskSeverity, TaskReproducibility } from '../../core/mode
               <div
                 class="attachment-dropzone"
                 [class.drag-over]="isDraggingOver()"
+                [class.is-uploading]="uploadingAttachments()"
                 (dragover)="onDragOver($event)"
                 (dragleave)="onDragLeave($event)"
                 (drop)="onDrop($event)"
-                (click)="fileInput.click()"
+                (click)="!uploadingAttachments() && fileInput.click()"
               >
                 <input
                   #fileInput
@@ -134,13 +122,23 @@ import { TaskPriority, TaskSeverity, TaskReproducibility } from '../../core/mode
                   (change)="onFileSelected($event)"
                   style="display: none;"
                 />
-                <div class="dropzone-content">
-                  <i class="fi fi-rr-picture dropzone-icon text-cyan"></i>
-                  <div class="dropzone-text">
-                    <span class="dropzone-title">Click to upload screenshot or drag & drop</span>
-                    <span class="dropzone-sub">PNG, JPG, WEBP, GIF supported</span>
+                @if (uploadingAttachments()) {
+                  <div class="dropzone-content font-mono">
+                    <i class="fi fi-rr-spinner spinner dropzone-icon text-cyan"></i>
+                    <div class="dropzone-text">
+                      <span class="dropzone-title text-cyan">Uploading {{ uploadCount() }} image(s)...</span>
+                      <span class="dropzone-sub">Generating image preview, please wait...</span>
+                    </div>
                   </div>
-                </div>
+                } @else {
+                  <div class="dropzone-content font-mono">
+                    <i class="fi fi-rr-picture dropzone-icon text-cyan"></i>
+                    <div class="dropzone-text">
+                      <span class="dropzone-title">Click to upload screenshot or drag & drop</span>
+                      <span class="dropzone-sub">PNG, JPG, WEBP, GIF supported</span>
+                    </div>
+                  </div>
+                }
               </div>
 
               @if (attachments().length > 0) {
@@ -392,9 +390,10 @@ export class ReportIssueModalComponent {
   priority: TaskPriority = 'high';
   severity: TaskSeverity = 'major';
   reproducibility: TaskReproducibility = 'always';
-  reporter = '';
   description = '';
   attachments = signal<string[]>([]);
+  uploadingAttachments = signal<boolean>(false);
+  uploadCount = signal<number>(0);
 
   submitted = false;
   submitting = signal<boolean>(false);
@@ -434,12 +433,7 @@ export class ReportIssueModalComponent {
     private projectService: ProjectService,
     private authService: AuthService,
     private taskShareService: TaskShareService
-  ) {
-    const user = this.authService.user();
-    if (user?.email) {
-      this.reporter = user.user_metadata?.['display_name'] || user.user_metadata?.['full_name'] || user.email;
-    }
-  }
+  ) {}
 
   getTargetProjectName(): string {
     const allProjects = this.projectService.projects();
@@ -472,17 +466,36 @@ export class ReportIssueModalComponent {
     }
   }
 
-  private handleFiles(files: File[]) {
+  private async handleFiles(files: File[]) {
     const imageFiles = files.filter(f => f.type.startsWith('image/'));
-    for (const file of imageFiles) {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const result = ev.target?.result as string;
-        if (result) {
-          this.attachments.update(list => [...list, result]);
+    if (imageFiles.length === 0) {
+      this.taskShareService.showToast('Please select valid image files.');
+      return;
+    }
+
+    this.uploadingAttachments.set(true);
+    this.uploadCount.set(imageFiles.length);
+
+    try {
+      for (const file of imageFiles) {
+        const imgData = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (ev) => resolve((ev.target?.result as string) || '');
+          reader.onerror = () => reject(new Error('Failed to read image file'));
+          reader.readAsDataURL(file);
+        });
+
+        if (imgData) {
+          this.attachments.update(list => [...list, imgData]);
         }
-      };
-      reader.readAsDataURL(file);
+      }
+      this.taskShareService.showToast(`${imageFiles.length} screenshot(s) attached.`);
+    } catch (err) {
+      console.error('Error uploading screenshot:', err);
+      this.taskShareService.showToast('Failed to load image file. Please try again.');
+    } finally {
+      this.uploadingAttachments.set(false);
+      this.uploadCount.set(0);
     }
   }
 
@@ -506,12 +519,24 @@ export class ReportIssueModalComponent {
 
       const targetProjectId = biloProj ? biloProj.id : 'proj-bilo-main';
       const currentUser = this.authService.user();
+      const reporterName = currentUser?.user_metadata?.['display_name'] ||
+        currentUser?.user_metadata?.['full_name'] ||
+        (currentUser?.email ? currentUser.email.split('@')[0] : null) ||
+        'User';
       const userAgentStr = typeof navigator !== 'undefined' ? navigator.userAgent : 'Unknown';
+
+      // Map selected issue category to task type (bug, story, or task)
+      let taskType: TaskType = 'bug';
+      if (this.category === 'feature') {
+        taskType = 'story';
+      } else if (this.category === 'ui_ux' || this.category === 'other') {
+        taskType = 'task';
+      }
 
       const formattedDesc = [
         this.description.trim() ? this.description.trim() : 'No additional description provided.',
         '\n--- Issue Report Details ---',
-        `Reporter: ${this.reporter.trim() || currentUser?.email || 'Anonymous'}`,
+        `Reporter: ${reporterName}${currentUser?.email ? ' (' + currentUser.email + ')' : ''}`,
         `Submitted At: ${new Date().toLocaleString()}`,
         `Category: ${this.category.toUpperCase()}`,
         `User Agent: ${userAgentStr}`
@@ -519,20 +544,22 @@ export class ReportIssueModalComponent {
 
       const newTask = await this.taskService.createTask({
         project_id: targetProjectId,
-        title: `[App Report] ${this.title.trim()}`,
-        type: 'bug',
+        title: this.title.trim(),
+        type: taskType,
+        is_app_report: true,
+        report_category: this.category,
         status: 'Backlog',
         priority: this.priority,
         severity: this.category === 'bug' ? this.severity : undefined,
         reproducibility: this.category === 'bug' ? this.reproducibility : undefined,
-        reporter: this.reporter.trim() || currentUser?.email || 'App User',
+        reporter: reporterName,
         assignee: 'Unassigned',
         labels: ['app-report', 'user-issue', this.category],
         description: formattedDesc,
         attachments: this.attachments()
       });
 
-      this.taskShareService.showToast(`Issue reported successfully! Submitted under project "${biloProj?.name || 'bilo'}".`);
+      this.taskShareService.showToast(`Feedback submitted successfully! Submitted under project "${biloProj?.name || 'bilo'}".`);
       this.close.emit();
     } catch (e) {
       console.error('Failed to submit application issue:', e);

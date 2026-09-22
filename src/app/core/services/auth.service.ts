@@ -16,6 +16,17 @@ export class AuthService {
   
   readonly isAuthenticated = computed(() => !!this.user());
   readonly userEmail = computed(() => this.user()?.email || '');
+  readonly userName = computed(() => {
+    const u = this.user();
+    if (!u) return 'User';
+    return u.user_metadata?.['display_name'] ||
+      u.user_metadata?.['full_name'] ||
+      (u.email ? u.email.split('@')[0] : 'User');
+  });
+  readonly userAvatar = computed(() => {
+    const u = this.user();
+    return u?.user_metadata?.['avatar_url'] || null;
+  });
 
   constructor(
     private supabaseService: SupabaseService,
@@ -165,5 +176,30 @@ export class AuthService {
 
   closeAuthModal() {
     this.authModalOpen.set(false);
+  }
+
+  async updateProfile(updates: { display_name?: string; avatar_url?: string | null }) {
+    const currentUser = this.user();
+    if (!currentUser) return;
+
+    const currentMetadata = currentUser.user_metadata || {};
+    const newMetadata = { ...currentMetadata, ...updates };
+
+    try {
+      const { data, error } = await this.supabaseService.supabase.auth.updateUser({
+        data: newMetadata
+      });
+
+      if (data?.user) {
+        this.user.set(data.user);
+      } else {
+        const updatedUser = { ...currentUser, user_metadata: newMetadata };
+        this.user.set(updatedUser as User);
+      }
+    } catch (e) {
+      console.warn('[AuthService] Profile update offline/fallback:', e);
+      const updatedUser = { ...currentUser, user_metadata: newMetadata };
+      this.user.set(updatedUser as User);
+    }
   }
 }

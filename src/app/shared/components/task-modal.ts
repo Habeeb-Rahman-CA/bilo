@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { TaskService } from '../../core/services/task.service';
 import { ProjectService } from '../../core/services/project.service';
 import { WorkflowService } from '../../core/services/workflow.service';
+import { TaskShareService } from '../../core/services/task-share.service';
 import { Task, TaskPriority, TaskSeverity, TaskReproducibility, TaskType, Workflow } from '../../core/models/project.model';
 import { DatePickerComponent } from './date-picker';
 import { SelectComponent, SelectOption } from './select';
@@ -154,10 +155,11 @@ import { RichEditorComponent } from './rich-editor';
               <div
                 class="attachment-dropzone"
                 [class.drag-over]="isDraggingOver()"
+                [class.is-uploading]="uploadingAttachments()"
                 (dragover)="onDragOver($event)"
                 (dragleave)="onDragLeave($event)"
                 (drop)="onDrop($event)"
-                (click)="fileInput.click()"
+                (click)="!uploadingAttachments() && fileInput.click()"
               >
                 <input
                   #fileInput
@@ -167,13 +169,23 @@ import { RichEditorComponent } from './rich-editor';
                   (change)="onFileSelected($event)"
                   style="display: none;"
                 />
-                <div class="dropzone-content">
-                  <i class="fi fi-rr-picture dropzone-icon"></i>
-                  <div class="dropzone-text">
-                    <span class="dropzone-title">Click to upload or drag & drop images</span>
-                    <span class="dropzone-sub">PNG, JPG, WEBP, GIF supported</span>
+                @if (uploadingAttachments()) {
+                  <div class="dropzone-content font-mono">
+                    <i class="fi fi-rr-spinner spinner dropzone-icon text-cyan"></i>
+                    <div class="dropzone-text">
+                      <span class="dropzone-title text-cyan">Uploading {{ uploadCount() }} image(s)...</span>
+                      <span class="dropzone-sub">Generating image preview, please wait...</span>
+                    </div>
                   </div>
-                </div>
+                } @else {
+                  <div class="dropzone-content">
+                    <i class="fi fi-rr-picture dropzone-icon"></i>
+                    <div class="dropzone-text">
+                      <span class="dropzone-title">Click to upload or drag & drop images</span>
+                      <span class="dropzone-sub">PNG, JPG, WEBP, GIF supported</span>
+                    </div>
+                  </div>
+                }
               </div>
 
               <!-- Thumbnails Grid -->
@@ -557,6 +569,8 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
   labelsInput = '';
 
   attachments = signal<string[]>([]);
+  uploadingAttachments = signal<boolean>(false);
+  uploadCount = signal<number>(0);
   previewImage = signal<string | null>(null);
   isDraggingOver = signal<boolean>(false);
 
@@ -612,7 +626,8 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
   constructor(
     private taskService: TaskService,
     public projectService: ProjectService,
-    public workflowService: WorkflowService
+    public workflowService: WorkflowService,
+    private taskShareService: TaskShareService
   ) { }
 
   async ngOnInit() {
@@ -697,19 +712,36 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
     }
   }
 
-  processFiles(files: File[]) {
+  async processFiles(files: File[]) {
     const imageFiles = files.filter(f => f.type.startsWith('image/'));
-    if (imageFiles.length === 0) return;
+    if (imageFiles.length === 0) {
+      this.taskShareService.showToast('Please select valid image files.');
+      return;
+    }
 
-    for (const file of imageFiles) {
-      const reader = new FileReader();
-      reader.onload = (e: ProgressEvent<FileReader>) => {
-        const result = e.target?.result as string;
-        if (result) {
-          this.attachments.update(curr => [...curr, result]);
+    this.uploadingAttachments.set(true);
+    this.uploadCount.set(imageFiles.length);
+
+    try {
+      for (const file of imageFiles) {
+        const imgData = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (ev) => resolve((ev.target?.result as string) || '');
+          reader.onerror = () => reject(new Error('Failed to read image file'));
+          reader.readAsDataURL(file);
+        });
+
+        if (imgData) {
+          this.attachments.update(curr => [...curr, imgData]);
         }
-      };
-      reader.readAsDataURL(file);
+      }
+      this.taskShareService.showToast(`${imageFiles.length} image(s) attached.`);
+    } catch (err) {
+      console.error('Error uploading image file:', err);
+      this.taskShareService.showToast('Failed to load image file. Please try again.');
+    } finally {
+      this.uploadingAttachments.set(false);
+      this.uploadCount.set(0);
     }
   }
 

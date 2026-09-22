@@ -270,7 +270,7 @@ export class CommandPaletteComponent implements AfterViewInit {
       badge: 'PROJ',
       icon: 'fi fi-rr-folder-add',
       action: () => {
-        this.workspaceService.setWorkspace('02 PROJECTS');
+        this.workspaceService.setWorkspace('06 SETTINGS');
         this.close();
       }
     });
@@ -278,9 +278,9 @@ export class CommandPaletteComponent implements AfterViewInit {
     list.push({
       id: 'action-report-issue',
       type: 'action',
-      title: 'Action: Report Application Issue / Bug',
-      subtitle: 'Report a problem or bug directly to project bilo',
-      badge: 'REPORT',
+      title: 'Action: Submit Feedback & Bug Report',
+      subtitle: 'Submit feedback, feature requests, or bug reports directly to project bilo',
+      badge: 'FEEDBACK',
       icon: 'fi fi-rr-bug text-rose',
       action: () => {
         this.workspaceService.openReportIssueModal();
@@ -298,7 +298,7 @@ export class CommandPaletteComponent implements AfterViewInit {
         badge: t.type.toUpperCase(),
         icon: t.type === 'bug' ? 'fi fi-rr-bug' : 'fi fi-rr-check-circle',
         action: () => {
-          this.workspaceService.setWorkspace('04 TASKS');
+          this.workspaceService.setWorkspace('03 TASKS');
           this.close();
         }
       });
@@ -315,7 +315,7 @@ export class CommandPaletteComponent implements AfterViewInit {
         icon: 'fi fi-rr-box',
         action: () => {
           this.projectService.activeProject.set(p);
-          this.workspaceService.setWorkspace('02 PROJECTS');
+          this.workspaceService.setWorkspace('06 SETTINGS');
           this.close();
         }
       });

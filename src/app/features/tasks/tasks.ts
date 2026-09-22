@@ -38,7 +38,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       <!-- 1. Standalone Top Header Bar -->
       <div class="view-header-strip paper-panel">
         <div class="view-header-left">
-          <span class="badge-mono">04 BOARD</span>
+          <span class="badge-mono">03 BOARD</span>
           <h2 class="view-header-title">Kanban Board</h2>
         </div>
 
@@ -173,9 +173,9 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
         <div class="empty-board paper-panel font-mono">
           <i class="fi fi-rr-folder-open empty-board-icon"></i>
           <h3>No Status Workflow Configured</h3>
-          <p>Configure status columns for this project in the <strong>02 PROJECTS</strong> workspace.</p>
-          <button class="btn btn-secondary btn-sm" (click)="workspaceService.setWorkspace('02 PROJECTS')">
-            <i class="fi fi-rr-folder"></i> Go to Projects
+          <p>Configure status columns for this project in the <strong>06 SETTINGS</strong> workspace.</p>
+          <button class="btn btn-secondary btn-sm" (click)="workspaceService.setWorkspace('06 SETTINGS')">
+            <i class="fi fi-rr-settings"></i> Go to Settings
           </button>
         </div>
       } @else {
@@ -208,8 +208,8 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                     <!-- Card Top Row: Issue Type, Key, Priority, Drag Handle -->
                     <div class="card-top font-mono">
                       <div class="type-badge-wrap">
-                        <span class="badge-type" [class]="t.type">
-                          <i [class]="getTypeIcon(t.type)"></i> {{ t.type }}
+                        <span class="badge-type" [class]="getTypeBadgeClass(t)">
+                          <i [class]="getTypeIcon(t)"></i> {{ getTypeLabel(t) }}
                         </span>
                         <span
                           class="task-key font-mono clickable-key"
@@ -235,7 +235,14 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                     }
 
                     <!-- Card Title -->
-                    <h4 class="card-title">{{ t.title }}</h4>
+                    <h4 class="card-title">
+                      <span>{{ t.title }}</span>
+                      @if (isReportedTask(t)) {
+                        <span class="app-report-badge font-mono" title="Reported directly by user via App Report">
+                          <i class="fi fi-rr-paper-plane"></i> User Report
+                        </span>
+                      }
+                    </h4>
 
                     <!-- Card Labels -->
                     @if (t.labels && t.labels.length > 0) {
@@ -506,6 +513,33 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       color: var(--text-main);
       margin: 0;
       line-height: 1.35;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+    }
+    .app-report-badge {
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 0.35rem !important;
+      padding: 0.18rem 0.55rem !important;
+      font-size: 0.65rem !important;
+      font-weight: 800 !important;
+      letter-spacing: 0.04em !important;
+      text-transform: uppercase !important;
+      border-radius: var(--radius-xs, 4px) !important;
+      background: rgba(244, 63, 94, 0.2) !important;
+      color: #f43f5e !important;
+      border: 1px solid rgba(244, 63, 94, 0.5) !important;
+      box-shadow: 0 1px 4px rgba(244, 63, 94, 0.2) !important;
+      line-height: 1.2 !important;
+      white-space: nowrap !important;
+      vertical-align: middle !important;
+      flex-shrink: 0 !important;
+    }
+    .app-report-badge i {
+      font-size: 0.725rem !important;
+      color: #f43f5e !important;
     }
     .card-labels {
       display: flex;
@@ -892,8 +926,51 @@ export class TasksComponent implements OnInit {
     return p ? p.name : '';
   }
 
-  getTypeIcon(type: string): string {
-    switch (type) {
+  isReportedTask(t: Task): boolean {
+    if (!t) return false;
+    return !!(t.is_app_report || t.report_category || t.labels?.includes('app-report') || t.title?.startsWith('[App Report]'));
+  }
+
+  getReportCategory(t: Task): string {
+    if (t?.report_category) return t.report_category;
+    if (t?.labels?.includes('ui_ux')) return 'ui_ux';
+    if (t?.labels?.includes('feature')) return 'feature';
+    if (t?.labels?.includes('other')) return 'other';
+    return 'bug';
+  }
+
+  getTypeLabel(t: Task): string {
+    if (this.isReportedTask(t)) {
+      const cat = this.getReportCategory(t);
+      switch (cat) {
+        case 'ui_ux': return 'UI / UX';
+        case 'feature': return 'Feature';
+        case 'other': return 'Other';
+        case 'bug': default: return 'Bug';
+      }
+    }
+    return t.type || 'task';
+  }
+
+  getTypeBadgeClass(t: Task): string {
+    if (this.isReportedTask(t)) {
+      return 'badge-' + this.getReportCategory(t);
+    }
+    return t.type || 'task';
+  }
+
+  getTypeIcon(t: Task | string): string {
+    if (typeof t === 'object' && t !== null && this.isReportedTask(t)) {
+      const cat = this.getReportCategory(t);
+      switch (cat) {
+        case 'ui_ux': return 'fi fi-rr-layout-fluid';
+        case 'feature': return 'fi fi-rr-rocket';
+        case 'other': return 'fi fi-rr-info';
+        case 'bug': default: return 'fi fi-rr-bug';
+      }
+    }
+    const typeStr = (typeof t === 'string' ? t : t?.type || '').toLowerCase();
+    switch (typeStr) {
       case 'story': return 'fi fi-rr-book-alt';
       case 'bug': return 'fi fi-rr-bug';
       case 'epic': return 'fi fi-rr-rocket';

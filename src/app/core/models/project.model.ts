@@ -73,6 +73,8 @@ export interface Task {
   severity?: TaskSeverity;
   reproducibility?: TaskReproducibility;
   reporter?: string;
+  is_app_report?: boolean;
+  report_category?: string;
   labels?: string[];
   assignee?: string;
   due_date?: string;
@@ -90,6 +92,7 @@ export interface TaskComment {
   user_id?: string;
   author_name: string;
   content: string;
+  attachments?: string[];
   created_at: string;
   updated_at?: string;
 }
@@ -100,6 +103,8 @@ export interface TaskStatusHistory {
   user_id?: string;
   from_status?: string;
   to_status: string;
+  action_type?: string;
+  details?: string;
   changed_by?: string;
   created_at: string;
 }

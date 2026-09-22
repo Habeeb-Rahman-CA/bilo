@@ -4,7 +4,6 @@ import { WorkspaceService, WorkspaceSection } from './core/services/workspace.se
 import { SyncService } from './core/services/sync.service';
 import { UpdateService } from './core/services/update.service';
 import { TodayComponent } from './features/today/today';
-import { ProjectsComponent } from './features/projects/projects';
 import { TasksComponent } from './features/tasks/tasks';
 import { BacklogComponent } from './features/backlog/backlog';
 import { CalendarComponent } from './features/calendar/calendar';
@@ -28,6 +27,7 @@ import { WorkspaceSwitcherComponent } from './shared/components/workspace-switch
 import { ProjectModalComponent } from './shared/components/project-modal';
 import { JoinWorkspaceModalComponent } from './shared/components/join-workspace-modal';
 import { ReportIssueModalComponent } from './shared/components/report-issue-modal';
+import { EditProfileModalComponent } from './shared/components/edit-profile-modal';
 import { AuthPageComponent } from './features/auth/auth-page';
 import { Task, ProjectRole, Project } from './core/models/project.model';
 
@@ -42,7 +42,6 @@ import { Task, ProjectRole, Project } from './core/models/project.model';
     JoinWorkspaceModalComponent,
     ReportIssueModalComponent,
     TodayComponent,
-    ProjectsComponent,
     TasksComponent,
     BacklogComponent,
     CalendarComponent,
@@ -54,6 +53,7 @@ import { Task, ProjectRole, Project } from './core/models/project.model';
     TaskDetailModalComponent,
     AuthModalComponent,
     ProjectAccessModalComponent,
+    EditProfileModalComponent,
     AuthPageComponent
   ],
   templateUrl: './app.html',
@@ -67,6 +67,7 @@ export class App implements OnInit {
   pushNotificationModalOpen = signal<boolean>(false);
   projectAccessModalOpen = signal<boolean>(false);
   createProjectModalOpen = signal<boolean>(false);
+  editProfileModalOpen = signal<boolean>(false);
   userMenuOpen = signal<boolean>(false);
   notificationMenuOpen = signal<boolean>(false);
 
@@ -172,7 +173,7 @@ export class App implements OnInit {
 
   openNotificationSettings() {
     this.notificationMenuOpen.set(false);
-    this.selectWorkspace('07 SETTINGS');
+    this.selectWorkspace('06 SETTINGS');
   }
 
   signOutUser() {
@@ -202,7 +203,7 @@ export class App implements OnInit {
   }
 
   togglePushNotificationModal() {
-    this.selectWorkspace('07 SETTINGS');
+    this.selectWorkspace('06 SETTINGS');
   }
 
   toggleSidebar() {

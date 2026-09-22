@@ -569,6 +569,6 @@ export class ProjectsComponent {
     if (proj) {
       this.projectService.activeProject.set(proj);
     }
-    this.workspaceService.setWorkspace('04 TASKS');
+    this.workspaceService.setWorkspace('03 TASKS');
   }
 }

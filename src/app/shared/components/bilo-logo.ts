@@ -9,7 +9,7 @@ import { ThemeService } from '../../core/services/theme.service';
   template: `
     <div class="bilo-logo-wrapper" [ngClass]="['size-' + size, classNames]" [class.compact]="compact">
       <div class="bilo-logo-mark" title="bilo Developer Project Manager">
-        <img [src]="themeService.isDarkMode() ? 'bilo-icon-light.png' : 'bilo-icon-dark.png'" class="bilo-logo-img" alt="bilo Logo" />
+        <img [src]="themeService.isDarkMode() ? 'bilo-icon-dark.png' : 'bilo-icon-light.png'" class="bilo-logo-img" alt="bilo Logo" />
       </div>
     </div>
   `,
@@ -47,11 +47,11 @@ import { ThemeService } from '../../core/services/theme.service';
     }
 
     /* Size variants */
-    .size-xs .bilo-logo-img { width: 18px; height: 18px; }
-    .size-sm .bilo-logo-img { width: 24px; height: 24px; }
-    .size-md .bilo-logo-img { width: 28px; height: 28px; }
-    .size-lg .bilo-logo-img { width: 36px; height: 36px; }
-    .size-xl .bilo-logo-img { width: 48px; height: 48px; }
+    .size-xs .bilo-logo-img { width: 34px; height: 34px; }
+    .size-sm .bilo-logo-img { width: 40px; height: 40px; }
+    .size-md .bilo-logo-img { width: 44px; height: 44px; }
+    .size-lg .bilo-logo-img { width: 52px; height: 52px; }
+    .size-xl .bilo-logo-img { width: 64px; height: 64px; }
 
     .bilo-logo-brand {
       display: flex;

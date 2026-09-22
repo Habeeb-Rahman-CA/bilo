@@ -4,15 +4,14 @@ import { FormsModule } from '@angular/forms';
 import { TaskService } from '../../core/services/task.service';
 import { ProjectService } from '../../core/services/project.service';
 import { WorkspaceService } from '../../core/services/workspace.service';
+import { WorkflowService } from '../../core/services/workflow.service';
 import { Task } from '../../core/models/project.model';
 import { TaskDetailModalComponent } from '../../shared/components/task-detail-modal';
 import { TaskModalComponent } from '../../shared/components/task-modal';
-import { SelectComponent, SelectOption } from '../../shared/components/select';
-
 @Component({
   selector: 'app-today',
   standalone: true,
-  imports: [CommonModule, FormsModule, TaskDetailModalComponent, TaskModalComponent, SelectComponent],
+  imports: [CommonModule, FormsModule, TaskDetailModalComponent, TaskModalComponent],
   template: `
     <div class="today-workspace">
       <!-- Top Header Strip -->
@@ -89,17 +88,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
         <div class="paper-panel grid-card">
           <div class="card-header">
             <h3><i class="fi fi-rr-chart-pie text-cyan"></i> Status Overview</h3>
-            <div class="card-header-actions">
-              <div class="project-filter-wrap">
-                <app-select
-                  [options]="projectOptions()"
-                  [value]="selectedStatusProjectId()"
-                  (valueChange)="selectedStatusProjectId.set($event)"
-                  [compact]="true"
-                ></app-select>
-              </div>
-              <span class="badge-mono font-mono">{{ filteredStatusTasksCount() }} Tasks</span>
-            </div>
+            <span class="badge-mono font-mono">{{ filteredStatusTasksCount() }} Tasks</span>
           </div>
 
           <div class="card-body donut-body">
@@ -718,7 +707,8 @@ export class TodayComponent {
   constructor(
     public taskService: TaskService,
     public projectService: ProjectService,
-    public workspaceService: WorkspaceService
+    public workspaceService: WorkspaceService,
+    public workflowService: WorkflowService
   ) { }
 
   todayDateFormatted = computed(() => {
@@ -766,49 +756,43 @@ export class TodayComponent {
     return tasks.filter(t => !t.completed && t.due_date && t.due_date >= todayStr && t.due_date <= sevenDaysAhead).length;
   });
 
-  selectedStatusProjectId = signal<string>('all');
-
-  projectOptions = computed<SelectOption[]>(() => [
-    { value: 'all', label: 'All Projects', icon: 'fi fi-rr-apps' },
-    ...this.projectService.projects().map(p => ({
-      value: p.id,
-      label: p.name,
-      icon: 'fi fi-rr-folder'
-    }))
-  ]);
-
   totalTaskCount = computed(() => this.activeWorkspaceTasks().length);
 
-  filteredStatusTasksCount = computed(() => {
-    let tasks = this.activeWorkspaceTasks();
-    const projId = this.selectedStatusProjectId();
-    if (projId !== 'all') {
-      tasks = tasks.filter(t => t.project_id === projId);
-    }
-    return tasks.length;
+  recentActivities = computed(() => {
+    const activities = this.projectService.activities();
+    const activeProjId = this.projectService.activeProject()?.id;
+    const filtered = activeProjId
+      ? activities.filter(a => !a.project_id || a.project_id === activeProjId)
+      : activities;
+    return filtered.slice(0, 5);
   });
 
-  // Dynamic Status Breakdown & Donut SVG calculation across projects
+  getTasksForStatusOverview = computed(() => {
+    return this.activeWorkspaceTasks();
+  });
+
+  filteredStatusTasksCount = computed(() => {
+    return this.getTasksForStatusOverview().length;
+  });
+
+  // Dynamic Status Breakdown & Donut SVG calculation across configured workflow statuses
   statusCounts = computed(() => {
-    let tasks = this.activeWorkspaceTasks();
-    const projId = this.selectedStatusProjectId();
-    if (projId !== 'all') {
-      tasks = tasks.filter(t => t.project_id === projId);
-    }
+    const tasks = this.getTasksForStatusOverview();
     const total = tasks.length;
-    if (total === 0) return [];
+    const activeProjId = this.projectService.activeProject()?.id;
+    const configuredWorkflows = this.workflowService.getWorkflowsForProject(activeProjId);
 
-    const countMap = new Map<string, number>();
-    tasks.forEach(t => {
-      const raw = (t.status || 'Todo').trim();
-      const displayStatus = raw
-        .split('_')
-        .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-        .join(' ');
-      countMap.set(displayStatus, (countMap.get(displayStatus) || 0) + 1);
+    const statusMap = new Map<string, { name: string; color: string; count: number }>();
+
+    // Initialize with all configured workflow statuses (including 0-count statuses)
+    configuredWorkflows.forEach(wf => {
+      const key = wf.name.toLowerCase().trim();
+      statusMap.set(key, {
+        name: wf.name,
+        color: wf.color || '#0284c7',
+        count: 0
+      });
     });
-
-    const COLOR_PALETTE = ['#0284c7', '#16a34a', '#d97706', '#8c857b', '#7c3aed', '#dc2626', '#06b6d4', '#ec4899', '#f59e0b'];
 
     const knownColors: Record<string, string> = {
       'to do': '#3b82f6',
@@ -823,26 +807,34 @@ export class TodayComponent {
       'completed': '#22c55e'
     };
 
-    let paletteIdx = 0;
-    const result: { name: string; count: number; percent: number; color: string }[] = [];
+    // Tally tasks into status map
+    tasks.forEach(t => {
+      const raw = (t.status || 'Todo').trim();
+      const lowerKey = raw.toLowerCase().replace('_', ' ');
 
-    countMap.forEach((count, statusName) => {
-      const lower = statusName.toLowerCase();
-      let color = knownColors[lower];
-      if (!color) {
-        color = COLOR_PALETTE[paletteIdx % COLOR_PALETTE.length];
-        paletteIdx++;
+      let entry = statusMap.get(lowerKey);
+      if (!entry) {
+        const matchedKey = Array.from(statusMap.keys()).find(k => k.replace('_', ' ') === lowerKey);
+        if (matchedKey) {
+          entry = statusMap.get(matchedKey);
+        } else {
+          const displayStatus = raw.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+          const color = knownColors[lowerKey] || '#06b6d4';
+          entry = { name: displayStatus, color, count: 0 };
+          statusMap.set(lowerKey, entry);
+        }
       }
-      const percent = total > 0 ? Math.round((count / total) * 100) : 0;
-      result.push({ name: statusName, count, percent, color });
+      if (entry) {
+        entry.count++;
+      }
     });
 
-    result.sort((a, b) => b.count - a.count);
-    return result;
+    const rawItems = Array.from(statusMap.values());
+    return this.calculateIntegerPercentages(rawItems, total);
   });
 
   donutSegments = computed(() => {
-    const list = this.statusCounts();
+    const list = this.statusCounts().filter(st => st.count > 0);
     const total = this.filteredStatusTasksCount();
     if (total === 0) return [];
 
@@ -865,15 +857,6 @@ export class TodayComponent {
     });
   });
 
-  // Recent Activity (Latest 5 Entries for active workspace)
-  recentActivities = computed(() => {
-    const activeProjId = this.projectService.activeProject()?.id;
-    return this.projectService.activities()
-      .filter(a => !activeProjId || a.project_id === activeProjId)
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      .slice(0, 5);
-  });
-
   // Priority Breakdown
   priorityCounts = computed(() => {
     const tasks = this.activeWorkspaceTasks();
@@ -886,11 +869,12 @@ export class TodayComponent {
       { name: 'Low', key: 'low', color: '#8c857b' }
     ];
 
-    return priorities.map(p => {
+    const rawItems = priorities.map(p => {
       const count = tasks.filter(t => t.priority === p.key).length;
-      const percent = total > 0 ? Math.round((count / total) * 100) : 0;
-      return { name: p.name, count, percent, color: p.color };
+      return { name: p.name, count, color: p.color };
     });
+
+    return this.calculateIntegerPercentages(rawItems, total);
   });
 
   // Types of Work
@@ -905,12 +889,43 @@ export class TodayComponent {
       { name: 'Epic', key: 'epic', icon: 'fi fi-rr-rocket', color: '#7c3aed' }
     ];
 
-    return types.map(tp => {
+    const rawItems = types.map(tp => {
       const count = tasks.filter(t => t.type === tp.key).length;
-      const percent = total > 0 ? Math.round((count / total) * 100) : 0;
-      return { name: tp.name, count, percent, icon: tp.icon, color: tp.color };
+      return { name: tp.name, count, icon: tp.icon, color: tp.color };
     });
+
+    return this.calculateIntegerPercentages(rawItems, total);
   });
+
+  // Hamilton-Appell Largest Remainder Method for 100% total integer percentage calculation
+  private calculateIntegerPercentages<T extends { count: number }>(items: T[], total: number): (T & { percent: number })[] {
+    if (total === 0) {
+      return items.map(item => ({ ...item, percent: 0 }));
+    }
+
+    const calcItems = items.map(item => {
+      const exactPct = (item.count / total) * 100;
+      const floorPct = Math.floor(exactPct);
+      const remainder = exactPct - floorPct;
+      return {
+        ...item,
+        percent: floorPct,
+        remainder
+      };
+    });
+
+    const sumFloors = calcItems.reduce((acc, curr) => acc + curr.percent, 0);
+    let diff = 100 - sumFloors;
+
+    if (diff > 0) {
+      const sortedByRemainder = [...calcItems].sort((a, b) => b.remainder - a.remainder);
+      for (let i = 0; i < diff && i < sortedByRemainder.length; i++) {
+        sortedByRemainder[i].percent += 1;
+      }
+    }
+
+    return calcItems.map(({ remainder, ...rest }) => rest as T & { percent: number });
+  }
 
   formatDate(iso: string): string {
     if (!iso) return '';

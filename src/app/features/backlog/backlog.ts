@@ -11,17 +11,18 @@ import { getTaskKey } from '../../core/utils/task-key.util';
 import { TaskDetailModalComponent } from '../../shared/components/task-detail-modal';
 import { TaskModalComponent } from '../../shared/components/task-modal';
 import { SelectComponent, SelectOption } from '../../shared/components/select';
+import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
 
 @Component({
   selector: 'app-backlog',
   standalone: true,
-  imports: [CommonModule, FormsModule, TaskDetailModalComponent, TaskModalComponent, SelectComponent],
+  imports: [CommonModule, FormsModule, TaskDetailModalComponent, TaskModalComponent, SelectComponent, ConfirmModalComponent],
   template: `
     <div class="backlog-workspace font-mono">
       <!-- Top Banner Bar -->
       <div class="view-header-strip paper-panel">
         <div class="view-header-left">
-          <span class="badge-mono">03 BACKLOG</span>
+          <span class="badge-mono">02 BACKLOG</span>
           <h2 class="view-header-title">Task Backlog</h2>
           <span class="badge-mono text-muted">{{ filteredTasks().length }} of {{ allTasks().length }} Tasks</span>
         </div>
@@ -223,9 +224,9 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                 </div>
 
                 <!-- Type Icon & Label -->
-                <div class="cell-type" [title]="'Type: ' + (t.type || 'task')">
-                  <i [class]="getTypeIcon(t.type)" [style.color]="getTypeColor(t.type)"></i>
-                  <span class="type-name">{{ t.type || 'task' }}</span>
+                <div class="cell-type" [title]="'Type / Category: ' + getTypeLabel(t)">
+                  <i [class]="getTypeIcon(t)" [style.color]="getTypeColor(t)"></i>
+                  <span class="type-name">{{ getTypeLabel(t) }}</span>
                 </div>
 
                 <!-- Task Key / Identifier -->
@@ -240,6 +241,11 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                 <!-- Title / Summary -->
                 <div class="cell-summary">
                   <span class="summary-text" [class.completed]="t.completed || isDone(t.status)">{{ t.title }}</span>
+                  @if (isReportedTask(t)) {
+                    <span class="app-report-badge font-mono" title="Reported directly by user via App Report">
+                      <i class="fi fi-rr-paper-plane"></i> User Report
+                    </span>
+                  }
                 </div>
 
                 <!-- Project -->
@@ -271,7 +277,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                       <i class="fi fi-rr-calendar"></i> {{ t.due_date }}
                     </span>
                   } @else {
-                    <span class="no-due">-</span>
+                    <span class="no-due">No due date</span>
                   }
                 </div>
 
@@ -288,7 +294,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
 
                 <!-- Actions -->
                 <div class="cell-actions" (click)="$event.stopPropagation()">
-                  <button class="action-btn btn-danger-action" (click)="deleteTask(t.id)" title="Delete task permanently">
+                  <button class="action-btn btn-danger-action" (click)="deleteTask(t)" title="Delete task permanently">
                     <i class="fi fi-rr-trash"></i>
                   </button>
                 </div>
@@ -310,6 +316,18 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
           [task]="dt"
           (close)="activeDetailTask.set(null)"
         ></app-task-detail-modal>
+      }
+
+      @if (confirmState(); as cs) {
+        <app-confirm-modal
+          [isOpen]="cs.open"
+          [title]="cs.title"
+          [message]="cs.message"
+          confirmText="Delete"
+          type="danger"
+          (confirm)="handleConfirm()"
+          (cancel)="confirmState.set(null)"
+        />
       }
     </div>
   `,
@@ -523,7 +541,31 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       flex: 1;
       display: flex;
       align-items: center;
+      gap: 0.5rem;
       overflow: hidden;
+    }
+    .app-report-badge {
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 0.35rem !important;
+      padding: 0.18rem 0.55rem !important;
+      font-size: 0.65rem !important;
+      font-weight: 800 !important;
+      letter-spacing: 0.04em !important;
+      text-transform: uppercase !important;
+      border-radius: var(--radius-xs, 4px) !important;
+      background: rgba(244, 63, 94, 0.2) !important;
+      color: #f43f5e !important;
+      border: 1px solid rgba(244, 63, 94, 0.5) !important;
+      box-shadow: 0 1px 4px rgba(244, 63, 94, 0.2) !important;
+      line-height: 1.2 !important;
+      white-space: nowrap !important;
+      vertical-align: middle !important;
+      flex-shrink: 0 !important;
+    }
+    .app-report-badge i {
+      font-size: 0.725rem !important;
+      color: #f43f5e !important;
     }
     .summary-text {
       color: var(--text-main);
@@ -599,7 +641,12 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       color: var(--accent-rose);
       font-weight: 700;
     }
-    .no-due { color: var(--text-subtle); }
+    .no-due {
+      color: var(--text-subtle);
+      font-style: italic;
+      font-size: 0.7rem;
+      opacity: 0.75;
+    }
 
     .cell-created {
       width: 110px;
@@ -1114,20 +1161,46 @@ export class BacklogComponent implements OnInit {
     this.clearSelection();
   }
 
-  async batchDelete() {
+  confirmState = signal<{ open: boolean; title: string; message: string; action: () => void } | null>(null);
+
+  batchDelete() {
     const ids = this.selectedTaskIds();
-    for (const id of ids) {
-      await this.taskService.deleteTask(id);
-    }
-    this.clearSelection();
+    if (ids.length === 0) return;
+    this.confirmState.set({
+      open: true,
+      title: 'Delete Selected Tasks',
+      message: `Are you sure you want to permanently delete ${ids.length} selected task${ids.length > 1 ? 's' : ''}?`,
+      action: async () => {
+        for (const id of ids) {
+          await this.taskService.deleteTask(id);
+        }
+        this.clearSelection();
+      }
+    });
   }
 
   async updateStatus(id: string, statusVal: string) {
     await this.taskService.updateTask(id, { status: statusVal, completed: statusVal === 'done' });
   }
 
-  async deleteTask(id: string) {
-    await this.taskService.deleteTask(id);
+  deleteTask(t: Task) {
+    this.confirmState.set({
+      open: true,
+      title: 'Delete Task',
+      message: `Are you sure you want to permanently delete task "${t.title}"?`,
+      action: async () => {
+        await this.taskService.deleteTask(t.id);
+        this.selectedTaskIds.update(ids => ids.filter(id => id !== t.id));
+      }
+    });
+  }
+
+  handleConfirm() {
+    const current = this.confirmState();
+    if (current && current.action) {
+      current.action();
+    }
+    this.confirmState.set(null);
   }
 
   openDetail(t: Task) {
@@ -1140,19 +1213,63 @@ export class BacklogComponent implements OnInit {
     return p ? p.name : 'General';
   }
 
-  getTypeIcon(type: string): string {
-    const t = (type || '').toLowerCase();
-    switch (t) {
+  isReportedTask(t: Task): boolean {
+    if (!t) return false;
+    return !!(t.is_app_report || t.report_category || t.labels?.includes('app-report') || t.title?.startsWith('[App Report]'));
+  }
+
+  getReportCategory(t: Task): string {
+    if (t?.report_category) return t.report_category;
+    if (t?.labels?.includes('ui_ux')) return 'ui_ux';
+    if (t?.labels?.includes('feature')) return 'feature';
+    if (t?.labels?.includes('other')) return 'other';
+    return 'bug';
+  }
+
+  getTypeLabel(t: Task): string {
+    if (this.isReportedTask(t)) {
+      const cat = this.getReportCategory(t);
+      switch (cat) {
+        case 'ui_ux': return 'UI / UX';
+        case 'feature': return 'Feature';
+        case 'other': return 'Other';
+        case 'bug': default: return 'Bug';
+      }
+    }
+    return t.type || 'task';
+  }
+
+  getTypeIcon(t: Task | string): string {
+    if (typeof t === 'object' && t !== null && this.isReportedTask(t)) {
+      const cat = this.getReportCategory(t);
+      switch (cat) {
+        case 'ui_ux': return 'fi fi-rr-layout-fluid';
+        case 'feature': return 'fi fi-rr-rocket';
+        case 'other': return 'fi fi-rr-info';
+        case 'bug': default: return 'fi fi-rr-bug';
+      }
+    }
+    const typeStr = (typeof t === 'string' ? t : t?.type || '').toLowerCase();
+    switch (typeStr) {
       case 'story': return 'fi fi-rr-book-alt';
       case 'bug': return 'fi fi-rr-bug';
       case 'epic': return 'fi fi-rr-rocket';
-      default: return 'fi fi-rr-check-circle';
+      default: return 'fi fi-rr-checkbox';
     }
   }
 
-  getTypeColor(type: string): string {
-    const t = (type || '').toLowerCase();
-    switch (t) {
+  getTypeColor(t: Task | string): string {
+    if (typeof t === 'object' && t !== null && this.isReportedTask(t)) {
+      const cat = this.getReportCategory(t);
+      switch (cat) {
+        case 'ui_ux': return '#06b6d4';
+        case 'feature': return '#f59e0b';
+        case 'other': return '#71717a';
+        case 'bug': default: return '#f43f5e';
+      }
+    }
+    const typeStr = (typeof t === 'string' ? t : t?.type || '').toLowerCase();
+    switch (typeStr) {
       case 'story': return '#0284c7';
       case 'bug': return '#dc2626';
       case 'epic': return '#7c3aed';

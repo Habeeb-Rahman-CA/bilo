@@ -2,12 +2,9 @@
 <div class="app-shell">
   <!-- Top Bar Header: System Name (Left), Command Palette Search (Middle), Help Icon (Right) -->
   <header class="app-header paper-panel">
-    <!-- Left End: System Name Logo & Workspace Switcher -->
+    <!-- Left End: System Name Logo -->
     <div class="header-brand font-mono">
       <app-bilo-logo size="sm" [showText]="true"></app-bilo-logo>
-      <app-workspace-switcher
-        (createWorkspace)="createProjectModalOpen.set(true)"
-      ></app-workspace-switcher>
     </div>
 
     <!-- Middle: Command Palette Search Bar -->
@@ -31,67 +28,13 @@
           <i class="fi fi-rr-wifi-slash"></i> <span class="offline-text">OFFLINE</span> ({{ syncService.pendingSyncQueue().length }})
         </span>
       }
-      <!-- User Profile Menu Icon & Dropdown Popover -->
-      <div class="user-menu-container font-mono">
-        <button
-          type="button"
-          class="btn btn-ghost btn-sm user-menu-btn"
-          [class.active]="userMenuOpen()"
-          (click)="toggleUserMenu($event)"
-          [title]="'Account: ' + authService.userEmail()"
-        >
-          <i class="fi fi-rr-user"></i>
-          <span class="user-status-dot"></span>
-        </button>
 
-        @if (userMenuOpen()) {
-          <div class="user-menu-popover paper-panel font-mono" (click)="$event.stopPropagation()">
-            <div class="user-info-card">
-              <div class="user-avatar-circle">
-                <i class="fi fi-rr-user-check text-emerald"></i>
-              </div>
-              <div class="user-details">
-                <span class="user-display-name">{{ userName() }}</span>
-                <span class="user-email-address">{{ authService.userEmail() }}</span>
-              </div>
-            </div>
-
-            <div class="user-menu-actions">
-              <button
-                type="button"
-                class="user-action-btn"
-                (click)="userMenuOpen.set(false); workspaceService.openReportIssueModal()"
-              >
-                <i class="fi fi-rr-bug text-rose"></i>
-                <span>Report Application Issue</span>
-              </button>
-              <button
-                type="button"
-                class="user-action-btn btn-signout text-rose"
-                (click)="signOutUser()"
-              >
-                <i class="fi fi-rr-sign-out-alt"></i>
-                <span>Sign Out</span>
-              </button>
-            </div>
-          </div>
-        }
-      </div>
-
-      @if (projectService.activeProject(); as activeProj) {
-        <button class="btn btn-ghost btn-sm access-btn" (click)="projectAccessModalOpen.set(true)" title="Project Access & Members">
-          <i class="fi fi-rr-users-alt"></i>
-        </button>
-      }
-
-      <button class="btn btn-ghost btn-sm report-bug-header-btn text-rose" (click)="workspaceService.openReportIssueModal()" title="Report Application Issue / Bug">
-        <i class="fi fi-rr-bug"></i>
-      </button>
-
+      <!-- Light / Dark Theme Mode Toggle -->
       <button class="btn btn-ghost btn-sm theme-toggle-btn" (click)="themeService.toggleTheme()"
         [title]="themeService.isDarkMode() ? 'Switch to Light Craft Paper Theme' : 'Switch to Dark Theme (Black & Grey)'">
         <i [class]="themeService.isDarkMode() ? 'fi fi-rr-sun' : 'fi fi-rr-moon-stars'"></i>
       </button>
+
       <!-- Notifications Menu Icon & Popover -->
       <div class="notification-menu-container font-mono">
         <button
@@ -152,10 +95,99 @@
           </div>
         }
       </div>
-      <button class="btn btn-ghost btn-sm help-btn" (click)="workspaceService.toggleShortcutsModal()"
-        title="Help & Reference (?)">
-        <i class="fi fi-rr-interrogation help-icon"></i>
-      </button>
+
+      <!-- Workspace Selection Dropdown -->
+      <app-workspace-switcher
+        (createWorkspace)="createProjectModalOpen.set(true)"
+      ></app-workspace-switcher>
+
+      <!-- User Profile Menu Icon & Dropdown Popover (Rightmost) -->
+      <div class="user-menu-container font-mono">
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm user-menu-btn"
+          [class.has-avatar]="!!authService.userAvatar()"
+          [class.active]="userMenuOpen()"
+          (click)="toggleUserMenu($event)"
+          [title]="'Account: ' + authService.userEmail()"
+        >
+          @if (authService.userAvatar(); as avatar) {
+            <img [src]="avatar" class="user-header-avatar" alt="Avatar" />
+          } @else {
+            <i class="fi fi-rr-user"></i>
+          }
+          <span class="user-status-dot"></span>
+        </button>
+
+        @if (userMenuOpen()) {
+          <div class="user-menu-popover paper-panel font-mono" (click)="$event.stopPropagation()">
+            <div class="user-info-card">
+              <div class="user-avatar-circle">
+                @if (authService.userAvatar(); as avatar) {
+                  <img [src]="avatar" class="user-popover-avatar" alt="Avatar" />
+                } @else {
+                  <i class="fi fi-rr-user-check text-emerald"></i>
+                }
+              </div>
+              <div class="user-details">
+                <span class="user-display-name">{{ userName() }}</span>
+                <span class="user-email-address">{{ authService.userEmail() }}</span>
+              </div>
+            </div>
+
+            <div class="user-menu-actions">
+              <button
+                type="button"
+                class="user-action-btn"
+                (click)="userMenuOpen.set(false); editProfileModalOpen.set(true)"
+              >
+                <i class="fi fi-rr-user-pen text-emerald"></i>
+                <span>Edit Profile</span>
+              </button>
+
+              @if (projectService.activeProject(); as activeProj) {
+                <button
+                  type="button"
+                  class="user-action-btn"
+                  (click)="userMenuOpen.set(false); projectAccessModalOpen.set(true)"
+                >
+                  <i class="fi fi-rr-users-alt text-cyan"></i>
+                  <span>Team Invite & Access</span>
+                </button>
+              }
+
+              <button
+                type="button"
+                class="user-action-btn"
+                (click)="userMenuOpen.set(false); workspaceService.openReportIssueModal()"
+              >
+                <i class="fi fi-rr-bug text-rose"></i>
+                <span>Submit Feedback & Bug Report</span>
+              </button>
+
+              <button
+                type="button"
+                class="user-action-btn"
+                (click)="userMenuOpen.set(false); workspaceService.toggleShortcutsModal()"
+              >
+                <i class="fi fi-rr-interrogation text-amber"></i>
+                <span>Help & Shortcuts (?)</span>
+              </button>
+
+              <div class="user-menu-divider"></div>
+
+              <button
+                type="button"
+                class="user-action-btn btn-signout text-rose"
+                (click)="signOutUser()"
+              >
+                <i class="fi fi-rr-sign-out-alt"></i>
+                <span>Sign Out</span>
+              </button>
+            </div>
+          </div>
+        }
+      </div>
     </div>
   </header>
 
@@ -225,22 +257,19 @@
         @case ('01 TODAY') {
         <app-today />
         }
-        @case ('02 PROJECTS') {
-        <app-projects />
-        }
-        @case ('03 BACKLOG') {
+        @case ('02 BACKLOG') {
         <app-backlog />
         }
-        @case ('04 TASKS') {
+        @case ('03 TASKS') {
         <app-tasks />
         }
-        @case ('05 CALENDAR') {
+        @case ('04 CALENDAR') {
         <app-calendar />
         }
-        @case ('06 ARCHIVE') {
+        @case ('05 ARCHIVE') {
         <app-archive />
         }
-        @case ('07 SETTINGS') {
+        @case ('06 SETTINGS') {
         <app-settings />
         }
         @default {
@@ -258,17 +287,12 @@
   <!-- Fixed Mobile Bottom Navigation Bar -->
   <nav class="app-bottom-bar paper-panel font-mono">
     <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '01 TODAY'"
-      (click)="selectWorkspace('01 TODAY')" title="Today">
+      (click)="selectWorkspace('01 TODAY')" title="Dashboard">
       <i class="fi fi-rr-sun"></i>
-      <span class="bottom-tab-label">Today</span>
+      <span class="bottom-tab-label">Dashboard</span>
     </button>
-    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '02 PROJECTS'"
-      (click)="selectWorkspace('02 PROJECTS')" title="Projects">
-      <i class="fi fi-rr-folder"></i>
-      <span class="bottom-tab-label">Projects</span>
-    </button>
-    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '03 BACKLOG'"
-      (click)="selectWorkspace('03 BACKLOG')" title="Backlog">
+    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '02 BACKLOG'"
+      (click)="selectWorkspace('02 BACKLOG')" title="Backlog">
       <i class="fi fi-rr-list-check"></i>
       <span class="bottom-tab-label">Backlog</span>
     </button>
@@ -278,20 +302,25 @@
       <i class="fi fi-rr-plus"></i>
     </button>
 
-    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '04 TASKS'"
-      (click)="selectWorkspace('04 TASKS')" title="Board">
+    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '03 TASKS'"
+      (click)="selectWorkspace('03 TASKS')" title="Board">
       <i class="fi fi-rr-layout-fluid"></i>
       <span class="bottom-tab-label">Board</span>
     </button>
-    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '05 CALENDAR'"
-      (click)="selectWorkspace('05 CALENDAR')" title="Calendar">
+    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '04 CALENDAR'"
+      (click)="selectWorkspace('04 CALENDAR')" title="Calendar">
       <i class="fi fi-rr-calendar"></i>
       <span class="bottom-tab-label">Calendar</span>
     </button>
-    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '06 ARCHIVE'"
-      (click)="selectWorkspace('06 ARCHIVE')" title="Archive">
+    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '05 ARCHIVE'"
+      (click)="selectWorkspace('05 ARCHIVE')" title="Archive">
       <i class="fi fi-rr-box-alt"></i>
       <span class="bottom-tab-label">Archive</span>
+    </button>
+    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '06 SETTINGS'"
+      (click)="selectWorkspace('06 SETTINGS')" title="Settings">
+      <i class="fi fi-rr-settings"></i>
+      <span class="bottom-tab-label">Settings</span>
     </button>
   </nav>
 
@@ -349,6 +378,10 @@
 
   @if (createProjectModalOpen()) {
     <app-project-modal (close)="createProjectModalOpen.set(false)"></app-project-modal>
+  }
+
+  @if (editProfileModalOpen()) {
+    <app-edit-profile-modal (close)="editProfileModalOpen.set(false)" />
   }
 
   <app-join-workspace-modal

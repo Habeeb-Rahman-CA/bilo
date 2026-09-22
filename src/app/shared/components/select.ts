@@ -1,4 +1,4 @@
-import { Component, ElementRef, EventEmitter, HostListener, Input, OnChanges, Output, SimpleChanges, ViewChild, computed, signal } from '@angular/core';
+import { Component, ElementRef, EventEmitter, HostListener, Input, OnChanges, OnDestroy, Output, SimpleChanges, ViewChild, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
@@ -57,6 +57,7 @@ export interface SelectOption {
       <!-- Viewport Fixed Dropover Panel -->
       @if (isOpen()) {
         <div 
+          #popoverEl
           class="select-popover paper-panel font-mono" 
           [ngStyle]="popoverStyles()"
           (click)="$event.stopPropagation()"
@@ -228,8 +229,8 @@ export interface SelectOption {
     }
 
     @keyframes selectFadeIn {
-      from { opacity: 0; transform: translateY(-4px); }
-      to { opacity: 1; transform: translateY(0); }
+      from { opacity: 0; }
+      to { opacity: 1; }
     }
 
     /* Search Input Box */
@@ -355,7 +356,7 @@ export interface SelectOption {
     }
   `]
 })
-export class SelectComponent implements OnChanges {
+export class SelectComponent implements OnChanges, OnDestroy {
   private optionsSignal = signal<SelectOption[] | string[]>([]);
   valueSignal = signal<any>(null);
 
@@ -386,6 +387,7 @@ export class SelectComponent implements OnChanges {
   @Output() selectionChange = new EventEmitter<SelectOption>();
 
   @ViewChild('triggerEl') triggerEl!: ElementRef<HTMLDivElement>;
+  @ViewChild('popoverEl') popoverEl?: ElementRef<HTMLDivElement>;
   @ViewChild('searchInput') searchInputEl?: ElementRef<HTMLInputElement>;
   @ViewChild('optionsListEl') optionsListEl?: ElementRef<HTMLDivElement>;
 
@@ -428,18 +430,21 @@ export class SelectComponent implements OnChanges {
     if (!rect) return { display: 'none' };
 
     const popoverWidth = Math.max(rect.width, 180);
-    const popoverHeight = 260;
+    const spaceBelow = window.innerHeight - rect.bottom - 12;
+    const spaceAbove = rect.top - 12;
 
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const openAbove = spaceBelow < popoverHeight && rect.top > popoverHeight;
+    const openAbove = spaceBelow < 180 && spaceAbove > spaceBelow;
 
     let top: number;
+    let maxHeight: number;
+
     if (openAbove) {
-      top = rect.top - popoverHeight - 4;
+      maxHeight = Math.min(spaceAbove, 240);
+      top = rect.top - 4;
     } else {
+      maxHeight = Math.min(spaceBelow, 240);
       top = rect.bottom + 4;
     }
-    top = Math.max(10, Math.min(window.innerHeight - popoverHeight - 10, top));
 
     let left = rect.left;
     if (left + popoverWidth > window.innerWidth - 10) {
@@ -451,6 +456,8 @@ export class SelectComponent implements OnChanges {
       top: `${top}px`,
       left: `${left}px`,
       width: `${popoverWidth}px`,
+      'max-height': `${maxHeight}px`,
+      transform: openAbove ? 'translateY(-100%)' : 'none',
       'z-index': '10000',
       opacity: '1'
     };
@@ -468,20 +475,35 @@ export class SelectComponent implements OnChanges {
     }
   }
 
+  ngOnDestroy() {
+    this.closePopover();
+  }
+
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent) {
-    if (!this.elementRef.nativeElement.contains(event.target)) {
+    const target = event.target as Node;
+    const isInsideTrigger = this.elementRef.nativeElement.contains(target);
+    const isInsidePopover = this.popoverEl?.nativeElement?.contains(target);
+    if (!isInsideTrigger && !isInsidePopover) {
       this.closePopover();
     }
   }
 
-  @HostListener('window:scroll')
   @HostListener('window:resize')
-  onWindowChange() {
+  onWindowResize() {
     if (this.isOpen()) {
       this.closePopover();
     }
   }
+
+  private onScrollCapture = (event: Event) => {
+    if (this.isOpen()) {
+      if (this.optionsListEl?.nativeElement && this.optionsListEl.nativeElement.contains(event.target as Node)) {
+        return;
+      }
+      this.closePopover();
+    }
+  };
 
   toggleOpen(event?: Event) {
     if (event) event.stopPropagation();
@@ -500,14 +522,23 @@ export class SelectComponent implements OnChanges {
     this.isOpen.set(true);
     this.updateActiveIndex();
 
+    document.addEventListener('scroll', this.onScrollCapture, true);
+
     setTimeout(() => {
+      if (this.popoverEl?.nativeElement) {
+        document.body.appendChild(this.popoverEl.nativeElement);
+      }
       if (this.searchInputEl) {
         this.searchInputEl.nativeElement.focus();
       }
-    }, 50);
+    }, 0);
   }
 
   closePopover() {
+    document.removeEventListener('scroll', this.onScrollCapture, true);
+    if (this.popoverEl?.nativeElement && this.popoverEl.nativeElement.parentNode === document.body) {
+      this.popoverEl.nativeElement.remove();
+    }
     this.isOpen.set(false);
     this.searchQuery.set('');
     this.activeIndex.set(-1);
@@ -620,3 +651,4 @@ export class SelectComponent implements OnChanges {
     }
   }
 }
+
