@@ -15,7 +15,8 @@ describe('WorkflowService', () => {
           order: vi.fn().mockResolvedValue({ data: [], error: null }),
           insert: vi.fn().mockResolvedValue({ data: null, error: null }),
           update: vi.fn().mockReturnValue({
-            eq: vi.fn().mockResolvedValue({ data: null, error: null })
+            eq: vi.fn().mockResolvedValue({ data: null, error: null }),
+            in: vi.fn().mockResolvedValue({ data: null, error: null })
           }),
           delete: vi.fn().mockReturnValue({
             eq: vi.fn().mockResolvedValue({ data: null, error: null })
@@ -101,5 +102,28 @@ describe('WorkflowService', () => {
 
     const workflows = service.getWorkflowsForProject('proj-seq');
     expect(workflows.every(w => w.allow_all_transitions === true)).toBe(true);
+  });
+
+  it('should reassign tasks to a fallback workflow column when a workflow is deleted', async () => {
+    const mockTaskService = {
+      tasks: vi.fn().mockReturnValue([
+        { id: 'task-1', project_id: 'proj-1', workflow_id: 'wf-temp', status: 'Temp Stage' },
+        { id: 'task-2', project_id: 'proj-1', workflow_id: 'wf-backlog-proj-1', status: 'Backlog' }
+      ]),
+      updateTask: vi.fn().mockResolvedValue(null)
+    };
+
+    const mockInjector = {
+      get: vi.fn().mockReturnValue(mockTaskService)
+    };
+
+    const serviceWithInjector = new WorkflowService(mockSupabaseService as SupabaseService, mockInjector as any);
+    const created = await serviceWithInjector.createWorkflow('proj-1', 'Temp Stage');
+
+    await serviceWithInjector.deleteWorkflow(created.id, 'proj-1');
+
+    expect(mockTaskService.updateTask).toHaveBeenCalledWith('task-1', expect.objectContaining({
+      status: expect.any(String)
+    }));
   });
 });

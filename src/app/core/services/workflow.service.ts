@@ -1,5 +1,6 @@
-import { Injectable, signal, computed } from '@angular/core';
+import { Injectable, signal, computed, Injector } from '@angular/core';
 import { SupabaseService } from './supabase.service';
+import { TaskService } from './task.service';
 import { Workflow } from '../models/project.model';
 
 export const DEFAULT_GLOBAL_WORKFLOWS: Workflow[] = [
@@ -37,7 +38,10 @@ export class WorkflowService {
     return DEFAULT_GLOBAL_WORKFLOWS;
   });
 
-  constructor(private supabaseService: SupabaseService) {
+  constructor(
+    private supabaseService: SupabaseService,
+    private injector?: Injector
+  ) {
     this.loadFromStorage();
     this.loadAllWorkflows();
   }
@@ -169,17 +173,84 @@ export class WorkflowService {
     return updatedWf;
   }
 
-  async deleteWorkflow(id: string, projectId?: string) {
+  async deleteWorkflow(id: string, projectId?: string, fallbackWorkflowId?: string) {
+    let targetProjectId = projectId;
+    let deletedWf: Workflow | undefined;
+
+    for (const [p, list] of Object.entries(this.workflowsByProject())) {
+      const found = list.find(w => w.id === id);
+      if (found) {
+        deletedWf = found;
+        if (!targetProjectId) targetProjectId = p;
+        break;
+      }
+    }
+
+    targetProjectId = targetProjectId || 'global';
+
     this.workflowsByProject.update(map => {
       const result: Record<string, Workflow[]> = { ...map };
       for (const p in result) {
-        if (!projectId || p === projectId) {
+        if (!projectId || p === targetProjectId) {
           result[p] = result[p].filter(w => w.id !== id);
         }
       }
       return result;
     });
     this.saveToStorage();
+
+    const remainingWorkflows = (this.workflowsByProject()[targetProjectId] || []);
+    let fallbackWf: Workflow | undefined;
+
+    if (fallbackWorkflowId) {
+      fallbackWf = remainingWorkflows.find(w => w.id === fallbackWorkflowId || w.name === fallbackWorkflowId);
+    }
+    if (!fallbackWf && remainingWorkflows.length > 0) {
+      fallbackWf = remainingWorkflows[0];
+    }
+    if (!fallbackWf) {
+      const defaults = createDefaultWorkflowsForProject(targetProjectId);
+      fallbackWf = defaults[0];
+    }
+
+    if (this.injector && fallbackWf) {
+      try {
+        const taskService = this.injector.get(TaskService);
+        if (taskService) {
+          const allTasks = taskService.tasks();
+          const deletedWfNameLower = deletedWf?.name?.trim().toLowerCase();
+
+          const affectedTasks = allTasks.filter(t => {
+            if (t.workflow_id === id) return true;
+            if (targetProjectId !== 'global' && t.project_id !== targetProjectId) return false;
+            if (t.status === id) return true;
+            if (deletedWfNameLower && t.status?.trim().toLowerCase() === deletedWfNameLower) return true;
+            return false;
+          });
+
+          for (const t of affectedTasks) {
+            await taskService.updateTask(t.id, {
+              workflow_id: fallbackWf.id,
+              status: fallbackWf.name
+            });
+          }
+
+          if (this.supabaseService.supabase && affectedTasks.length > 0) {
+            const affectedIds = affectedTasks.map(t => t.id);
+            await this.supabaseService.supabase
+              .from('tasks')
+              .update({
+                workflow_id: fallbackWf.id,
+                status: fallbackWf.name,
+                updated_at: new Date().toISOString()
+              })
+              .in('id', affectedIds);
+          }
+        }
+      } catch (e) {
+        console.warn('Task migration during workflow deletion warning:', e);
+      }
+    }
 
     try {
       await this.supabaseService.supabase
