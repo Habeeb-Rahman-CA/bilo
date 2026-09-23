@@ -36,19 +36,12 @@ export class ProjectService {
 
     const cached = localStorage.getItem(`bilo_projects_data_${currentUser.id}`);
     const savedActiveId = localStorage.getItem('bilo_active_project_id');
-    const defaultProjName = this.getDefaultWorkspaceName();
 
     if (cached) {
       try {
         const data = JSON.parse(cached);
         if (data.projects && Array.isArray(data.projects) && data.projects.length > 0) {
           const cleanProjects = data.projects.filter((p: Project) => p.id !== 'proj-default-1');
-          cleanProjects.forEach((p: Project) => {
-            if (p.name === 'bilo' || (p.id === 'proj-bilo-main' && p.name === 'bilo')) {
-              p.name = defaultProjName;
-              p.slug = this.generateSlug(defaultProjName);
-            }
-          });
           this.projects.set(cleanProjects);
           const found = savedActiveId ? cleanProjects.find((p: Project) => p.id === savedActiveId) : null;
           this.activeProject.set(found || cleanProjects[0] || null);
@@ -62,7 +55,8 @@ export class ProjectService {
       }
     }
 
-    // Auto-initialize a default workspace for the user if none exists
+    // Auto-initialize a default workspace for a new user ONLY if no project exists at all
+    const defaultProjName = this.getDefaultWorkspaceName();
     const defaultProj: Project = {
       id: 'proj-bilo-main',
       user_id: currentUser.id,
@@ -139,13 +133,6 @@ export class ProjectService {
 
       if (!error && data && data.length > 0) {
         const projects = data as Project[];
-        const defaultProjName = this.getDefaultWorkspaceName();
-        projects.forEach((p: Project) => {
-          if (p.name === 'bilo' || (p.id === 'proj-bilo-main' && p.name === 'bilo')) {
-            p.name = defaultProjName;
-            p.slug = this.generateSlug(defaultProjName);
-          }
-        });
         this.projects.set(projects);
         const savedActiveId = localStorage.getItem('bilo_active_project_id');
         const found = savedActiveId ? projects.find(p => p.id === savedActiveId) : null;
