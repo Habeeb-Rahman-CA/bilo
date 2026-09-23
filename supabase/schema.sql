@@ -102,3 +102,21 @@ create policy "Allow public access for ideas"
     on public.ideas for all 
     using (true) 
     with check (true);
+
+-- 6. User Profiles Table (Decoupled profile metadata)
+create table if not exists public.user_profiles (
+    id uuid primary key references auth.users(id) on delete cascade,
+    email text,
+    display_name text,
+    avatar_url text,
+    created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+    updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+alter table public.user_profiles enable row level security;
+
+create policy "Allow public access for user_profiles"
+    on public.user_profiles for all
+    using (true)
+    with check (true);
+
