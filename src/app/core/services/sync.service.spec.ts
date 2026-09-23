@@ -94,7 +94,6 @@ describe('SyncService User Data Isolation & DLQ Escalation', () => {
 
     await syncService.processQueue();
 
-    // Fatal op should be moved to DLQ, and valid op behind it should succeed and clear queue!
     expect(syncService.deadLetterQueue().length).toBe(1);
     expect(syncService.deadLetterQueue()[0].id).toBe('op-fatal');
     expect(syncService.pendingSyncQueue().length).toBe(0);
@@ -119,6 +118,36 @@ describe('SyncService User Data Isolation & DLQ Escalation', () => {
     expect(syncService.pendingSyncQueue().length).toBe(0);
     expect(syncService.deadLetterQueue().length).toBe(1);
     expect(syncService.deadLetterQueue()[0].id).toBe('op-transient');
+  });
+
+  it('should reset syncing signal to false even if processQueue throws an exception', async () => {
+    syncService.pendingSyncQueue.set([
+      {
+        id: 'op-throw',
+        user_id: 'user-111',
+        type: 'CREATE_TASK',
+        payload: { title: 'Test' },
+        timestamp: new Date().toISOString()
+      }
+    ]);
+
+    // Force getUser to throw an unexpected exception inside processQueue
+    mockSupabaseService.supabase.auth.getUser = async () => {
+      throw new Error('Unexpected auth failure');
+    };
+
+    await syncService.processQueue();
+    expect(syncService.syncing()).toBe(false);
+  });
+
+  it('should auto-recover from stale lock (>30s) on subsequent processQueue calls', async () => {
+    syncService.syncing.set(true);
+    // Simulate stale lock starting 35 seconds ago
+    (syncService as any).lastSyncStartTime = Date.now() - 35000;
+    syncService.pendingSyncQueue.set([]);
+
+    await syncService.processQueue();
+    expect(syncService.syncing()).toBe(false);
   });
 
   it('should clear memory state on resetState', async () => {

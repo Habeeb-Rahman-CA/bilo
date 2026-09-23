@@ -208,16 +208,30 @@ export class SyncService {
     await this.saveDlqToStorage(currentUserId);
   }
 
+  readonly LOCK_TIMEOUT_MS = 30000;
+  private lastSyncStartTime: number = 0;
+
   async processQueue() {
-    if (this.syncing() || !this.isOnline()) return;
+    const now = Date.now();
+    if (this.syncing()) {
+      if (now - this.lastSyncStartTime > this.LOCK_TIMEOUT_MS) {
+        console.warn('[bilo Sync] Stale lock detected (>30s). Force resetting syncing signal.');
+        this.syncing.set(false);
+      } else {
+        return;
+      }
+    }
+
+    if (!this.isOnline()) return;
     if (this.pendingSyncQueue().length === 0) return;
 
-    const currentUserId = await this.getCurrentUserId();
-    if (!currentUserId) return;
-
     this.syncing.set(true);
+    this.lastSyncStartTime = Date.now();
 
     try {
+      const currentUserId = await this.getCurrentUserId();
+      if (!currentUserId) return;
+
       while (this.pendingSyncQueue().length > 0 && this.isOnline()) {
         const queue = this.pendingSyncQueue();
         const op = queue[0];
