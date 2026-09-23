@@ -126,4 +126,30 @@ describe('WorkflowService', () => {
       status: expect.any(String)
     }));
   });
+
+  it('should reassign all existing project tasks when resetToDefaultWorkflows is called', async () => {
+    const mockTaskService = {
+      tasks: vi.fn().mockReturnValue([
+        { id: 'task-10', project_id: 'proj-reset', workflow_id: 'custom-wf-1', status: 'Custom Unknown Stage' },
+        { id: 'task-11', project_id: 'proj-reset', workflow_id: 'custom-wf-2', status: 'In Progress' }
+      ]),
+      updateTask: vi.fn().mockResolvedValue(null)
+    };
+
+    const mockInjector = {
+      get: vi.fn().mockReturnValue(mockTaskService)
+    };
+
+    const serviceWithInjector = new WorkflowService(mockSupabaseService as SupabaseService, mockInjector as any);
+    await serviceWithInjector.resetToDefaultWorkflows('proj-reset');
+
+    expect(mockTaskService.updateTask).toHaveBeenCalledWith('task-10', expect.objectContaining({
+      workflow_id: 'wf-backlog-proj-reset',
+      status: 'Backlog'
+    }));
+    expect(mockTaskService.updateTask).toHaveBeenCalledWith('task-11', expect.objectContaining({
+      workflow_id: 'wf-in-progress-proj-reset',
+      status: 'In Progress'
+    }));
+  });
 });

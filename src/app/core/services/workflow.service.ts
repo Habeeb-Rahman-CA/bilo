@@ -289,12 +289,85 @@ export class WorkflowService {
 
   async resetToDefaultWorkflows(projectId: string): Promise<Workflow[]> {
     const key = projectId || 'global';
+    const oldWorkflows = this.getWorkflowsForProject(key);
     const defaults = createDefaultWorkflowsForProject(key);
     this.workflowsByProject.update(map => ({
       ...map,
       [key]: defaults
     }));
     this.saveToStorage();
+
+    if (this.supabaseService.supabase) {
+      try {
+        const oldIds = oldWorkflows.map(w => w.id);
+        if (oldIds.length > 0) {
+          await this.supabaseService.supabase
+            .from('workflows')
+            .delete()
+            .eq('project_id', key);
+        }
+        for (const w of defaults) {
+          await this.supabaseService.supabase
+            .from('workflows')
+            .upsert({
+              id: w.id,
+              project_id: key,
+              name: w.name,
+              color: w.color,
+              position: w.position
+            });
+        }
+      } catch (e) {
+        console.warn('Supabase resetToDefaultWorkflows warning:', e);
+      }
+    }
+
+    if (this.injector) {
+      try {
+        const taskService = this.injector.get(TaskService);
+        if (taskService) {
+          const allTasks = taskService.tasks();
+          const projectTasks = allTasks.filter(t => key === 'global' || t.project_id === key);
+
+          const findBestMatchingDefault = (t: any): Workflow => {
+            if (t.workflow_id) {
+              const exactWf = defaults.find(d => d.id === t.workflow_id);
+              if (exactWf) return exactWf;
+            }
+
+            let statusName = (t.status || '').trim().toLowerCase();
+            if (t.workflow_id) {
+              const oldWf = oldWorkflows.find(w => w.id === t.workflow_id);
+              if (oldWf) statusName = oldWf.name.trim().toLowerCase();
+            }
+
+            if (statusName) {
+              const exactName = defaults.find(d => d.name.toLowerCase() === statusName);
+              if (exactName) return exactName;
+
+              if (statusName.includes('backlog')) return defaults.find(d => d.name === 'Backlog') || defaults[0];
+              if (statusName.includes('todo') || statusName === 'to do' || statusName === 'open') return defaults.find(d => d.name === 'To Do') || defaults[1];
+              if (statusName.includes('progress') || statusName.includes('doing') || statusName === 'wip') return defaults.find(d => d.name === 'In Progress') || defaults[2];
+              if (statusName.includes('review') || statusName.includes('testing') || statusName.includes('qa')) return defaults.find(d => d.name === 'In Review') || defaults[3];
+              if (statusName.includes('done') || statusName.includes('complete') || statusName.includes('closed')) return defaults.find(d => d.name === 'Done') || defaults[4];
+            }
+
+            return defaults[0];
+          };
+
+          for (const t of projectTasks) {
+            const targetDefault = findBestMatchingDefault(t);
+            await taskService.updateTask(t.id, {
+              workflow_id: targetDefault.id,
+              status: targetDefault.name
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('Task migration during resetToDefaultWorkflows warning:', e);
+      }
+    }
+
     return defaults;
   }
 
