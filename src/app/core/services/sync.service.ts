@@ -222,7 +222,7 @@ export class SyncService {
       }
     }
 
-    if (!this.isOnline()) return;
+    if (!this.isOnline() || !this.supabaseService.isConfigured) return;
     if (this.pendingSyncQueue().length === 0) return;
 
     this.syncing.set(true);

@@ -66,6 +66,7 @@ export class WorkflowService {
   }
 
   async loadAllWorkflows() {
+    if (!this.supabaseService.isConfigured) return;
     this.loading.set(true);
     try {
       const { data, error } = await this.supabaseService.supabase

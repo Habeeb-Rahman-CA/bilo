@@ -113,7 +113,7 @@ export class ProjectService {
   }
 
   async loadFromSupabase() {
-    if (!this.syncService.isOnline()) return;
+    if (!this.syncService.isOnline() || !this.supabaseService.isConfigured) return;
 
     const currentUser = this.authService.user();
     if (!currentUser) {

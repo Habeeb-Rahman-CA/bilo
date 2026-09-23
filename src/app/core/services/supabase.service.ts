@@ -110,11 +110,25 @@ export class SupabaseService {
     };
   }
 
+  get isConfigured(): boolean {
+    const url = environment.supabaseUrl || '';
+    const key = environment.supabaseKey || '';
+    const isPlaceholderUrl = !url || url.includes('YOUR_SUPABASE') || url.includes('placeholder');
+    const isPlaceholderKey = !key || key.includes('YOUR_SUPABASE') || key.includes('placeholder');
+    return !isPlaceholderUrl && !isPlaceholderKey;
+  }
+
   private initClient() {
     try {
-      const isPlaceholder = !environment.supabaseUrl || environment.supabaseUrl.includes('YOUR_SUPABASE');
+      const isPlaceholder = !this.isConfigured;
       const validUrl = isPlaceholder ? 'https://placeholder.supabase.co' : environment.supabaseUrl;
       const validKey = isPlaceholder ? 'placeholder-key' : environment.supabaseKey;
+
+      if (isPlaceholder) {
+        console.warn(
+          '[SupabaseService] Operating with placeholder / unconfigured credentials. Database sync and cloud features will remain in local offline mode until valid Supabase environment variables are provided.'
+        );
+      }
 
       this.client = createClient(validUrl, validKey, {
         auth: {

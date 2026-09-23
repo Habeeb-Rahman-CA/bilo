@@ -13,6 +13,7 @@ describe('SyncService User Data Isolation & DLQ Escalation', () => {
     mockUpsertError = null;
 
     mockSupabaseService = {
+      isConfigured: true,
       supabase: {
         auth: {
           getUser: async () => ({
