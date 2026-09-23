@@ -1241,9 +1241,36 @@ export class SettingsComponent {
   }
 
   removeColumn(col: Workflow, index: number) {
+    if (this.columns.length <= 1) {
+      alert('Cannot delete the only remaining status column in a workflow.');
+      return;
+    }
+
+    const projId = this.activeProject()?.id || 'global';
+    const colNameLower = col.name.trim().toLowerCase();
+
+    const assignedTasks = this.taskService.tasks().filter(t => {
+      if (projId !== 'global' && t.project_id !== projId) return false;
+      if (t.workflow_id === col.id) return true;
+      if (t.status === col.id) return true;
+      if (colNameLower && t.status?.trim().toLowerCase() === colNameLower) return true;
+      return false;
+    });
+
+    if (assignedTasks.length > 0) {
+      const remainingCols = this.columns.filter((_, i) => i !== index);
+      const fallbackName = remainingCols.length > 0 ? remainingCols[0].name : 'Backlog';
+      const confirmed = window.confirm(
+        `Column "${col.name}" currently has ${assignedTasks.length} task(s) assigned to it.\n\nDeleting this column will reassign those task(s) to "${fallbackName}". Are you sure you want to proceed?`
+      );
+      if (!confirmed) return;
+    }
+
     this.columns.splice(index, 1);
-    if (col.id && !col.id.startsWith('wf-')) {
-      this.deletedColumnIds.push(col.id);
+    if (col.id && !col.id.startsWith('temp-')) {
+      if (!this.deletedColumnIds.includes(col.id)) {
+        this.deletedColumnIds.push(col.id);
+      }
     }
   }
 
@@ -1301,11 +1328,12 @@ export class SettingsComponent {
   async saveWorkflowChanges(projectId: string) {
     this.triggerSavedToast();
     for (const delId of this.deletedColumnIds) {
-      this.workflowService.deleteWorkflow(delId, projectId);
+      await this.workflowService.deleteWorkflow(delId, projectId);
     }
-    this.workflowService.updateWorkflowPositions(projectId, this.columns);
+    this.deletedColumnIds = [];
+    await this.workflowService.updateWorkflowPositions(projectId, this.columns);
     for (const col of this.columns) {
-      this.workflowService.updateWorkflowTransitions(
+      await this.workflowService.updateWorkflowTransitions(
         projectId,
         col.id,
         col.allow_all_transitions !== false,

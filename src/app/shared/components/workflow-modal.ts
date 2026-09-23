@@ -2,6 +2,7 @@ import { Component, EventEmitter, Input, OnInit, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { WorkflowService } from '../../core/services/workflow.service';
+import { TaskService } from '../../core/services/task.service';
 import { Project, Workflow } from '../../core/models/project.model';
 
 @Component({
@@ -186,7 +187,10 @@ export class WorkflowModalComponent implements OnInit {
   deletedColumnIds: string[] = [];
   newColumnName = '';
 
-  constructor(private workflowService: WorkflowService) {}
+  constructor(
+    private workflowService: WorkflowService,
+    private taskService: TaskService
+  ) {}
 
   ngOnInit() {
     const projId = this.project?.id || 'global';
@@ -204,9 +208,36 @@ export class WorkflowModalComponent implements OnInit {
   }
 
   async removeColumn(col: Workflow, index: number) {
+    if (this.columns.length <= 1) {
+      alert('Cannot delete the only remaining status column in a workflow.');
+      return;
+    }
+
+    const projId = this.project?.id || 'global';
+    const colNameLower = col.name.trim().toLowerCase();
+
+    const assignedTasks = this.taskService.tasks().filter(t => {
+      if (projId !== 'global' && t.project_id !== projId) return false;
+      if (t.workflow_id === col.id) return true;
+      if (t.status === col.id) return true;
+      if (colNameLower && t.status?.trim().toLowerCase() === colNameLower) return true;
+      return false;
+    });
+
+    if (assignedTasks.length > 0) {
+      const remainingCols = this.columns.filter((_, i) => i !== index);
+      const fallbackName = remainingCols.length > 0 ? remainingCols[0].name : 'Backlog';
+      const confirmed = window.confirm(
+        `Column "${col.name}" currently has ${assignedTasks.length} task(s) assigned to it.\n\nDeleting this column will reassign those task(s) to "${fallbackName}". Are you sure you want to proceed?`
+      );
+      if (!confirmed) return;
+    }
+
     this.columns.splice(index, 1);
     if (col.id && !col.id.startsWith('temp-')) {
-      this.deletedColumnIds.push(col.id);
+      if (!this.deletedColumnIds.includes(col.id)) {
+        this.deletedColumnIds.push(col.id);
+      }
     }
   }
 
