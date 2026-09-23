@@ -317,8 +317,25 @@ export class AuthService implements OnDestroy {
   }
 
   async signUpWithEmailPassword(email: string, password: string) {
+    const trimmedEmail = email ? email.trim() : '';
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!trimmedEmail || !emailRegex.test(trimmedEmail)) {
+      return {
+        data: { user: null, session: null },
+        error: { message: 'Invalid email address format' } as any
+      };
+    }
+
+    if (!password || password.length < 6) {
+      return {
+        data: { user: null, session: null },
+        error: { message: 'Password must be at least 6 characters long' } as any
+      };
+    }
+
     return await this.supabaseService.supabase.auth.signUp({
-      email,
+      email: trimmedEmail,
       password
     });
   }
