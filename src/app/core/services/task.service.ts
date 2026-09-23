@@ -109,11 +109,40 @@ export class TaskService {
   private saveToStorage() {
     const currentUser = this.authService.user();
     if (!currentUser?.id) return;
-    localStorage.setItem(`bilo_tasks_data_${currentUser.id}`, JSON.stringify({
+    const key = `bilo_tasks_data_${currentUser.id}`;
+
+    const payload = {
       tasks: this.tasks(),
       comments: this.taskComments(),
       statusHistory: this.taskStatusHistory()
-    }));
+    };
+
+    try {
+      localStorage.setItem(key, JSON.stringify(payload));
+    } catch (e: any) {
+      console.warn('[TaskService] LocalStorage quota exceeded when saving tasks data. Sanitizing cached attachments...', e);
+      try {
+        const sanitizedTasks = payload.tasks.map(t => {
+          if (t.attachments && t.attachments.length > 0) {
+            return {
+              ...t,
+              attachments: t.attachments.map(att => (att && att.length > 1024) ? '[Attachment cached remotely]' : att)
+            };
+          }
+          return t;
+        });
+
+        const fallbackPayload = {
+          tasks: sanitizedTasks,
+          comments: payload.comments,
+          statusHistory: payload.statusHistory
+        };
+
+        localStorage.setItem(key, JSON.stringify(fallbackPayload));
+      } catch (fallbackErr) {
+        console.error('[TaskService] Could not save task cache even after sanitizing attachments:', fallbackErr);
+      }
+    }
   }
 
   async loadTasksFromSupabase() {

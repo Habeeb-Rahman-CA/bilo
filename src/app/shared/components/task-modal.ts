@@ -9,6 +9,7 @@ import { Task, TaskPriority, TaskSeverity, TaskReproducibility, TaskType, Workfl
 import { DatePickerComponent } from './date-picker';
 import { SelectComponent, SelectOption } from './select';
 import { RichEditorComponent } from './rich-editor';
+import { compressImageFile, MAX_ATTACHMENT_FILE_SIZE_BYTES, MAX_ATTACHMENTS_PER_TASK } from '../../core/utils/image-compressor.util';
 
 @Component({
   selector: 'app-task-modal',
@@ -719,26 +720,34 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
       return;
     }
 
+    if (this.attachments().length + imageFiles.length > MAX_ATTACHMENTS_PER_TASK) {
+      this.taskShareService.showToast(`Maximum ${MAX_ATTACHMENTS_PER_TASK} attachments allowed per task.`);
+      return;
+    }
+
     this.uploadingAttachments.set(true);
     this.uploadCount.set(imageFiles.length);
 
     try {
+      let processedCount = 0;
       for (const file of imageFiles) {
-        const imgData = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = (ev) => resolve((ev.target?.result as string) || '');
-          reader.onerror = () => reject(new Error('Failed to read image file'));
-          reader.readAsDataURL(file);
-        });
+        if (file.size > MAX_ATTACHMENT_FILE_SIZE_BYTES) {
+          this.taskShareService.showToast(`File "${file.name}" exceeds 10MB limit and was skipped.`);
+          continue;
+        }
 
-        if (imgData) {
-          this.attachments.update(curr => [...curr, imgData]);
+        const compressed = await compressImageFile(file);
+        if (compressed) {
+          this.attachments.update(curr => [...curr, compressed]);
+          processedCount++;
         }
       }
-      this.taskShareService.showToast(`${imageFiles.length} image(s) attached.`);
+      if (processedCount > 0) {
+        this.taskShareService.showToast(`${processedCount} image(s) processed & attached.`);
+      }
     } catch (err) {
       console.error('Error uploading image file:', err);
-      this.taskShareService.showToast('Failed to load image file. Please try again.');
+      this.taskShareService.showToast('Failed to process image file. Please try again.');
     } finally {
       this.uploadingAttachments.set(false);
       this.uploadCount.set(0);
