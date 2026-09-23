@@ -4,6 +4,7 @@ import { SupabaseService } from './supabase.service';
 import { ProjectService } from './project.service';
 import { TaskService } from './task.service';
 import { WorkflowService } from './workflow.service';
+import { SyncService } from './sync.service';
 import { UserProfile } from '../models/user-profile.model';
 
 @Injectable({
@@ -230,8 +231,10 @@ export class AuthService {
     try {
       const projectService = this.injector.get(ProjectService);
       const taskService = this.injector.get(TaskService);
+      const syncService = this.injector.get(SyncService);
       projectService.resetState();
       taskService.resetState();
+      syncService.resetState();
     } catch (e) {
       console.warn('[AuthService] Error resetting state:', e);
     }
@@ -244,7 +247,9 @@ export class AuthService {
       const projectService = this.injector.get(ProjectService);
       const taskService = this.injector.get(TaskService);
       const workflowService = this.injector.get(WorkflowService);
+      const syncService = this.injector.get(SyncService);
 
+      await syncService.loadQueueFromStorage(this.user()?.id);
       projectService.loadFromStorage();
       taskService.loadFromStorage();
       workflowService.loadFromStorage();
@@ -288,14 +293,17 @@ export class AuthService {
     try {
       const projectService = this.injector.get(ProjectService);
       const taskService = this.injector.get(TaskService);
+      const syncService = this.injector.get(SyncService);
       projectService.resetState();
       taskService.resetState();
+      syncService.resetState();
     } catch (e) {
       console.warn('[AuthService] Error resetting state on sign out:', e);
     }
 
     if (activeUserId) {
       localStorage.removeItem(`bilo_user_profile_${activeUserId}`);
+      localStorage.removeItem(`bilo_sync_queue_${activeUserId}`);
     }
     localStorage.removeItem('bilo_projects_data');
     localStorage.removeItem('bilo_tasks_data');

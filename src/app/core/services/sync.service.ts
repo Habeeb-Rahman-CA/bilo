@@ -3,6 +3,7 @@ import { SupabaseService } from './supabase.service';
 
 export interface PendingSyncOp {
   id: string;
+  user_id: string;
   type:
   | 'CREATE_TASK'
   | 'UPDATE_TASK'
@@ -47,34 +48,77 @@ export class SyncService {
     }
   }
 
-  private loadQueueFromStorage() {
-    const cached = localStorage.getItem('bilo_sync_queue');
+  private async getCurrentUserId(): Promise<string | null> {
+    try {
+      const { data } = await this.supabaseService.supabase.auth.getUser();
+      return data?.user?.id || null;
+    } catch {
+      return null;
+    }
+  }
+
+  private getStorageKey(userId?: string | null): string {
+    if (userId && userId !== 'guest') {
+      return `bilo_sync_queue_${userId}`;
+    }
+    return 'bilo_sync_queue_guest';
+  }
+
+  async loadQueueFromStorage(userId?: string | null) {
+    const uid = userId || (await this.getCurrentUserId());
+    const storageKey = this.getStorageKey(uid);
+    let cached = localStorage.getItem(storageKey);
+
+    // Legacy un-scoped key fallback/migration
+    if (!cached && localStorage.getItem('bilo_sync_queue')) {
+      cached = localStorage.getItem('bilo_sync_queue');
+      localStorage.removeItem('bilo_sync_queue');
+      if (cached && uid) {
+        localStorage.setItem(storageKey, cached);
+      }
+    }
+
     if (cached) {
       try {
         const queue = JSON.parse(cached);
         if (Array.isArray(queue)) {
-          this.pendingSyncQueue.set(queue);
+          const validQueue = queue.map((op: any) => ({
+            ...op,
+            user_id: op.user_id || uid || 'guest'
+          }));
+          this.pendingSyncQueue.set(validQueue);
+          return;
         }
       } catch (e) {
-        console.error('Failed to parse offline sync queue:', e);
+        console.error('[bilo Sync] Failed to parse offline sync queue:', e);
       }
     }
+    this.pendingSyncQueue.set([]);
   }
 
-  private saveQueueToStorage() {
-    localStorage.setItem('bilo_sync_queue', JSON.stringify(this.pendingSyncQueue()));
+  private async saveQueueToStorage(userId?: string | null) {
+    const uid = userId || (await this.getCurrentUserId());
+    const storageKey = this.getStorageKey(uid);
+    localStorage.setItem(storageKey, JSON.stringify(this.pendingSyncQueue()));
   }
 
-  enqueue(opType: PendingSyncOp['type'], payload: any) {
+  resetState() {
+    this.pendingSyncQueue.set([]);
+    this.syncing.set(false);
+  }
+
+  async enqueue(opType: PendingSyncOp['type'], payload: any) {
+    const currentUserId = await this.getCurrentUserId();
     const op: PendingSyncOp = {
       id: crypto.randomUUID(),
+      user_id: currentUserId || 'guest',
       type: opType,
       payload,
       timestamp: new Date().toISOString()
     };
 
     this.pendingSyncQueue.update(q => [...q, op]);
-    this.saveQueueToStorage();
+    await this.saveQueueToStorage(currentUserId);
 
     if (this.isOnline()) {
       this.processQueue();
@@ -85,6 +129,9 @@ export class SyncService {
     if (this.syncing() || !this.isOnline()) return;
     if (this.pendingSyncQueue().length === 0) return;
 
+    const currentUserId = await this.getCurrentUserId();
+    if (!currentUserId) return;
+
     this.syncing.set(true);
 
     try {
@@ -92,10 +139,18 @@ export class SyncService {
         const queue = this.pendingSyncQueue();
         const op = queue[0];
 
-        const success = await this.executeOp(op);
+        // CRITICAL SECURITY GUARD: Discard operations created by a different user to prevent cross-user contamination
+        if (op.user_id && op.user_id !== 'guest' && op.user_id !== currentUserId) {
+          console.error(`[bilo Sync Security] Cross-user contamination blocked! Dropping op ${op.type} (${op.id}) created by user ${op.user_id} under active session ${currentUserId}`);
+          this.pendingSyncQueue.update(q => q.slice(1));
+          await this.saveQueueToStorage(currentUserId);
+          continue;
+        }
+
+        const success = await this.executeOp(op, currentUserId);
         if (success) {
           this.pendingSyncQueue.update(q => q.slice(1));
-          this.saveQueueToStorage();
+          await this.saveQueueToStorage(currentUserId);
         } else {
           console.warn(`[bilo Sync] Operation ${op.type} failed. Pausing sync queue to preserve order.`);
           break;
@@ -127,18 +182,16 @@ export class SyncService {
     return clean;
   }
 
-  private async executeOp(op: PendingSyncOp): Promise<boolean> {
+  private async executeOp(op: PendingSyncOp, currentUserId: string): Promise<boolean> {
     const sb = this.supabaseService.supabase;
     const { type, payload } = op;
-    const { data: authData } = await sb.auth.getUser();
-    const currentUserId = authData?.user?.id;
+
+    if (!currentUserId) return false;
 
     switch (type) {
       case 'CREATE_TASK': {
         const cleanPayload = this.sanitizeTaskPayload(payload);
-        if (currentUserId && !cleanPayload.user_id) {
-          cleanPayload.user_id = currentUserId;
-        }
+        cleanPayload.user_id = currentUserId;
         let { error } = await sb.from('tasks').upsert([cleanPayload]);
         if (error && error.code === 'PGRST204') {
           delete cleanPayload.attachments;
@@ -149,10 +202,7 @@ export class SyncService {
       }
       case 'UPDATE_TASK': {
         const { id, ...updates } = this.sanitizeTaskPayload(payload);
-        const cleanUpdates: any = { id, ...updates };
-        if (currentUserId && !cleanUpdates.user_id) {
-          cleanUpdates.user_id = currentUserId;
-        }
+        const cleanUpdates: any = { id, ...updates, user_id: currentUserId };
         let { error } = await sb.from('tasks').upsert([cleanUpdates]);
         if (error && error.code === 'PGRST204') {
           delete cleanUpdates.attachments;
@@ -166,10 +216,7 @@ export class SyncService {
         return !error;
       }
       case 'CREATE_PROJECT': {
-        const cleanPayload = { ...payload };
-        if (currentUserId && !cleanPayload.user_id) {
-          cleanPayload.user_id = currentUserId;
-        }
+        const cleanPayload = { ...payload, user_id: currentUserId };
         let { error } = await sb.from('projects').upsert([cleanPayload]);
         if (error && error.code === 'PGRST204') {
           delete cleanPayload.image_url;
@@ -210,12 +257,9 @@ export class SyncService {
         return !error;
       }
       case 'ADD_COMMENT': {
-        const cleanPayload = { ...payload };
+        const cleanPayload = { ...payload, user_id: currentUserId };
         if (!cleanPayload.task_id || !this.isValidUuid(cleanPayload.task_id)) {
           return true;
-        }
-        if (currentUserId && !cleanPayload.user_id) {
-          cleanPayload.user_id = currentUserId;
         }
         const { error } = await sb.from('task_comments').upsert([cleanPayload]);
         if (error && error.code === '23503') {
@@ -234,12 +278,9 @@ export class SyncService {
         return !error;
       }
       case 'ADD_STATUS_HISTORY': {
-        const cleanPayload = { ...payload };
+        const cleanPayload = { ...payload, user_id: currentUserId };
         if (!cleanPayload.task_id || !this.isValidUuid(cleanPayload.task_id)) {
           return true;
-        }
-        if (currentUserId && !cleanPayload.user_id) {
-          cleanPayload.user_id = currentUserId;
         }
         const { error } = await sb.from('task_status_history').upsert([cleanPayload]);
         if (error && error.code === '23503') {
@@ -249,10 +290,7 @@ export class SyncService {
         return !error;
       }
       case 'ADD_PROJECT_ACTIVITY': {
-        const cleanPayload = { ...payload };
-        if (currentUserId && !cleanPayload.user_id) {
-          cleanPayload.user_id = currentUserId;
-        }
+        const cleanPayload = { ...payload, user_id: currentUserId };
         const { error } = await sb.from('project_activities').upsert([cleanPayload]);
         return !error;
       }
