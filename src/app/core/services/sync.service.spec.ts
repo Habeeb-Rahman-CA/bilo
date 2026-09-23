@@ -1,14 +1,16 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { SyncService, PendingSyncOp } from './sync.service';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { SyncService } from './sync.service';
 
-describe('SyncService User Data Isolation & Security Guard', () => {
+describe('SyncService User Data Isolation & DLQ Escalation', () => {
   let syncService: SyncService;
   let mockSupabaseService: any;
   let currentMockUserId: string | null = 'user-111';
+  let mockUpsertError: any = null;
 
   beforeEach(() => {
     localStorage.clear();
     currentMockUserId = 'user-111';
+    mockUpsertError = null;
 
     mockSupabaseService = {
       supabase: {
@@ -17,10 +19,23 @@ describe('SyncService User Data Isolation & Security Guard', () => {
             data: { user: currentMockUserId ? { id: currentMockUserId } : null }
           })
         },
-        from: () => ({
-          upsert: async () => ({ error: null }),
-          update: () => ({ eq: async () => ({ error: null }) }),
-          delete: () => ({ eq: async () => ({ error: null }) })
+        from: (table: string) => ({
+          upsert: async (payload: any[]) => {
+            const item = payload[0];
+            if (item && item.id === 'task-deleted-parent') {
+              return { error: { code: '23503', message: 'violates foreign key constraint' } };
+            }
+            return { error: mockUpsertError };
+          },
+          update: () => ({ eq: async () => ({ error: mockUpsertError }) }),
+          delete: () => ({
+            eq: async (col: string, val: string) => {
+              if (val === 'task-deleted-parent') {
+                return { error: { code: '23503', message: 'violates foreign key constraint' } };
+              }
+              return { error: mockUpsertError };
+            }
+          })
         })
       }
     };
@@ -40,14 +55,11 @@ describe('SyncService User Data Isolation & Security Guard', () => {
   });
 
   it('should block and drop cross-user operations if User 2 is logged in', async () => {
-    // User 111 creates an operation
     await syncService.enqueue('CREATE_TASK', { title: 'User 111 Task' });
 
-    // Switch active session to User 222
     currentMockUserId = 'user-222';
     await syncService.loadQueueFromStorage('user-222');
 
-    // Add User 111 op manually to queue to test processQueue security guard
     syncService.pendingSyncQueue.set([
       {
         id: 'op-1',
@@ -59,9 +71,54 @@ describe('SyncService User Data Isolation & Security Guard', () => {
     ]);
 
     await syncService.processQueue();
-
-    // The cross-user operation created by user-111 should be dropped under user-222 session
     expect(syncService.pendingSyncQueue().length).toBe(0);
+  });
+
+  it('should escalate fatal DB errors (e.g. FK 23503) to Dead-Letter Queue without blocking queue', async () => {
+    syncService.pendingSyncQueue.set([
+      {
+        id: 'op-fatal',
+        user_id: 'user-111',
+        type: 'DELETE_TASK',
+        payload: { id: 'task-deleted-parent' },
+        timestamp: new Date().toISOString()
+      },
+      {
+        id: 'op-valid',
+        user_id: 'user-111',
+        type: 'CREATE_PROJECT',
+        payload: { id: 'p-valid-1', name: 'Valid Proj' },
+        timestamp: new Date().toISOString()
+      }
+    ]);
+
+    await syncService.processQueue();
+
+    // Fatal op should be moved to DLQ, and valid op behind it should succeed and clear queue!
+    expect(syncService.deadLetterQueue().length).toBe(1);
+    expect(syncService.deadLetterQueue()[0].id).toBe('op-fatal');
+    expect(syncService.pendingSyncQueue().length).toBe(0);
+  });
+
+  it('should escalate op to DLQ after MAX_RETRIES (3) on persistent transient errors', async () => {
+    syncService.pendingSyncQueue.set([
+      {
+        id: 'op-transient',
+        user_id: 'user-111',
+        type: 'UPDATE_TASK',
+        payload: { id: 't-1', title: 'Test' },
+        timestamp: new Date().toISOString(),
+        retryCount: 2
+      }
+    ]);
+
+    mockUpsertError = { code: '500', message: 'Internal Server Error' };
+
+    await syncService.processQueue();
+
+    expect(syncService.pendingSyncQueue().length).toBe(0);
+    expect(syncService.deadLetterQueue().length).toBe(1);
+    expect(syncService.deadLetterQueue()[0].id).toBe('op-transient');
   });
 
   it('should clear memory state on resetState', async () => {
@@ -70,5 +127,6 @@ describe('SyncService User Data Isolation & Security Guard', () => {
 
     syncService.resetState();
     expect(syncService.pendingSyncQueue().length).toBe(0);
+    expect(syncService.deadLetterQueue().length).toBe(0);
   });
 });
