@@ -175,7 +175,21 @@ export class SyncService {
           delete cleanPayload.image_url;
           delete cleanPayload.icon;
           const retry = await sb.from('projects').upsert([cleanPayload]);
+          if (!retry.error && currentUserId) {
+            await sb.from('project_members').upsert([{
+              project_id: payload.id,
+              user_id: currentUserId,
+              role: 'owner'
+            }]);
+          }
           return !retry.error;
+        }
+        if (!error && currentUserId) {
+          await sb.from('project_members').upsert([{
+            project_id: payload.id,
+            user_id: currentUserId,
+            role: 'owner'
+          }]);
         }
         return !error;
       }

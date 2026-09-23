@@ -199,7 +199,10 @@ create policy "Members can view project membership"
 
 create policy "Owners and admins can add project members"
   on public.project_members for insert
-  with check (public.is_project_member(project_id, auth.uid()));
+  with check (
+    public.is_project_member(project_id, auth.uid())
+    or user_id = auth.uid()
+  );
 
 create policy "Owners and admins can update project members"
   on public.project_members for update

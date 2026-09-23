@@ -36,12 +36,19 @@ export class ProjectService {
 
     const cached = localStorage.getItem(`bilo_projects_data_${currentUser.id}`);
     const savedActiveId = localStorage.getItem('bilo_active_project_id');
+    const defaultProjName = this.getDefaultWorkspaceName();
 
     if (cached) {
       try {
         const data = JSON.parse(cached);
         if (data.projects && Array.isArray(data.projects) && data.projects.length > 0) {
           const cleanProjects = data.projects.filter((p: Project) => p.id !== 'proj-default-1');
+          cleanProjects.forEach((p: Project) => {
+            if (p.name === 'bilo' || (p.id === 'proj-bilo-main' && p.name === 'bilo')) {
+              p.name = defaultProjName;
+              p.slug = this.generateSlug(defaultProjName);
+            }
+          });
           this.projects.set(cleanProjects);
           const found = savedActiveId ? cleanProjects.find((p: Project) => p.id === savedActiveId) : null;
           this.activeProject.set(found || cleanProjects[0] || null);
@@ -59,8 +66,8 @@ export class ProjectService {
     const defaultProj: Project = {
       id: 'proj-bilo-main',
       user_id: currentUser.id,
-      name: 'bilo',
-      slug: 'bilo',
+      name: defaultProjName,
+      slug: this.generateSlug(defaultProjName),
       description: 'Primary workspace for task management and kanban board',
       status: 'active',
       color: '#06b6d4',
@@ -72,6 +79,31 @@ export class ProjectService {
     this.projects.set([defaultProj]);
     this.activeProject.set(defaultProj);
     this.saveToStorage();
+  }
+
+  getDefaultWorkspaceName(): string {
+    const userName = this.authService.userName();
+    const name = userName && userName.trim() && userName.trim() !== 'User' ? userName.trim() : null;
+    if (name) {
+      return `${name}'s Workspace`;
+    }
+    const email = this.authService.userEmail();
+    if (email) {
+      const emailName = email.split('@')[0];
+      if (emailName) {
+        const capitalized = emailName.charAt(0).toUpperCase() + emailName.slice(1);
+        return `${capitalized}'s Workspace`;
+      }
+    }
+    return `My Workspace`;
+  }
+
+  generateSlug(name: string): string {
+    return name
+      .toLowerCase()
+      .replace(/['’]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '') || 'workspace';
   }
 
   private saveToStorage() {
@@ -106,15 +138,24 @@ export class ProjectService {
         .order('created_at', { ascending: false });
 
       if (!error && data && data.length > 0) {
-        this.projects.set(data as Project[]);
+        const projects = data as Project[];
+        const defaultProjName = this.getDefaultWorkspaceName();
+        projects.forEach((p: Project) => {
+          if (p.name === 'bilo' || (p.id === 'proj-bilo-main' && p.name === 'bilo')) {
+            p.name = defaultProjName;
+            p.slug = this.generateSlug(defaultProjName);
+          }
+        });
+        this.projects.set(projects);
         const savedActiveId = localStorage.getItem('bilo_active_project_id');
-        const found = savedActiveId ? data.find(p => p.id === savedActiveId) : null;
-        this.activeProject.set((found as Project) || (data[0] as Project));
+        const found = savedActiveId ? projects.find(p => p.id === savedActiveId) : null;
+        this.activeProject.set((found as Project) || (projects[0] as Project));
       } else if (!error && (!data || data.length === 0)) {
         // Auto-create initial project in Supabase if new user
+        const defaultName = this.getDefaultWorkspaceName();
         await this.createProject({
-          name: 'bilo',
-          slug: 'bilo',
+          name: defaultName,
+          slug: this.generateSlug(defaultName),
           description: 'Primary workspace for task management and kanban board',
           color: '#06b6d4',
           icon: 'fi fi-rr-folder'
@@ -186,21 +227,36 @@ export class ProjectService {
       payload.user_id = currentUser.id;
     }
 
-    this.syncService.enqueue('CREATE_PROJECT', payload);
-
-    // Add owner record in project_members if online
     if (currentUser?.id && this.syncService.isOnline()) {
       try {
-        await this.supabaseService.supabase
-          .from('project_members')
-          .upsert([{
-            project_id: newProj.id,
-            user_id: currentUser.id,
-            role: 'owner'
-          }]);
+        const { error: projErr } = await this.supabaseService.supabase
+          .from('projects')
+          .upsert([payload]);
+
+        if (projErr) {
+          console.warn('Failed to save project to Supabase directly, queueing for sync:', projErr);
+          this.syncService.enqueue('CREATE_PROJECT', payload);
+        } else {
+          // Project row created in Supabase! Now insert owner record in project_members
+          const { error: memberErr } = await this.supabaseService.supabase
+            .from('project_members')
+            .upsert([{
+              project_id: newProj.id,
+              user_id: currentUser.id,
+              role: 'owner',
+              user_email: currentUser.email || undefined,
+              user_name: this.authService.userName() || undefined
+            }]);
+          if (memberErr) {
+            console.warn('Failed to add owner to project_members:', memberErr);
+          }
+        }
       } catch (e) {
-        console.warn('Failed to add owner to project_members:', e);
+        console.warn('Error saving project to Supabase:', e);
+        this.syncService.enqueue('CREATE_PROJECT', payload);
       }
+    } else {
+      this.syncService.enqueue('CREATE_PROJECT', payload);
     }
 
     return newProj;
