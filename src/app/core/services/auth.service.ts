@@ -1,4 +1,4 @@
-import { Injectable, signal, computed, Injector } from '@angular/core';
+import { Injectable, signal, computed, Injector, OnDestroy } from '@angular/core';
 import { User, AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { SupabaseService } from './supabase.service';
 import { ProjectService } from './project.service';
@@ -10,7 +10,7 @@ import { UserProfile } from '../models/user-profile.model';
 @Injectable({
   providedIn: 'root'
 })
-export class AuthService {
+export class AuthService implements OnDestroy {
   user = signal<User | null>(null);
   session = signal<Session | null>(null);
   userProfile = signal<UserProfile | null>(null);
@@ -35,6 +35,7 @@ export class AuthService {
   // Guard flags to prevent re-entrant cascading loops
   private _bootstrapping = false;
   private _sanitized = false;
+  private authSubscription: { unsubscribe: () => void } | null = null;
 
   constructor(
     private supabaseService: SupabaseService,
@@ -93,7 +94,14 @@ export class AuthService {
 
     try {
       if (this.supabaseService.isConfigured) {
-        this.supabaseService.supabase.auth.onAuthStateChange(async (event: AuthChangeEvent, session: Session | null) => {
+        if (this.authSubscription) {
+          try {
+            this.authSubscription.unsubscribe();
+          } catch (e) {}
+          this.authSubscription = null;
+        }
+
+        const { data } = this.supabaseService.supabase.auth.onAuthStateChange(async (event: AuthChangeEvent, session: Session | null) => {
           try {
             const previousUser = this.user();
             const newUser = session?.user ?? null;
@@ -117,10 +125,21 @@ export class AuthService {
             this.authLoading.set(false);
           }
         });
+
+        this.authSubscription = data?.subscription ?? null;
       }
     } catch (subErr) {
       console.warn('[AuthService] onAuthStateChange subscription notice:', subErr);
       this.authLoading.set(false);
+    }
+  }
+
+  ngOnDestroy() {
+    if (this.authSubscription) {
+      try {
+        this.authSubscription.unsubscribe();
+      } catch (e) {}
+      this.authSubscription = null;
     }
   }
 
