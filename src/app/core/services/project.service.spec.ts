@@ -54,4 +54,10 @@ describe('ProjectService Workspace Naming', () => {
     const defaultName = projectService.getDefaultWorkspaceName();
     expect(defaultName).toBe("John's Workspace");
   });
+
+  it('should reject invalid file inputs in uploadProjectImage', async () => {
+    const textFile = new File(['hello'], 'doc.txt', { type: 'text/plain' });
+    const result = await projectService.uploadProjectImage(textFile);
+    expect(result).toBe('');
+  });
 });

@@ -3,6 +3,7 @@ import { SupabaseService } from './supabase.service';
 import { SyncService } from './sync.service';
 import { AuthService } from './auth.service';
 import { Project, ProjectActivity, Task, ProjectMember, ProjectRole } from '../models/project.model';
+import { compressImageFile, MAX_ATTACHMENT_FILE_SIZE_BYTES } from '../utils/image-compressor.util';
 
 @Injectable({
   providedIn: 'root'
@@ -250,23 +251,23 @@ export class ProjectService {
   }
 
   async uploadProjectImage(file: File): Promise<string> {
-    const fileToDataUrl = (): Promise<string> => {
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve((e.target?.result as string) || '');
-        reader.onerror = () => resolve('');
-        reader.readAsDataURL(file);
-      });
-    };
+    if (!file || !file.type.startsWith('image/')) {
+      console.warn('[ProjectService] Invalid image file type');
+      return '';
+    }
 
-    if (this.syncService.isOnline()) {
+    if (file.size > MAX_ATTACHMENT_FILE_SIZE_BYTES) {
+      console.warn(`[ProjectService] Image size (${(file.size / 1024 / 1024).toFixed(1)}MB) exceeds 10MB limit`);
+      return '';
+    }
+
+    if (this.syncService.isOnline() && this.supabaseService.isConfigured) {
       try {
         const fileExt = file.name.split('.').pop() || 'png';
         const fileName = `project-${crypto.randomUUID()}.${fileExt}`;
 
-        // Timeout promise after 4 seconds to prevent UI hanging
         const timeoutPromise = new Promise<{ data: null; error: any }>((resolve) => {
-          setTimeout(() => resolve({ data: null, error: new Error('Upload request timed out after 4s') }), 4000);
+          setTimeout(() => resolve({ data: null, error: new Error('Upload request timed out after 15s') }), 15000);
         });
 
         const uploadPromise = this.supabaseService.supabase.storage
@@ -294,8 +295,13 @@ export class ProjectService {
       }
     }
 
-    // Fallback: Read file as Data URL (base64) so it works offline or before bucket exists
-    return await fileToDataUrl();
+    // Compressed Fallback: Downscale and compress image to lightweight base64 Data URL (max 600x600, ~30-50KB)
+    try {
+      return await compressImageFile(file, 600, 600, 0.75);
+    } catch (e) {
+      console.warn('Failed to compress project image fallback:', e);
+      return '';
+    }
   }
 
   async updateProject(id: string, updates: Partial<Project>): Promise<Project | null> {
