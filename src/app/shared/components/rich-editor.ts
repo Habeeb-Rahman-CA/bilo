@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output, ViewChild, ElementRef } from '@angular/core';
+import { Component, EventEmitter, Input, Output, ViewChild, ElementRef, SecurityContext } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
@@ -415,7 +415,9 @@ export class RichEditorComponent {
         '<span class="empty-placeholder">No description provided.</span>'
       );
     }
-    return this.sanitizer.bypassSecurityTrustHtml(this.parseMarkdown(this.value));
+    const rawHtml = this.parseMarkdown(this.value);
+    const sanitizedHtml = this.sanitizer.sanitize(SecurityContext.HTML, rawHtml) || '';
+    return this.sanitizer.bypassSecurityTrustHtml(sanitizedHtml);
   }
 
   onTextChange(val: string) {
@@ -520,6 +522,35 @@ export class RichEditorComponent {
     }, 10);
   }
 
+  private sanitizeUrl(url: string): string {
+    if (!url) return '#';
+    const trimmed = url.trim();
+    // Strip invisible control characters
+    const cleanStr = trimmed.replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
+    // Decode HTML entities to uncover encoded protocols like java&#x09;script:
+    const decoded = cleanStr
+      .replace(/&#x([0-9a-f]+);?/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+      .replace(/&#([0-9]+);?/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)));
+    const normalized = decoded.toLowerCase().replace(/\s+/g, '');
+
+    // Block dangerous protocols
+    if (
+      normalized.startsWith('javascript:') ||
+      normalized.startsWith('vbscript:') ||
+      normalized.startsWith('data:') ||
+      normalized.startsWith('blob:')
+    ) {
+      return '#';
+    }
+
+    // Escape quotes and angle brackets to prevent attribute breakout
+    return trimmed
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
   private parseMarkdown(md: string): string {
     if (!md) return '';
 
@@ -575,7 +606,10 @@ export class RichEditorComponent {
     html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
 
     // Links [Text](url)
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, text, url) => {
+      const cleanUrl = this.sanitizeUrl(url);
+      return `<a href="${cleanUrl}" target="_blank" rel="noopener">${text}</a>`;
+    });
 
     // Line breaks to <br> if not inside pre/h1/h2/h3/blockquote/ul/ol
     const lines = html.split('\n');
@@ -599,3 +633,4 @@ export class RichEditorComponent {
     return processedLines.join('\n');
   }
 }
+
