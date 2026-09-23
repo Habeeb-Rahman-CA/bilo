@@ -3,7 +3,7 @@
    Provides App Shell Cache & Network-First / Stale-While-Revalidate Caching
    ========================================================================== */
 
-const CACHE_NAME = 'bilo-pwa-v1.1.1';
+const CACHE_NAME = 'bilo-pwa-v1.1.2';
 
 const STATIC_ASSETS = [
   '/',
@@ -59,21 +59,9 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url);
 
-  // 1. Supabase API queries: Network First, fallback to cache
-  if (url.hostname.includes('supabase.co')) {
-    event.respondWith(
-      fetch(event.request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            const copy = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-          }
-          return networkResponse;
-        })
-        .catch(() => {
-          return caches.match(event.request);
-        })
-    );
+  // 1. Supabase API queries: NEVER intercept, cache, or respond to Supabase requests from SW.
+  // Bypass Service Worker completely so browser handles network requests directly to Supabase.
+  if (url.hostname.endsWith('.supabase.co') || url.hostname === 'supabase.co') {
     return;
   }
 

@@ -383,6 +383,8 @@ export class EditProfileModalComponent implements OnInit {
   submitted = false;
   isDragging = signal<boolean>(false);
 
+  private pendingFile: File | null = null;
+
   constructor(
     public authService: AuthService,
     private taskShareService: TaskShareService
@@ -434,26 +436,21 @@ export class EditProfileModalComponent implements OnInit {
       return;
     }
 
-    this.uploadingAvatar.set(true);
-
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const result = ev.target?.result as string;
-      if (result) {
-        this.avatarUrl = result;
-        this.taskShareService.showToast('Profile image uploaded successfully.');
-      }
-      this.uploadingAvatar.set(false);
-    };
-    reader.onerror = () => {
-      this.uploadingAvatar.set(false);
-      this.taskShareService.showToast('Failed to read image file. Please try again.');
-    };
-    reader.readAsDataURL(imageFile);
+    this.pendingFile = imageFile;
+    // Create instant local blob object URL for UI preview without heavy base64 strings
+    if (this.avatarUrl && this.avatarUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(this.avatarUrl);
+    }
+    this.avatarUrl = URL.createObjectURL(imageFile);
+    this.taskShareService.showToast('Image selected. Click "Save Profile" to update.');
   }
 
   removeAvatar() {
+    if (this.avatarUrl && this.avatarUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(this.avatarUrl);
+    }
     this.avatarUrl = null;
+    this.pendingFile = null;
   }
 
   async saveProfile() {
@@ -462,9 +459,20 @@ export class EditProfileModalComponent implements OnInit {
 
     this.saving.set(true);
     try {
+      let finalAvatarUrl = this.avatarUrl;
+
+      if (this.pendingFile) {
+        this.uploadingAvatar.set(true);
+        const uploadedUrl = await this.authService.uploadAvatarFile(this.pendingFile);
+        if (uploadedUrl) {
+          finalAvatarUrl = uploadedUrl;
+        }
+        this.uploadingAvatar.set(false);
+      }
+
       await this.authService.updateProfile({
         display_name: this.displayName.trim(),
-        avatar_url: this.avatarUrl
+        avatar_url: finalAvatarUrl
       });
 
       this.taskShareService.showToast('Profile updated successfully!');
@@ -474,6 +482,7 @@ export class EditProfileModalComponent implements OnInit {
       this.taskShareService.showToast('Failed to update profile. Please try again.');
     } finally {
       this.saving.set(false);
+      this.uploadingAvatar.set(false);
     }
   }
 }
