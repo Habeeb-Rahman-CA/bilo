@@ -45,48 +45,81 @@ export class AuthService {
 
   private async initAuth() {
     try {
-      const { data } = await this.supabaseService.supabase.auth.getSession();
-      let session = data?.session ?? null;
+      if (!this.supabaseService.isConfigured) {
+        console.warn('[AuthService] Supabase not configured in environment. Running in local workspace mode.');
+        this.authLoading.set(false);
+        return;
+      }
+
+      let session: Session | null = null;
+      try {
+        const { data, error } = await this.supabaseService.supabase.auth.getSession();
+        if (error) {
+          console.warn('[AuthService] getSession returned error notice:', error.message);
+        }
+        session = data?.session ?? null;
+      } catch (sessionErr) {
+        console.warn('[AuthService] getSession exception caught:', sessionErr);
+      }
 
       // CRITICAL: If the access token is bloated (>4KB = has embedded avatar/picture),
       // it causes ERR_CONNECTION_RESET because Cloudflare/Kong rejects oversized headers.
       // We MUST clean it BEFORE any data API calls go out.
       if (session?.access_token && session.access_token.length > 4096) {
         console.warn(`[AuthService] Bloated JWT detected (${(session.access_token.length / 1024).toFixed(1)}KB). Sanitizing before data load...`);
-        session = await this.sanitizeAndRefreshJwtToken(session);
+        try {
+          session = await this.sanitizeAndRefreshJwtToken(session);
+        } catch (sErr) {
+          console.warn('[AuthService] Token sanitization notice:', sErr);
+        }
       }
 
       this.session.set(session);
       this.user.set(session?.user ?? null);
 
       if (session?.user) {
-        await this.loadUserProfileBootstrap(session.user);
-        await this.reloadServicesData();
-      }
-      this.authLoading.set(false);
-
-      this.supabaseService.supabase.auth.onAuthStateChange(async (event: AuthChangeEvent, session: Session | null) => {
-        const previousUser = this.user();
-        const newUser = session?.user ?? null;
-
-        this.session.set(session);
-        this.user.set(newUser);
-
-        // Only bootstrap on actual sign-in or user switch, NOT on TOKEN_REFRESHED or other events
-        if (event === 'SIGNED_IN' && newUser) {
-          if (previousUser && newUser && previousUser.id !== newUser.id) {
-            this.resetServicesState();
-          }
-          await this.loadUserProfileBootstrap(newUser);
+        try {
+          await this.loadUserProfileBootstrap(session.user);
           await this.reloadServicesData();
-        } else if (event === 'SIGNED_OUT' || !newUser) {
-          this.resetServicesState();
+        } catch (bErr) {
+          console.warn('[AuthService] Bootstrap data load notice:', bErr);
         }
-        // TOKEN_REFRESHED, USER_UPDATED etc. just update signals above without re-triggering bootstrap
-        this.authLoading.set(false);
-      });
+      }
     } catch (e) {
       console.warn('Auth initialization skipped in offline mode', e);
+    } finally {
+      this.authLoading.set(false);
+    }
+
+    try {
+      if (this.supabaseService.isConfigured) {
+        this.supabaseService.supabase.auth.onAuthStateChange(async (event: AuthChangeEvent, session: Session | null) => {
+          try {
+            const previousUser = this.user();
+            const newUser = session?.user ?? null;
+
+            this.session.set(session);
+            this.user.set(newUser);
+
+            // Only bootstrap on actual sign-in or user switch, NOT on TOKEN_REFRESHED or other events
+            if (event === 'SIGNED_IN' && newUser) {
+              if (previousUser && newUser && previousUser.id !== newUser.id) {
+                this.resetServicesState();
+              }
+              await this.loadUserProfileBootstrap(newUser);
+              await this.reloadServicesData();
+            } else if (event === 'SIGNED_OUT' || !newUser) {
+              this.resetServicesState();
+            }
+          } catch (listenerErr) {
+            console.warn('[AuthService] onAuthStateChange listener notice:', listenerErr);
+          } finally {
+            this.authLoading.set(false);
+          }
+        });
+      }
+    } catch (subErr) {
+      console.warn('[AuthService] onAuthStateChange subscription notice:', subErr);
       this.authLoading.set(false);
     }
   }
