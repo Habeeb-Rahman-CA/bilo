@@ -17,6 +17,7 @@ import { TaskShareService } from './core/services/task-share.service';
 import { PushNotificationService } from './core/services/push-notification.service';
 import { ThemeService } from './core/services/theme.service';
 import { AuthService } from './core/services/auth.service';
+import { SupabaseService } from './core/services/supabase.service';
 import { ProjectService } from './core/services/project.service';
 import { TaskDetailModalComponent } from './shared/components/task-detail-modal';
 import { PushNotificationModalComponent } from './shared/components/push-notification-modal';
@@ -99,7 +100,8 @@ export class App implements OnInit {
     public pushService: PushNotificationService,
     public themeService: ThemeService,
     public authService: AuthService,
-    public projectService: ProjectService
+    public projectService: ProjectService,
+    public supabaseService: SupabaseService
   ) {}
 
   async ngOnInit() {

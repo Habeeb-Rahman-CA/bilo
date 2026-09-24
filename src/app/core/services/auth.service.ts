@@ -32,6 +32,10 @@ export class AuthService implements OnDestroy {
     const profile = this.userProfile();
     return profile?.avatar_url || null;
   });
+
+  get isSupabaseConfigured(): boolean {
+    return this.supabaseService ? this.supabaseService.isConfigured : false;
+  }
   // Guard flags to prevent re-entrant cascading loops
   private _bootstrapping = false;
   private _sanitized = false;

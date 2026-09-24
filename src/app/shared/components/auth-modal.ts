@@ -32,6 +32,13 @@ import { AuthService } from '../../core/services/auth.service';
         </div>
 
         <!-- Error / Info Alert Banner -->
+        @if (!authService.isSupabaseConfigured) {
+          <div class="auth-alert error-alert font-mono">
+            <i class="fi fi-rr-exclamation text-rose"></i>
+            <span>Supabase credentials missing or unconfigured. Running in local storage mode; cloud sync is disabled.</span>
+          </div>
+        }
+
         @if (errorMessage()) {
           <div class="auth-alert error-alert font-mono">
             <i class="fi fi-rr-exclamation text-rose"></i>

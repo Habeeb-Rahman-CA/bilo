@@ -23,7 +23,11 @@
           <i class="fi fi-rr-download"></i> <span class="pwa-text">Install</span>
         </button>
       }
-      @if (!syncService.isOnline()) {
+      @if (!supabaseService.isConfigured) {
+        <span class="badge-mono badge-rose offline-header-badge" title="Supabase credentials missing or unconfigured - Operating in local storage mode only. Data will not persist to cloud DB." role="alert">
+          <i class="fi fi-rr-exclamation"></i> <span class="offline-text">LOCAL ONLY (NO CLOUD DB)</span>
+        </span>
+      } @else if (!syncService.isOnline()) {
         <span class="badge-mono badge-amber offline-header-badge" title="Offline Mode - Changes saved locally" role="status">
           <i class="fi fi-rr-wifi-slash"></i> <span class="offline-text">OFFLINE</span> ({{ syncService.pendingSyncQueue().length }})
         </span>
