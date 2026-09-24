@@ -46,6 +46,7 @@ import { SelectComponent, SelectOption } from './select';
               class="role-select"
               [options]="roleOptions"
               [(value)]="inviteRole"
+              (valueChange)="onInviteRoleChange($event)"
               [searchable]="false"
               [compact]="true"
             ></app-select>
@@ -53,7 +54,7 @@ import { SelectComponent, SelectOption } from './select';
               type="text"
               class="form-input link-input"
               readonly
-              [value]="getGeneratedInviteLink()"
+              [value]="generatedInviteLink()"
               (click)="copyInviteLink()"
             />
             <button class="btn btn-secondary btn-sm copy-btn" (click)="copyInviteLink()">
@@ -363,14 +364,25 @@ export class ProjectAccessModalComponent implements OnInit {
 
   message = signal<string>('');
   isError = signal<boolean>(false);
+  generatedInviteLink = signal<string>('');
 
-  getGeneratedInviteLink(): string {
-    if (!this.project) return '';
-    return this.projectService.generateInviteLink(this.project.id, this.inviteRole);
+  async updateInviteLink() {
+    if (!this.project) return;
+    const link = await this.projectService.generateInviteLink(this.project.id, this.inviteRole);
+    this.generatedInviteLink.set(link);
+  }
+
+  async onInviteRoleChange(role: ProjectRole) {
+    this.inviteRole = role;
+    await this.updateInviteLink();
   }
 
   async copyInviteLink() {
-    const link = this.getGeneratedInviteLink();
+    let link = this.generatedInviteLink();
+    if (!link && this.project) {
+      link = await this.projectService.generateInviteLink(this.project.id, this.inviteRole);
+      this.generatedInviteLink.set(link);
+    }
     if (!link) return;
     try {
       await navigator.clipboard.writeText(link);
@@ -386,8 +398,9 @@ export class ProjectAccessModalComponent implements OnInit {
     public authService: AuthService
   ) {}
 
-  ngOnInit() {
+  async ngOnInit() {
     this.loadMembers();
+    await this.updateInviteLink();
   }
 
   isOwner(): boolean {

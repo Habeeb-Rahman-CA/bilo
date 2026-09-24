@@ -6,6 +6,7 @@ import { TaskService } from './task.service';
 import { WorkflowService } from './workflow.service';
 import { Project, ProjectActivity, Task, ProjectMember, ProjectRole } from '../models/project.model';
 import { compressImageFile, MAX_ATTACHMENT_FILE_SIZE_BYTES } from '../utils/image-compressor.util';
+import { createSecureInviteToken } from '../utils/invite-token.util';
 
 @Injectable({
   providedIn: 'root'
@@ -504,7 +505,22 @@ export class ProjectService {
 
       if (!error && data) {
         const currentUser = this.authService.user();
-        const members = data as ProjectMember[];
+        const rawMembers = data as ProjectMember[];
+        const uniqueMembersMap = new Map<string, ProjectMember>();
+
+        rawMembers.forEach(m => {
+          const key = (m.user_id || m.user_email || m.id).toLowerCase();
+          if (!uniqueMembersMap.has(key)) {
+            uniqueMembersMap.set(key, m);
+          } else {
+            const existing = uniqueMembersMap.get(key)!;
+            if (m.role === 'owner' || (m.role === 'admin' && existing.role !== 'owner')) {
+              uniqueMembersMap.set(key, m);
+            }
+          }
+        });
+
+        const members = Array.from(uniqueMembersMap.values());
         return members.map(m => {
           if (currentUser && (m.user_id === currentUser.id || m.user_email === currentUser.email)) {
             const meta = currentUser.user_metadata;
@@ -537,6 +553,13 @@ export class ProjectService {
       let finalEmail = userEmail;
       let finalName = userName;
 
+      const currentUser = this.authService.user();
+      if (currentUser && (userId === currentUser.id || userId === currentUser.email)) {
+        finalEmail = finalEmail || currentUser.email || undefined;
+        const meta = currentUser.user_metadata;
+        finalName = finalName || meta?.['display_name'] || meta?.['full_name'] || meta?.['name'] || undefined;
+      }
+
       if (!finalEmail && userId.includes('@')) {
         finalEmail = userId;
       }
@@ -546,6 +569,20 @@ export class ProjectService {
       } else if (!finalName && !userId.includes('-')) {
         const clean = userId.replace(/^usr_/, '').replace(/^user_/, '');
         finalName = clean.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+      }
+
+      // Check if user is already a member of this project to prevent duplicate records
+      const existingMembers = await this.getProjectMembers(projectId);
+      const existing = existingMembers.find(
+        m => m.user_id === userId || (m.user_email && finalEmail && m.user_email.toLowerCase() === finalEmail.toLowerCase())
+      );
+
+      if (existing) {
+        // User is already a member. If role is elevated, update existing record instead of creating duplicate row
+        if (existing.role !== role && existing.role !== 'owner') {
+          await this.updateMemberRole(projectId, existing.id, role);
+        }
+        return true;
       }
 
       const payload: any = {
@@ -628,9 +665,10 @@ export class ProjectService {
 
   // --- Invite Link & Workspace Joining ---
 
-  generateInviteLink(projectId: string, role: ProjectRole = 'member'): string {
-    const origin = window.location.origin + window.location.pathname;
-    return `${origin}?invite=${encodeURIComponent(projectId)}&role=${encodeURIComponent(role)}`;
+  async generateInviteLink(projectId: string, role: ProjectRole = 'member'): Promise<string> {
+    const origin = typeof window !== 'undefined' ? (window.location.origin + window.location.pathname) : '';
+    const token = await createSecureInviteToken(projectId, role);
+    return `${origin}?token=${encodeURIComponent(token)}`;
   }
 
   async fetchProjectById(projectId: string): Promise<Project | null> {
@@ -660,7 +698,14 @@ export class ProjectService {
 
     const currentUser = this.authService.user();
     if (currentUser?.id) {
-      await this.addProjectMember(projectId, currentUser.id, role);
+      const existingMembers = await this.getProjectMembers(projectId);
+      const isAlreadyMember = existingMembers.some(
+        m => m.user_id === currentUser.id || (m.user_email && currentUser.email && m.user_email.toLowerCase() === currentUser.email.toLowerCase())
+      );
+
+      if (!isAlreadyMember) {
+        await this.addProjectMember(projectId, currentUser.id, role, undefined, currentUser.email || undefined);
+      }
     }
 
     // Add project to local projects signal if not present

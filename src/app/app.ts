@@ -32,6 +32,7 @@ import { EditProfileModalComponent } from './shared/components/edit-profile-moda
 import { AuthPageComponent } from './features/auth/auth-page';
 import { TaskService } from './core/services/task.service';
 import { Task, ProjectRole, Project } from './core/models/project.model';
+import { verifySecureInviteToken, VerifiedInvitePayload } from './core/utils/invite-token.util';
 
 import { MaintenanceComponent } from './features/maintenance/maintenance';
 
@@ -128,15 +129,37 @@ export class App implements OnInit {
   async checkIncomingInviteLink() {
     try {
       const params = new URLSearchParams(window.location.search);
-      const inviteId = params.get('invite');
-      const role = (params.get('role') || 'member') as ProjectRole;
+      const token = params.get('token');
+      const rawInvite = params.get('invite');
+      const rawRole = (params.get('role') || 'member') as ProjectRole;
 
-      if (inviteId) {
-        this.incomingInviteProjectId.set(inviteId);
-        this.incomingInviteRole.set(role);
+      let verifiedPayload: VerifiedInvitePayload | null = null;
+
+      if (token) {
+        verifiedPayload = await verifySecureInviteToken(token);
+        if (!verifiedPayload) {
+          console.warn('[Auth/Invite] Invalid, tampered, or expired workspace invite token');
+          this.taskShareService.showToast('Workspace invite link is invalid or expired.');
+          return;
+        }
+      } else if (rawInvite) {
+        // Fallback for valid legacy UUID links
+        if (this.syncService.isValidUuid(rawInvite)) {
+          verifiedPayload = {
+            projectId: rawInvite,
+            role: rawRole,
+            expiresAt: Date.now() + 86400000,
+            nonce: 'legacy'
+          };
+        }
+      }
+
+      if (verifiedPayload) {
+        this.incomingInviteProjectId.set(verifiedPayload.projectId);
+        this.incomingInviteRole.set(verifiedPayload.role);
 
         // Fetch workspace details for confirmation modal preview
-        const proj = await this.projectService.fetchProjectById(inviteId);
+        const proj = await this.projectService.fetchProjectById(verifiedPayload.projectId);
         this.incomingInviteProject.set(proj);
       }
     } catch (e) {

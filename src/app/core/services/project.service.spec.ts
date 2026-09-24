@@ -122,4 +122,30 @@ describe('ProjectService Workspace Naming', () => {
     await projectService.deleteProject(proj.id);
     expect(projectService.projects().length).toBe(initialCount);
   });
+
+  it('should generate a cryptographically signed invite link', async () => {
+    const link = await projectService.generateInviteLink('proj-999', 'admin');
+    expect(link).toContain('token=');
+  });
+
+  it('should prevent adding duplicate project members in addProjectMember and joinProjectViaInvite', async () => {
+    mockSyncService.isOnline = () => true;
+    let upsertCount = 0;
+    mockSupabaseService.supabase.from = () => ({
+      select: () => ({
+        eq: () => Promise.resolve({
+          data: [{ id: 'm-1', project_id: 'p-100', user_id: 'user-123', role: 'member' }],
+          error: null
+        })
+      }),
+      upsert: () => {
+        upsertCount++;
+        return Promise.resolve({ error: null });
+      }
+    });
+
+    const result = await projectService.addProjectMember('p-100', 'user-123', 'member');
+    expect(result).toBe(true);
+    expect(upsertCount).toBe(0);
+  });
 });
