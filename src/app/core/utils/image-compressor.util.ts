@@ -14,8 +14,9 @@ export async function compressImageFile(
   quality: number = 0.75
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    if (!file.type.startsWith('image/')) {
-      reject(new Error('File is not an image'));
+    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
+    if (!file || !allowedMimeTypes.includes(file.type.toLowerCase())) {
+      reject(new Error('Invalid or untrusted image file type. Vector images (SVG) are rejected for security.'));
       return;
     }
 

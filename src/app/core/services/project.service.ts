@@ -308,8 +308,9 @@ export class ProjectService {
   }
 
   async uploadProjectImage(file: File): Promise<string> {
-    if (!file || !file.type.startsWith('image/')) {
-      console.warn('[ProjectService] Invalid image file type');
+    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
+    if (!file || !allowedMimeTypes.includes(file.type.toLowerCase())) {
+      console.warn('[ProjectService] Invalid or untrusted image file type:', file?.type);
       return '';
     }
 

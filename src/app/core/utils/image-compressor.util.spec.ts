@@ -7,8 +7,11 @@ describe('ImageCompressorUtil', () => {
     expect(MAX_ATTACHMENT_FILE_SIZE_BYTES).toBe(10 * 1024 * 1024);
   });
 
-  it('should reject non-image file types', async () => {
+  it('should reject non-image file types and SVG files for security', async () => {
     const textFile = new File(['hello world'], 'test.txt', { type: 'text/plain' });
-    await expect(compressImageFile(textFile)).rejects.toThrow('File is not an image');
+    await expect(compressImageFile(textFile)).rejects.toThrow('Invalid or untrusted image file type');
+
+    const svgFile = new File(['<svg onload="alert(1)"></svg>'], 'xss.svg', { type: 'image/svg+xml' });
+    await expect(compressImageFile(svgFile)).rejects.toThrow('Vector images (SVG) are rejected for security');
   });
 });
