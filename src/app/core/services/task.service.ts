@@ -249,6 +249,16 @@ export class TaskService {
     const cleanTitle = (taskData.title || '').trim();
     const finalTitle = cleanTitle.length > 0 ? cleanTitle : 'Untitled Task';
 
+    // Calculate unique, collision-free position for the new task in its column/project
+    const columnTasks = this.tasks().filter(
+      t => t.project_id === finalProjectId && t.status.toLowerCase() === initialStatus.toLowerCase()
+    );
+    const maxPos = columnTasks.reduce((max, t) => Math.max(max, typeof t.position === 'number' ? t.position : 0), -1);
+    let targetPosition = typeof taskData.position === 'number' ? taskData.position : maxPos + 1;
+    while (columnTasks.some(t => t.position === targetPosition)) {
+      targetPosition++;
+    }
+
     const newTask: Task = {
       id: newId,
       project_id: finalProjectId,
@@ -267,7 +277,7 @@ export class TaskService {
       attachments: taskData.attachments || [],
       assignee: taskData.assignee || 'Unassigned',
       due_date: taskData.due_date || '',
-      position: 0,
+      position: targetPosition,
       is_next: taskData.is_next || false,
       completed: initialStatus.toLowerCase() === 'done' || initialStatus.toLowerCase() === 'completed',
       created_at: new Date().toISOString(),
