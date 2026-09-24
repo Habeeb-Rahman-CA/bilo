@@ -363,51 +363,47 @@ export class ProjectService {
 
   async updateProject(id: string, updates: Partial<Project>): Promise<Project | null> {
     const currentProj = this.projects().find(p => p.id === id);
+    if (!currentProj) return null;
+
     let finalName = updates.name ? updates.name.trim() : undefined;
     let finalSlug = updates.slug ? updates.slug.trim() : undefined;
 
-    if (finalName && (!currentProj || currentProj.name.trim().toLowerCase() !== finalName.toLowerCase())) {
+    if (finalName && currentProj.name.trim().toLowerCase() !== finalName.toLowerCase()) {
       finalName = this.generateUniqueName(finalName, id);
       finalSlug = this.generateUniqueSlug(finalName, id);
     } else if (finalSlug) {
       finalSlug = this.generateUniqueSlug(finalSlug, id);
     }
 
-    const updatedFields: Partial<Project> = {
+    const updatedProj: Project = {
+      ...currentProj,
       ...updates,
       ...(finalName ? { name: finalName } : {}),
       ...(finalSlug ? { slug: finalSlug } : {}),
       updated_at: new Date().toISOString()
     };
 
-    let updatedProj: Project | null = null;
-    this.projects.update(list => list.map(p => {
-      if (p.id === id) {
-        updatedProj = { ...p, ...updatedFields };
-        return updatedProj;
-      }
-      return p;
-    }));
+    this.projects.update(list => list.map(p => (p.id === id ? updatedProj : p)));
 
-    if (updatedProj) {
-      if (this.activeProject()?.id === id) this.activeProject.set(updatedProj);
-      this.logActivity(id, 'Updated', `Project metadata updated`);
-      this.saveToStorage();
-
-      this.syncService.enqueue('UPDATE_PROJECT', {
-        id,
-        name: updatedProj.name,
-        slug: updatedProj.slug,
-        description: updatedProj.description,
-        repository_url: updatedProj.repository_url,
-        status: updatedProj.status,
-        labels: updatedProj.labels,
-        color: updatedProj.color,
-        image_url: updatedProj.image_url,
-        icon: updatedProj.icon,
-        updated_at: updatedProj.updated_at
-      });
+    if (this.activeProject()?.id === id) {
+      this.activeProject.set(updatedProj);
     }
+    this.logActivity(id, 'Updated', `Project metadata updated`);
+    this.saveToStorage();
+
+    this.syncService.enqueue('UPDATE_PROJECT', {
+      id,
+      name: updatedProj.name,
+      slug: updatedProj.slug,
+      description: updatedProj.description,
+      repository_url: updatedProj.repository_url,
+      status: updatedProj.status,
+      labels: updatedProj.labels,
+      color: updatedProj.color,
+      image_url: updatedProj.image_url,
+      icon: updatedProj.icon,
+      updated_at: updatedProj.updated_at
+    });
 
     return updatedProj;
   }
