@@ -246,11 +246,14 @@ export class TaskService {
     }
 
     const currentUser = this.authService.user();
+    const cleanTitle = (taskData.title || '').trim();
+    const finalTitle = cleanTitle.length > 0 ? cleanTitle : 'Untitled Task';
+
     const newTask: Task = {
       id: newId,
       project_id: finalProjectId,
       user_id: currentUser?.id,
-      title: taskData.title || 'Untitled Task',
+      title: finalTitle,
       description: taskData.description || '',
       type: taskData.type || 'task',
       status: initialStatus,
@@ -324,12 +327,17 @@ export class TaskService {
       ? (newStatus.toLowerCase() === 'done' || newStatus.toLowerCase() === 'completed')
       : (updates.completed !== undefined ? updates.completed : existingTask.completed);
 
-    const updatedFields = {
+    const updatedFields: any = {
       ...updates,
       status: newStatus,
       completed: targetCompleted,
       updated_at: new Date().toISOString()
     };
+
+    if (updates.title !== undefined) {
+      const cleanTitle = updates.title.trim();
+      updatedFields.title = cleanTitle.length > 0 ? cleanTitle : (existingTask.title || 'Untitled Task');
+    }
 
     let updatedTask: Task | null = null;
     this.tasks.update(list => list.map(t => {
