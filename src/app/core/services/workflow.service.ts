@@ -170,6 +170,19 @@ export class WorkflowService {
 
     if (updatedWf) {
       this.saveToStorage();
+      if (updates.name && this.injector) {
+        try {
+          const taskService = this.injector.get(TaskService);
+          const newName = updates.name.trim();
+          const targetWfId = id;
+          const matchingTasks = taskService.tasks().filter(
+            t => t.workflow_id === targetWfId || (t.project_id === targetProj && t.status.toLowerCase() === (updatedWf?.name.toLowerCase() || ''))
+          );
+          for (const t of matchingTasks) {
+            taskService.updateTask(t.id, { status: newName, workflow_id: targetWfId });
+          }
+        } catch (e) {}
+      }
     }
 
     try {

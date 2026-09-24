@@ -36,39 +36,63 @@ export class TaskService {
   normalizeTaskStatuses(tasks: Task[]): { normalized: Task[]; hasChanges: boolean } {
     const validGlobalStatuses = ['Backlog', 'To Do', 'In Progress', 'In Review', 'Done'];
 
+    let projWorkflowsMap: Record<string, any[]> = {};
+    if (this.injector) {
+      try {
+        const workflowService = this.injector.get(WorkflowService);
+        if (workflowService) {
+          projWorkflowsMap = workflowService.workflowsByProject() || {};
+        }
+      } catch (e) {}
+    }
+
     let hasChanges = false;
     const normalized = tasks.map(t => {
       const currentStatus = (t.status || '').trim();
       let targetStatus = currentStatus;
 
-      const exactMatch = validGlobalStatuses.find(s => s.toLowerCase() === currentStatus.toLowerCase());
-      if (exactMatch) {
-        targetStatus = exactMatch;
+      const projKey = t.project_id || 'global';
+      const projWorkflows = projWorkflowsMap[projKey] || projWorkflowsMap['global'] || [];
+      const matchingWfByWfId = t.workflow_id ? projWorkflows.find(w => w.id === t.workflow_id) : undefined;
+
+      if (matchingWfByWfId) {
+        targetStatus = matchingWfByWfId.name;
       } else {
-        const lower = currentStatus.toLowerCase();
-        if (lower.includes('backlog')) {
-          targetStatus = 'Backlog';
-        } else if (lower.includes('todo') || lower === 'to do' || lower === 'open') {
-          targetStatus = 'To Do';
-        } else if (lower.includes('progress') || lower.includes('doing') || lower === 'wip') {
-          targetStatus = 'In Progress';
-        } else if (lower.includes('review') || lower.includes('testing')) {
-          targetStatus = 'In Review';
-        } else if (lower.includes('done') || lower.includes('complete') || lower.includes('closed')) {
-          targetStatus = 'Done';
+        const matchingWfByName = projWorkflows.find(w => w.name && w.name.toLowerCase() === currentStatus.toLowerCase());
+        if (matchingWfByName) {
+          targetStatus = matchingWfByName.name;
         } else {
-          targetStatus = currentStatus || 'Backlog';
+          const exactMatch = validGlobalStatuses.find(s => s.toLowerCase() === currentStatus.toLowerCase());
+          if (exactMatch) {
+            targetStatus = exactMatch;
+          } else {
+            const lower = currentStatus.toLowerCase();
+            if (lower.includes('backlog')) {
+              targetStatus = 'Backlog';
+            } else if (lower.includes('todo') || lower === 'to do' || lower === 'open') {
+              targetStatus = 'To Do';
+            } else if (lower.includes('progress') || lower.includes('doing') || lower === 'wip') {
+              targetStatus = 'In Progress';
+            } else if (lower.includes('review') || lower.includes('testing')) {
+              targetStatus = 'In Review';
+            } else if (lower.includes('done') || lower.includes('complete') || lower.includes('closed')) {
+              targetStatus = 'Done';
+            } else {
+              targetStatus = currentStatus || 'Backlog';
+            }
+          }
         }
       }
 
       const targetCompleted = targetStatus.toLowerCase() === 'done' || targetStatus.toLowerCase() === 'completed' || t.completed === true;
 
-      if (targetStatus !== currentStatus || t.completed !== targetCompleted) {
+      if (targetStatus !== currentStatus || t.completed !== targetCompleted || (matchingWfByWfId && t.workflow_id !== matchingWfByWfId.id)) {
         hasChanges = true;
         return {
           ...t,
           status: targetStatus,
-          completed: targetCompleted
+          completed: targetCompleted,
+          ...(matchingWfByWfId ? { workflow_id: matchingWfByWfId.id } : {})
         };
       }
       return t;
