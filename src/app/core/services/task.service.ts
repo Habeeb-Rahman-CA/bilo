@@ -600,7 +600,26 @@ export class TaskService {
     if (existing) {
       this.projectService.logActivity(existing.project_id, 'Task Deleted', `Deleted task "${existing.title}"`);
     }
+
+    // 1) Filter out task from tasks list
     this.tasks.update(list => list.filter(t => t.id !== id));
+
+    // 2) Delete task comments from memory map
+    this.taskComments.update(map => {
+      if (!(id in map)) return map;
+      const updated = { ...map };
+      delete updated[id];
+      return updated;
+    });
+
+    // 3) Delete status history from memory map
+    this.taskStatusHistory.update(map => {
+      if (!(id in map)) return map;
+      const updated = { ...map };
+      delete updated[id];
+      return updated;
+    });
+
     this.saveToStorage();
     this.syncService.enqueue('DELETE_TASK', { id });
   }
