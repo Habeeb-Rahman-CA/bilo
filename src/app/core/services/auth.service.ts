@@ -36,12 +36,15 @@ export class AuthService implements OnDestroy {
   private _bootstrapping = false;
   private _sanitized = false;
   private authSubscription: { unsubscribe: () => void } | null = null;
+  private authChannel: BroadcastChannel | null = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('bilo_auth_channel') : null;
+  private storageEventListener: ((e: StorageEvent) => void) | null = null;
 
   constructor(
     private supabaseService: SupabaseService,
     private injector: Injector
   ) {
     this.initAuth();
+    this.setupCrossTabSync();
   }
 
   private async initAuth() {
@@ -134,12 +137,53 @@ export class AuthService implements OnDestroy {
     }
   }
 
+  private setupCrossTabSync() {
+    if (this.authChannel) {
+      try {
+        this.authChannel.onmessage = (event) => {
+          if (event.data?.type === 'SIGN_OUT') {
+            console.log('[AuthService] Cross-tab SIGN_OUT received via BroadcastChannel.');
+            this.handleCrossTabSignOut();
+          }
+        };
+      } catch (e) {}
+    }
+
+    if (typeof window !== 'undefined') {
+      this.storageEventListener = (event: StorageEvent) => {
+        if (event.key === null || (event.key && (event.key.includes('sb-') || event.key.includes('bilo_')) && event.newValue === null)) {
+          console.log('[AuthService] Cross-tab storage clear detected.');
+          this.handleCrossTabSignOut();
+        }
+      };
+      window.addEventListener('storage', this.storageEventListener);
+    }
+  }
+
+  handleCrossTabSignOut() {
+    this.user.set(null);
+    this.session.set(null);
+    this.userProfile.set(null);
+    this._sanitized = false;
+    this.resetServicesState();
+  }
+
   ngOnDestroy() {
     if (this.authSubscription) {
       try {
         this.authSubscription.unsubscribe();
       } catch (e) {}
       this.authSubscription = null;
+    }
+    if (this.storageEventListener && typeof window !== 'undefined') {
+      window.removeEventListener('storage', this.storageEventListener);
+      this.storageEventListener = null;
+    }
+    if (this.authChannel) {
+      try {
+        this.authChannel.close();
+      } catch (e) {}
+      this.authChannel = null;
     }
   }
 
@@ -278,18 +322,25 @@ export class AuthService implements OnDestroy {
   }
 
   resetServicesState() {
+    this.user.set(null);
+    this.session.set(null);
     this.userProfile.set(null);
     this._sanitized = false;
     try {
       const projectService = this.injector.get(ProjectService);
       const taskService = this.injector.get(TaskService);
+      const workflowService = this.injector.get(WorkflowService);
       const syncService = this.injector.get(SyncService);
       projectService.resetState();
       taskService.resetState();
+      workflowService.resetState();
       syncService.resetState();
     } catch (e) {
       console.warn('[AuthService] Error resetting state:', e);
     }
+    localStorage.removeItem('bilo_projects_data');
+    localStorage.removeItem('bilo_tasks_data');
+    localStorage.removeItem('bilo_sync_queue');
     localStorage.removeItem('bilo_backlog_filters');
     localStorage.removeItem('bilo_board_filters');
   }
@@ -377,59 +428,105 @@ export class AuthService implements OnDestroy {
 
   async signOut() {
     const activeUserId = this.user()?.id;
-    const res = await this.supabaseService.supabase.auth.signOut();
-    this.user.set(null);
-    this.session.set(null);
-    this.userProfile.set(null);
-    
-    // Clear browser memory signals and local storage cache for complete data isolation
-    try {
-      const projectService = this.injector.get(ProjectService);
-      const taskService = this.injector.get(TaskService);
-      const syncService = this.injector.get(SyncService);
-      projectService.resetState();
-      taskService.resetState();
-      syncService.resetState();
-    } catch (e) {
-      console.warn('[AuthService] Error resetting state on sign out:', e);
+    if (this.authChannel) {
+      try {
+        this.authChannel.postMessage({ type: 'SIGN_OUT' });
+      } catch (e) {}
     }
+
+    const res = await this.supabaseService.supabase.auth.signOut();
+    this.handleCrossTabSignOut();
 
     if (activeUserId) {
       localStorage.removeItem(`bilo_user_profile_${activeUserId}`);
       localStorage.removeItem(`bilo_sync_queue_${activeUserId}`);
     }
-    localStorage.removeItem('bilo_projects_data');
-    localStorage.removeItem('bilo_tasks_data');
-    localStorage.removeItem('bilo_sync_queue');
-    localStorage.removeItem('bilo_backlog_filters');
-    localStorage.removeItem('bilo_board_filters');
     return res;
   }
 
-  async claimUnassignedData() {
+  async claimUnassignedData(): Promise<{ success: boolean; method: 'rpc' | 'fallback'; error?: string }> {
     const currentUser = this.user();
-    if (!currentUser) return;
+    if (!currentUser) {
+      return { success: false, method: 'fallback', error: 'No active authenticated user session.' };
+    }
+
+    let rpcSuccess = false;
+    let rpcErrorMessage = '';
 
     try {
       const { error } = await this.supabaseService.supabase.rpc('migrate_unassigned_data_to_user', {
         target_user_id: currentUser.id
       });
-      if (error) {
-        console.warn('[AuthService] RPC migrate_unassigned_data_to_user failed or function not present:', error.message);
+      if (!error) {
+        rpcSuccess = true;
+        console.log('[AuthService] Successfully claimed unassigned workspace data via RPC for user:', currentUser.email);
       } else {
-        console.log('[AuthService] Successfully claimed unassigned workspace data for user:', currentUser.email);
-        try {
-          const projectService = this.injector.get(ProjectService);
-          const taskService = this.injector.get(TaskService);
-          await projectService.loadFromSupabase();
-          await taskService.loadTasksFromSupabase();
-        } catch (reloadErr) {
-          console.warn('[AuthService] Services reload error:', reloadErr);
-        }
+        rpcErrorMessage = error.message;
+        console.warn('[AuthService] RPC migrate_unassigned_data_to_user failed or function not present:', error.message);
       }
-    } catch (e) {
-      console.warn('[AuthService] Exception claiming unassigned data:', e);
+    } catch (e: any) {
+      rpcErrorMessage = e?.message || 'RPC call exception';
+      console.warn('[AuthService] Exception claiming unassigned data via RPC:', e);
     }
+
+    let fallbackSuccess = false;
+    let fallbackErrorMessage = '';
+
+    if (!rpcSuccess) {
+      try {
+        // Fallback Step 1: Claim unassigned projects (user_id IS NULL)
+        const { error: projErr } = await this.supabaseService.supabase
+          .from('projects')
+          .update({ user_id: currentUser.id })
+          .is('user_id', null);
+
+        if (projErr) {
+          console.warn('[AuthService] Fallback project claim notice:', projErr.message);
+        }
+
+        // Fallback Step 2: Claim unassigned tasks (user_id IS NULL)
+        const { error: taskErr } = await this.supabaseService.supabase
+          .from('tasks')
+          .update({ user_id: currentUser.id })
+          .is('user_id', null);
+
+        if (taskErr) {
+          console.warn('[AuthService] Fallback task claim notice:', taskErr.message);
+        }
+
+        fallbackSuccess = !projErr && !taskErr;
+        if (projErr || taskErr) {
+          fallbackErrorMessage = projErr?.message || taskErr?.message || 'Partial fallback update error';
+        }
+        console.log('[AuthService] Completed client-side fallback data migration for user:', currentUser.email);
+      } catch (fallbackErr: any) {
+        fallbackErrorMessage = fallbackErr?.message || 'Fallback exception';
+        console.error('[AuthService] Exception during fallback data migration:', fallbackErr);
+      }
+    }
+
+    // Reload services data to ensure UI signals contain claimed data
+    try {
+      const projectService = this.injector.get(ProjectService);
+      const taskService = this.injector.get(TaskService);
+      const workflowService = this.injector.get(WorkflowService);
+      await Promise.all([
+        projectService.loadFromSupabase(),
+        taskService.loadTasksFromSupabase(),
+        workflowService.loadAllWorkflows()
+      ]);
+    } catch (reloadErr) {
+      console.warn('[AuthService] Services reload error after claiming unassigned data:', reloadErr);
+    }
+
+    if (rpcSuccess) {
+      return { success: true, method: 'rpc' };
+    }
+    return {
+      success: fallbackSuccess,
+      method: 'fallback',
+      error: fallbackErrorMessage || rpcErrorMessage
+    };
   }
 
   openAuthModal() {
@@ -453,6 +550,28 @@ export class AuthService implements OnDestroy {
         throw new Error('Display name must not exceed 20 characters');
       }
       updates = { ...updates, display_name: trimmedName };
+    }
+
+    if (updates.avatar_url !== undefined && updates.avatar_url !== null) {
+      const trimmedAvatar = updates.avatar_url.trim();
+      if (!trimmedAvatar) {
+        updates = { ...updates, avatar_url: null };
+      } else {
+        const isDataImage = /^data:image\/(png|jpeg|jpg|webp|gif|svg\+xml);base64,/i.test(trimmedAvatar);
+        const isBlobUrl = /^blob:https?:\/\//i.test(trimmedAvatar);
+        let isValidHttpUrl = false;
+        try {
+          const parsed = new URL(trimmedAvatar);
+          isValidHttpUrl = parsed.protocol === 'http:' || parsed.protocol === 'https:';
+        } catch {
+          isValidHttpUrl = false;
+        }
+
+        if (!isDataImage && !isBlobUrl && !isValidHttpUrl) {
+          throw new Error('Invalid avatar URL. Must be a valid http/https URL or image data URI');
+        }
+        updates = { ...updates, avatar_url: trimmedAvatar };
+      }
     }
 
     const currentProfile = this.userProfile() || {

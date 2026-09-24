@@ -484,5 +484,10 @@ export class WorkflowService {
     }));
     this.saveToStorage();
   }
+
+  resetState() {
+    this.workflowsByProject.set({ global: [...DEFAULT_GLOBAL_WORKFLOWS] });
+    this.loading.set(false);
+  }
 }
 
