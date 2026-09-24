@@ -525,6 +525,32 @@ export class TaskService {
     this.syncService.enqueue('DELETE_TASK', { id });
   }
 
+  deleteTasksForProject(projectId: string) {
+    if (!projectId) return;
+
+    const projectTaskIds = new Set(
+      this.tasks().filter(t => t.project_id === projectId).map(t => t.id)
+    );
+
+    // Filter tasks
+    this.tasks.update(list => list.filter(t => t.project_id !== projectId));
+
+    // Filter task comments & status history
+    this.taskComments.update(map => {
+      const updated = { ...map };
+      projectTaskIds.forEach(tid => delete updated[tid]);
+      return updated;
+    });
+
+    this.taskStatusHistory.update(map => {
+      const updated = { ...map };
+      projectTaskIds.forEach(tid => delete updated[tid]);
+      return updated;
+    });
+
+    this.saveToStorage();
+  }
+
   // --- Task Comments / Notes ---
 
   async loadCommentsForTask(taskId: string): Promise<TaskComment[]> {

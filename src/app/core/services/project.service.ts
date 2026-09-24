@@ -1,7 +1,9 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, Injector } from '@angular/core';
 import { SupabaseService } from './supabase.service';
 import { SyncService } from './sync.service';
 import { AuthService } from './auth.service';
+import { TaskService } from './task.service';
+import { WorkflowService } from './workflow.service';
 import { Project, ProjectActivity, Task, ProjectMember, ProjectRole } from '../models/project.model';
 import { compressImageFile, MAX_ATTACHMENT_FILE_SIZE_BYTES } from '../utils/image-compressor.util';
 
@@ -19,7 +21,8 @@ export class ProjectService {
   constructor(
     private supabaseService: SupabaseService,
     private syncService: SyncService,
-    private authService: AuthService
+    private authService: AuthService,
+    private injector: Injector
   ) {
     this.loadFromStorage();
     this.loadFromSupabase();
@@ -420,6 +423,23 @@ export class ProjectService {
     const proj = this.projects().find(p => p.id === id);
     if (!proj) return;
 
+    // 1) Cascade delete tasks, comments, and history from TaskService memory & storage
+    try {
+      const taskService = this.injector.get(TaskService);
+      taskService.deleteTasksForProject(id);
+    } catch (e) {
+      console.warn('Could not cascade delete tasks for project:', e);
+    }
+
+    // 2) Cascade delete custom workflows from WorkflowService memory & storage
+    try {
+      const workflowService = this.injector.get(WorkflowService);
+      workflowService.deleteWorkflowsForProject(id);
+    } catch (e) {
+      console.warn('Could not cascade delete workflows for project:', e);
+    }
+
+    // 3) Filter out project and its activities from ProjectService state
     this.projects.update(list => list.filter(p => p.id !== id));
     this.tasks.update(list => list.filter(t => t.project_id !== id));
     this.activities.update(list => list.filter(a => a.project_id !== id));

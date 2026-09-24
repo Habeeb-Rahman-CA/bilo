@@ -475,7 +475,23 @@ export class SyncService {
           return { success: true };
         }
         case 'DELETE_PROJECT': {
-          const { error } = await sb.from('projects').delete().eq('id', payload.id);
+          const projId = payload.id;
+          try {
+            const { data: projTasks } = await sb.from('tasks').select('id').eq('project_id', projId);
+            if (projTasks && projTasks.length > 0) {
+              const taskIds = projTasks.map(t => t.id);
+              await sb.from('task_comments').delete().in('task_id', taskIds);
+              await sb.from('task_status_history').delete().in('task_id', taskIds);
+            }
+            await sb.from('tasks').delete().eq('project_id', projId);
+            await sb.from('workflows').delete().eq('project_id', projId);
+            await sb.from('project_activities').delete().eq('project_id', projId);
+            await sb.from('project_members').delete().eq('project_id', projId);
+          } catch (e) {
+            console.warn('[SyncService] Non-fatal error during pre-delete cascade cleanup:', e);
+          }
+
+          const { error } = await sb.from('projects').delete().eq('id', projId);
           if (error) {
             return { success: false, fatal: this.isFatalError(error), error: error.message };
           }

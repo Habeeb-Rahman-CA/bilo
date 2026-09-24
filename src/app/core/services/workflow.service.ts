@@ -65,6 +65,16 @@ export class WorkflowService {
     localStorage.setItem('bilo_workflows_by_project', JSON.stringify(this.workflowsByProject()));
   }
 
+  deleteWorkflowsForProject(projectId: string) {
+    if (!projectId) return;
+    this.workflowsByProject.update(map => {
+      const updated = { ...map };
+      delete updated[projectId];
+      return updated;
+    });
+    this.saveToStorage();
+  }
+
   async loadAllWorkflows() {
     if (!this.supabaseService.isConfigured) return;
     this.loading.set(true);

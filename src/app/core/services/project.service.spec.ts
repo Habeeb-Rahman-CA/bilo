@@ -9,6 +9,7 @@ describe('ProjectService Workspace Naming', () => {
   let mockAuthService: any;
 
   beforeEach(() => {
+    localStorage.clear();
     mockSupabaseService = {
       supabase: {
         from: () => ({
@@ -33,10 +34,33 @@ describe('ProjectService Workspace Naming', () => {
       userEmail: signal('habeebu@example.com')
     };
 
+    const mockTaskService = {
+      deletedProjectId: null as string | null,
+      deleteTasksForProject(id: string) {
+        this.deletedProjectId = id;
+      }
+    };
+
+    const mockWorkflowService = {
+      deletedProjectId: null as string | null,
+      deleteWorkflowsForProject(id: string) {
+        this.deletedProjectId = id;
+      }
+    };
+
+    const mockInjector = {
+      get: (token: any) => {
+        if (token.name === 'TaskService' || token?.constructor?.name === 'TaskService') return mockTaskService;
+        if (token.name === 'WorkflowService' || token?.constructor?.name === 'WorkflowService') return mockWorkflowService;
+        return mockTaskService;
+      }
+    };
+
     projectService = new ProjectService(
       mockSupabaseService as any,
       mockSyncService as any,
-      mockAuthService as any
+      mockAuthService as any,
+      mockInjector as any
     );
   });
 
@@ -88,5 +112,14 @@ describe('ProjectService Workspace Naming', () => {
     const projUser2 = await projectService.createProject({ name: 'Beta Service' });
     expect(projUser2.name).toBe('Beta Service');
     expect(projUser2.slug).toBe('beta-service');
+  });
+
+  it('should cascade delete tasks, workflows, and activities when deleteProject is invoked', async () => {
+    const initialCount = projectService.projects().length;
+    const proj = await projectService.createProject({ name: 'Project To Delete' });
+    expect(projectService.projects().length).toBe(initialCount + 1);
+
+    await projectService.deleteProject(proj.id);
+    expect(projectService.projects().length).toBe(initialCount);
   });
 });
