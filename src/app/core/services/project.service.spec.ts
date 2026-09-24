@@ -148,4 +148,21 @@ describe('ProjectService Workspace Naming', () => {
     expect(result).toBe(true);
     expect(upsertCount).toBe(0);
   });
+
+  it('should return fallback member options and log error feedback when Supabase fails', async () => {
+    mockSyncService.isOnline = () => true;
+    mockSupabaseService.supabase.from = () => ({
+      select: () => ({
+        eq: () => Promise.resolve({
+          data: null,
+          error: { message: 'Supabase table connection failure' }
+        })
+      })
+    });
+
+    const options = await projectService.getWorkspaceMemberOptions('proj-err', 'John Doe');
+    expect(options.length).toBeGreaterThan(0);
+    expect(options.some(o => o.value === 'Unassigned')).toBe(true);
+    expect(options.some(o => o.value === 'John Doe')).toBe(true);
+  });
 });

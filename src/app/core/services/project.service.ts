@@ -496,49 +496,111 @@ export class ProjectService {
   // --- Project Members & Ownership ---
 
   async getProjectMembers(projectId: string): Promise<ProjectMember[]> {
-    if (!this.syncService.isOnline()) return [];
-    try {
-      const { data, error } = await this.supabaseService.supabase
-        .from('project_members')
-        .select('*')
-        .eq('project_id', projectId);
+    let rawMembers: ProjectMember[] = [];
+    if (this.syncService.isOnline()) {
+      try {
+        const { data, error } = await this.supabaseService.supabase
+          .from('project_members')
+          .select('*')
+          .eq('project_id', projectId);
 
-      if (!error && data) {
-        const currentUser = this.authService.user();
-        const rawMembers = data as ProjectMember[];
-        const uniqueMembersMap = new Map<string, ProjectMember>();
+        if (error) {
+          console.error('Failed to fetch project members from Supabase:', error.message || error);
+        } else if (data) {
+          rawMembers = data as ProjectMember[];
+        }
+      } catch (e) {
+        console.error('Exception while fetching project members:', e);
+      }
+    } else {
+      console.warn('SyncService is offline; loading fallback project members from local state.');
+    }
 
-        rawMembers.forEach(m => {
-          const key = (m.user_id || m.user_email || m.id).toLowerCase();
-          if (!uniqueMembersMap.has(key)) {
-            uniqueMembersMap.set(key, m);
-          } else {
-            const existing = uniqueMembersMap.get(key)!;
-            if (m.role === 'owner' || (m.role === 'admin' && existing.role !== 'owner')) {
-              uniqueMembersMap.set(key, m);
-            }
-          }
-        });
+    // If database query produced no members (due to offline state, error, or empty database response), build fallback members from local memory
+    if (rawMembers.length === 0) {
+      const fallbackMap = new Map<string, ProjectMember>();
 
-        const members = Array.from(uniqueMembersMap.values());
-        return members.map(m => {
-          if (currentUser && (m.user_id === currentUser.id || m.user_email === currentUser.email)) {
-            const meta = currentUser.user_metadata;
-            const name = meta?.['display_name'] || meta?.['full_name'] || meta?.['name'] ||
-              (currentUser.email ? currentUser.email.split('@')[0].split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ') : '');
-            return {
-              ...m,
-              user_name: m.user_name || name,
-              user_email: m.user_email || currentUser.email
-            };
-          }
-          return m;
+      // 1. Add current user as member/owner
+      const currentUser = this.authService.user();
+      if (currentUser) {
+        const meta = currentUser.user_metadata;
+        const name = meta?.['display_name'] || meta?.['full_name'] || meta?.['name'] ||
+          (currentUser.email ? currentUser.email.split('@')[0].split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ') : 'User');
+        const userKey = (currentUser.id || currentUser.email || 'user').toLowerCase();
+        fallbackMap.set(userKey, {
+          id: `local_m_${currentUser.id || 'user'}`,
+          project_id: projectId,
+          user_id: currentUser.id || currentUser.email || 'user',
+          role: 'owner',
+          user_email: currentUser.email,
+          user_name: name,
+          created_at: new Date().toISOString()
         });
       }
-    } catch (e) {
-      console.warn('Failed to fetch project members:', e);
+
+      // 2. Add project creator/owner if known
+      const proj = this.projects().find(p => p.id === projectId);
+      if (proj?.user_id && !fallbackMap.has(proj.user_id.toLowerCase())) {
+        fallbackMap.set(proj.user_id.toLowerCase(), {
+          id: `local_m_${proj.user_id}`,
+          project_id: projectId,
+          user_id: proj.user_id,
+          role: 'owner',
+          user_name: proj.user_id.includes('@') ? proj.user_id.split('@')[0] : `Owner (${proj.user_id.slice(0, 6)})`,
+          created_at: new Date().toISOString()
+        });
+      }
+
+      // 3. Add assignees from local tasks for this project
+      const projTasks = this.tasks().filter(t => t.project_id === projectId);
+      for (const t of projTasks) {
+        if (t.assignee && t.assignee !== 'Unassigned' && t.assignee !== 'Self') {
+          const key = t.assignee.toLowerCase();
+          if (!fallbackMap.has(key)) {
+            fallbackMap.set(key, {
+              id: `local_m_task_${t.id}`,
+              project_id: projectId,
+              user_id: t.assignee,
+              role: 'member',
+              user_name: t.assignee,
+              created_at: new Date().toISOString()
+            });
+          }
+        }
+      }
+
+      rawMembers = Array.from(fallbackMap.values());
     }
-    return [];
+
+    const currentUser = this.authService.user();
+    const uniqueMembersMap = new Map<string, ProjectMember>();
+
+    rawMembers.forEach(m => {
+      const key = (m.user_id || m.user_email || m.id).toLowerCase();
+      if (!uniqueMembersMap.has(key)) {
+        uniqueMembersMap.set(key, m);
+      } else {
+        const existing = uniqueMembersMap.get(key)!;
+        if (m.role === 'owner' || (m.role === 'admin' && existing.role !== 'owner')) {
+          uniqueMembersMap.set(key, m);
+        }
+      }
+    });
+
+    const members = Array.from(uniqueMembersMap.values());
+    return members.map(m => {
+      if (currentUser && (m.user_id === currentUser.id || m.user_email === currentUser.email)) {
+        const meta = currentUser.user_metadata;
+        const name = meta?.['display_name'] || meta?.['full_name'] || meta?.['name'] ||
+          (currentUser.email ? currentUser.email.split('@')[0].split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ') : '');
+        return {
+          ...m,
+          user_name: m.user_name || name,
+          user_email: m.user_email || currentUser.email
+        };
+      }
+      return m;
+    });
   }
 
   async addProjectMember(
@@ -719,69 +781,81 @@ export class ProjectService {
   }
 
   async getWorkspaceMemberOptions(projectId?: string, currentAssignee?: string): Promise<{ value: string; label: string; icon?: string }[]> {
-    const options: { value: string; label: string; icon?: string }[] = [
-      { value: 'Unassigned', label: 'Unassigned', icon: 'fi fi-rr-user-slash' }
-    ];
+    try {
+      const options: { value: string; label: string; icon?: string }[] = [
+        { value: 'Unassigned', label: 'Unassigned', icon: 'fi fi-rr-user-slash' }
+      ];
 
-    const currentUser = this.authService.user();
-    if (currentUser) {
-      const meta = currentUser.user_metadata;
-      const currentName = meta?.['display_name'] || meta?.['full_name'] || meta?.['name'] ||
-        (currentUser.email ? currentUser.email.split('@')[0].split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ') : 'User');
+      const currentUser = this.authService.user();
+      if (currentUser) {
+        const meta = currentUser.user_metadata;
+        const currentName = meta?.['display_name'] || meta?.['full_name'] || meta?.['name'] ||
+          (currentUser.email ? currentUser.email.split('@')[0].split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ') : 'User');
 
-      if (currentName && currentName !== 'Self') {
-        options.push({
-          value: currentName,
-          label: `${currentName} (You)`,
-          icon: 'fi fi-rr-user-check text-emerald'
-        });
-      }
-    }
-
-    if (projectId && projectId !== 'all' && projectId !== 'ALL') {
-      const members = await this.getProjectMembers(projectId);
-      const existingValues = new Set(options.map(o => o.value.toLowerCase()));
-
-      for (const m of members) {
-        let displayName = m.user_name;
-        if (!displayName && m.user_email) {
-          const parts = m.user_email.split('@')[0];
-          displayName = parts.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
-        }
-        if (!displayName && m.user_id) {
-          if (m.user_id.includes('@')) {
-            const parts = m.user_id.split('@')[0];
-            displayName = parts.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
-          } else if (!/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(m.user_id)) {
-            const clean = m.user_id.replace(/^usr_/, '').replace(/^user_/, '');
-            displayName = clean.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
-          } else {
-            displayName = `Member (${m.user_id.slice(0, 6)})`;
-          }
-        }
-
-        if (displayName && displayName !== 'Self' && !existingValues.has(displayName.toLowerCase())) {
-          existingValues.add(displayName.toLowerCase());
-          if (m.user_id) existingValues.add(m.user_id.toLowerCase());
-
+        if (currentName && currentName !== 'Self') {
           options.push({
-            value: displayName,
-            label: `${displayName} (${m.role.toUpperCase()})`,
-            icon: m.role === 'owner' ? 'fi fi-rr-crown text-purple' : 'fi fi-rr-user text-cyan'
+            value: currentName,
+            label: `${currentName} (You)`,
+            icon: 'fi fi-rr-user-check text-emerald'
           });
         }
       }
-    }
 
-    if (currentAssignee && currentAssignee.trim() && currentAssignee.trim() !== 'Self' && currentAssignee.trim() !== 'Unassigned' && !options.some(o => o.value.toLowerCase() === currentAssignee.trim().toLowerCase())) {
-      options.push({
-        value: currentAssignee.trim(),
-        label: currentAssignee.trim(),
-        icon: 'fi fi-rr-user'
-      });
-    }
+      if (projectId && projectId !== 'all' && projectId !== 'ALL') {
+        const members = await this.getProjectMembers(projectId);
+        const existingValues = new Set(options.map(o => o.value.toLowerCase()));
 
-    return options.filter(o => o.value !== 'Self');
+        for (const m of members) {
+          let displayName = m.user_name;
+          if (!displayName && m.user_email) {
+            const parts = m.user_email.split('@')[0];
+            displayName = parts.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+          }
+          if (!displayName && m.user_id) {
+            if (m.user_id.includes('@')) {
+              const parts = m.user_id.split('@')[0];
+              displayName = parts.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+            } else if (!/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(m.user_id)) {
+              const clean = m.user_id.replace(/^usr_/, '').replace(/^user_/, '');
+              displayName = clean.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+            } else {
+              displayName = `Member (${m.user_id.slice(0, 6)})`;
+            }
+          }
+
+          if (displayName && displayName !== 'Self' && !existingValues.has(displayName.toLowerCase())) {
+            existingValues.add(displayName.toLowerCase());
+            if (m.user_id) existingValues.add(m.user_id.toLowerCase());
+
+            options.push({
+              value: displayName,
+              label: `${displayName} (${m.role.toUpperCase()})`,
+              icon: m.role === 'owner' ? 'fi fi-rr-crown text-purple' : 'fi fi-rr-user text-cyan'
+            });
+          }
+        }
+      }
+
+      if (currentAssignee && currentAssignee.trim() && currentAssignee.trim() !== 'Self' && currentAssignee.trim() !== 'Unassigned' && !options.some(o => o.value.toLowerCase() === currentAssignee.trim().toLowerCase())) {
+        options.push({
+          value: currentAssignee.trim(),
+          label: currentAssignee.trim(),
+          icon: 'fi fi-rr-user'
+        });
+      }
+
+      const filtered = options.filter(o => o.value !== 'Self');
+      return filtered.length > 0 ? filtered : [{ value: 'Unassigned', label: 'Unassigned', icon: 'fi fi-rr-user-slash' }];
+    } catch (e) {
+      console.error('Failed to get workspace member options:', e);
+      const fallbackOptions: { value: string; label: string; icon?: string }[] = [
+        { value: 'Unassigned', label: 'Unassigned', icon: 'fi fi-rr-user-slash' }
+      ];
+      if (currentAssignee && currentAssignee !== 'Unassigned' && currentAssignee !== 'Self') {
+        fallbackOptions.push({ value: currentAssignee, label: currentAssignee, icon: 'fi fi-rr-user' });
+      }
+      return fallbackOptions;
+    }
   }
 }
 
