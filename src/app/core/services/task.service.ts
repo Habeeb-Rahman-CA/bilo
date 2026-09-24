@@ -1,9 +1,10 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, Injector } from '@angular/core';
 import { SupabaseService } from './supabase.service';
 import { SyncService } from './sync.service';
 import { ProjectService } from './project.service';
 import { PushNotificationService } from './push-notification.service';
 import { AuthService } from './auth.service';
+import { WorkflowService } from './workflow.service';
 import { Task, TaskComment, TaskStatusHistory } from '../models/project.model';
 
 @Injectable({
@@ -20,7 +21,8 @@ export class TaskService {
     private syncService: SyncService,
     private projectService: ProjectService,
     private pushNotificationService: PushNotificationService,
-    private authService: AuthService
+    private authService: AuthService,
+    private injector?: Injector
   ) {
     this.loadFromStorage();
     this.loadTasksFromSupabase();
@@ -220,6 +222,47 @@ export class TaskService {
     }
   }
 
+  validateWorkflowId(projectId: string, workflowId?: string, status?: string): string | undefined {
+    if (!workflowId) return undefined;
+
+    try {
+      let projWorkflows: any[] = [];
+      if (this.injector) {
+        try {
+          const workflowService = this.injector.get(WorkflowService);
+          if (workflowService) {
+            projWorkflows = workflowService.getWorkflowsForProject(projectId) || [];
+          }
+        } catch (e) {}
+      }
+
+      if (projWorkflows.length > 0) {
+        const match = projWorkflows.find(w => w.id === workflowId || (w.id && w.id.toLowerCase() === workflowId.toLowerCase()));
+        if (match) {
+          return match.id;
+        }
+
+        if (status) {
+          const statusMatch = projWorkflows.find(w => w.name && w.name.toLowerCase() === status.trim().toLowerCase());
+          if (statusMatch) {
+            return statusMatch.id;
+          }
+        }
+      }
+
+      if (this.syncService.isValidUuid(workflowId)) {
+        return workflowId;
+      }
+    } catch (e) {
+      if (this.syncService.isValidUuid(workflowId)) {
+        return workflowId;
+      }
+    }
+
+    console.warn(`[TaskService] Invalid workflow_id "${workflowId}" rejected for project "${projectId}". Setting workflow_id to undefined.`);
+    return undefined;
+  }
+
   async createTask(taskData: Partial<Task>): Promise<Task> {
     const newId = crypto.randomUUID();
 
@@ -259,9 +302,16 @@ export class TaskService {
       targetPosition++;
     }
 
+    const validatedWorkflowId = this.validateWorkflowId(
+      finalProjectId,
+      taskData.workflow_id,
+      initialStatus
+    );
+
     const newTask: Task = {
       id: newId,
       project_id: finalProjectId,
+      workflow_id: validatedWorkflowId,
       user_id: currentUser?.id,
       title: finalTitle,
       description: taskData.description || '',
@@ -347,6 +397,15 @@ export class TaskService {
     if (updates.title !== undefined) {
       const cleanTitle = updates.title.trim();
       updatedFields.title = cleanTitle.length > 0 ? cleanTitle : (existingTask.title || 'Untitled Task');
+    }
+
+    if (updates.workflow_id !== undefined) {
+      const validWfId = this.validateWorkflowId(
+        existingTask.project_id,
+        updates.workflow_id,
+        updates.status || existingTask.status
+      );
+      updatedFields.workflow_id = validWfId;
     }
 
     let updatedTask: Task | null = null;
@@ -458,6 +517,9 @@ export class TaskService {
       const payloadFields = { ...updatedFields };
       if ('due_date' in payloadFields && (!payloadFields.due_date || (typeof payloadFields.due_date === 'string' && payloadFields.due_date.trim() === ''))) {
         (payloadFields as any).due_date = null;
+      }
+      if ('workflow_id' in payloadFields && (!payloadFields.workflow_id || !this.syncService.isValidUuid(payloadFields.workflow_id))) {
+        (payloadFields as any).workflow_id = null;
       }
       this.syncService.enqueue('UPDATE_TASK', { id, ...payloadFields });
     }
