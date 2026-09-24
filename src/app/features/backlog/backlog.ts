@@ -1146,18 +1146,13 @@ export class BacklogComponent implements OnInit {
 
   async batchUpdateStatus(status: string) {
     const ids = this.selectedTaskIds();
-    const isDoneVal = status.toLowerCase() === 'done';
-    for (const id of ids) {
-      await this.taskService.updateTask(id, { status, completed: isDoneVal });
-    }
+    await this.taskService.batchUpdateTasks(ids, { status, completed: status.toLowerCase() === 'done' });
     this.clearSelection();
   }
 
   async batchUpdatePriority(priority: 'urgent' | 'high' | 'medium' | 'low') {
     const ids = this.selectedTaskIds();
-    for (const id of ids) {
-      await this.taskService.updateTask(id, { priority });
-    }
+    await this.taskService.batchUpdateTasks(ids, { priority });
     this.clearSelection();
   }
 
