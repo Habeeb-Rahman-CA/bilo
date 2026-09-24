@@ -56,7 +56,12 @@ export class ProjectService {
           const found = savedActiveId ? cleanProjects.find((p: Project) => p.id === savedActiveId) : null;
           this.activeProject.set(found || cleanProjects[0] || null);
           if (data.activities && Array.isArray(data.activities)) {
-            this.activities.set(data.activities);
+            const sanitized = data.activities.map((a: ProjectActivity) => ({
+              ...a,
+              action: this.sanitizeActivityText(a.action),
+              description: this.sanitizeActivityText(a.description)
+            }));
+            this.activities.set(sanitized);
           }
           return;
         }
@@ -210,7 +215,12 @@ export class ProjectService {
         .limit(100);
 
       if (!actError && actData) {
-        this.activities.set(actData as ProjectActivity[]);
+        const sanitized = (actData as ProjectActivity[]).map(a => ({
+          ...a,
+          action: this.sanitizeActivityText(a.action),
+          description: this.sanitizeActivityText(a.description)
+        }));
+        this.activities.set(sanitized);
       } else {
         this.activities.set([]);
       }
@@ -496,14 +506,29 @@ export class ProjectService {
     this.syncService.enqueue('DELETE_PROJECT', { id });
   }
 
+  sanitizeActivityText(input?: string): string {
+    if (!input) return '';
+    return input
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+      .replace(/<[^>]*>/g, '')
+      .replace(/javascript:/gi, '')
+      .replace(/on\w+\s*=/gi, '')
+      .trim();
+  }
+
   logActivity(projectId: string, action: string, description: string) {
     const currentUser = this.authService.user();
+    const cleanAction = this.sanitizeActivityText(action);
+    const cleanDescription = this.sanitizeActivityText(description);
+
     const newAct: ProjectActivity = {
       id: crypto.randomUUID(),
       project_id: projectId || 'global',
       user_id: currentUser?.id,
-      action,
-      description,
+      action: cleanAction,
+      description: cleanDescription,
       timestamp: new Date().toISOString()
     };
     this.activities.update(list => [newAct, ...list]);

@@ -177,4 +177,20 @@ describe('ProjectService Workspace Naming', () => {
     expect(projectService.activeProject()).not.toBeUndefined();
     expect(projectService.activeProject()?.id).toBe(proj.id);
   });
+
+  it('should sanitize HTML and script tags in logActivity to prevent XSS in activity feed', () => {
+    projectService.logActivity(
+      'proj-1',
+      '<script>alert("XSS Action")</script>Task Created',
+      'Created task "<img src=x onerror=alert(1)>Fix Login Bug" <iframe src="evil.com"></iframe>'
+    );
+
+    const latest = projectService.activities()[0];
+    expect(latest).toBeDefined();
+    expect(latest.action).not.toContain('<script>');
+    expect(latest.action).toBe('Task Created');
+    expect(latest.description).not.toContain('<img');
+    expect(latest.description).not.toContain('<iframe');
+    expect(latest.description).toBe('Created task "Fix Login Bug"');
+  });
 });
