@@ -255,6 +255,30 @@ export class AuthModalComponent {
     this.successMessage.set('');
   }
 
+  async onSendMagicLink() {
+    if (!this.email) {
+      this.errorMessage.set('Please enter your email address to receive a magic link.');
+      return;
+    }
+
+    this.submitting.set(true);
+    this.errorMessage.set('');
+    this.successMessage.set('');
+
+    try {
+      const { error } = await this.authService.signInWithMagicLink(this.email);
+      if (error) {
+        this.errorMessage.set(error.message || 'Failed to send magic link. Please check your email and try again.');
+      } else {
+        this.successMessage.set('Magic link sent successfully! Check your email inbox.');
+      }
+    } catch (e: any) {
+      this.errorMessage.set(e?.message || 'Failed to send magic link. Please try again.');
+    } finally {
+      this.submitting.set(false);
+    }
+  }
+
   closeModal() {
     this.authService.closeAuthModal();
     this.close.emit();

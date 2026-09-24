@@ -106,12 +106,19 @@ import { TaskShareService } from '../../core/services/task-share.service';
               <input
                 type="text"
                 class="form-input font-mono"
-                [class.input-error]="submitted && !displayName.trim()"
+                [class.input-error]="submitted && (!displayName.trim() || displayName.trim().length > 20)"
                 [(ngModel)]="displayName"
                 name="displayName"
                 placeholder="e.g. Habeeb Rahman or Alex Smith"
+                maxlength="20"
                 required
               />
+              @if (submitted && !displayName.trim()) {
+                <span class="field-error-text font-mono text-rose" style="font-size: 0.7rem;">Display name is required.</span>
+              }
+              @if (submitted && displayName.trim().length > 20) {
+                <span class="field-error-text font-mono text-rose" style="font-size: 0.7rem;">Display name cannot exceed 20 characters.</span>
+              }
             </div>
 
             <!-- Email Address (Read-Only) -->
@@ -455,7 +462,15 @@ export class EditProfileModalComponent implements OnInit {
 
   async saveProfile() {
     this.submitted = true;
-    if (!this.displayName.trim() || this.saving()) return;
+    const trimmed = this.displayName ? this.displayName.trim() : '';
+    if (!trimmed || trimmed.length > 20 || this.saving()) {
+      if (!trimmed) {
+        this.taskShareService.showToast('Display name cannot be empty.');
+      } else if (trimmed.length > 20) {
+        this.taskShareService.showToast('Display name cannot exceed 20 characters.');
+      }
+      return;
+    }
 
     this.saving.set(true);
     try {
@@ -471,15 +486,15 @@ export class EditProfileModalComponent implements OnInit {
       }
 
       await this.authService.updateProfile({
-        display_name: this.displayName.trim(),
+        display_name: trimmed,
         avatar_url: finalAvatarUrl
       });
 
       this.taskShareService.showToast('Profile updated successfully!');
       this.close.emit();
-    } catch (e) {
+    } catch (e: any) {
       console.error('Error updating profile:', e);
-      this.taskShareService.showToast('Failed to update profile. Please try again.');
+      this.taskShareService.showToast(e?.message || 'Failed to update profile. Please try again.');
     } finally {
       this.saving.set(false);
       this.uploadingAvatar.set(false);

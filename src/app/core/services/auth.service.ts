@@ -348,7 +348,31 @@ export class AuthService implements OnDestroy {
   }
 
   async signInWithMagicLink(email: string) {
-    return await this.supabaseService.supabase.auth.signInWithOtp({ email });
+    const trimmedEmail = email ? email.trim() : '';
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!trimmedEmail || !emailRegex.test(trimmedEmail)) {
+      return {
+        data: { user: null, session: null },
+        error: { message: 'Invalid email address format' } as any
+      };
+    }
+
+    try {
+      const res = await this.supabaseService.supabase.auth.signInWithOtp({ email: trimmedEmail });
+      if (res?.error) {
+        return {
+          data: { user: null, session: null },
+          error: res.error
+        };
+      }
+      return res;
+    } catch (e: any) {
+      return {
+        data: { user: null, session: null },
+        error: { message: e?.message || 'Failed to send magic link. Please check network connection.' } as any
+      };
+    }
   }
 
   async signOut() {
@@ -419,6 +443,17 @@ export class AuthService implements OnDestroy {
   async updateProfile(updates: { display_name?: string; avatar_url?: string | null }) {
     const currentUser = this.user();
     if (!currentUser) return;
+
+    if (updates.display_name !== undefined) {
+      const trimmedName = updates.display_name ? updates.display_name.trim() : '';
+      if (!trimmedName) {
+        throw new Error('Display name cannot be empty');
+      }
+      if (trimmedName.length > 20) {
+        throw new Error('Display name must not exceed 20 characters');
+      }
+      updates = { ...updates, display_name: trimmedName };
+    }
 
     const currentProfile = this.userProfile() || {
       id: currentUser.id,

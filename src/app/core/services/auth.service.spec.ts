@@ -118,3 +118,136 @@ describe('AuthService signUpWithEmailPassword validation', () => {
   });
 });
 
+describe('AuthService signInWithMagicLink validation and error handling', () => {
+  it('should reject invalid email format without calling signInWithOtp', async () => {
+    const signInWithOtpSpy = vi.fn();
+    const mockSupabaseService: any = {
+      isConfigured: true,
+      supabase: {
+        auth: {
+          getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+          onAuthStateChange: vi.fn().mockReturnValue({ data: { subscription: { unsubscribe: () => {} } } }),
+          signInWithOtp: signInWithOtpSpy
+        }
+      }
+    };
+    const mockInjector: any = { get: vi.fn().mockReturnValue(null) };
+    const authService = new AuthService(mockSupabaseService, mockInjector);
+
+    const res = await authService.signInWithMagicLink('invalid-email');
+
+    expect(signInWithOtpSpy).not.toHaveBeenCalled();
+    expect(res.error).toBeDefined();
+    expect(res.error?.message).toContain('Invalid email address format');
+  });
+
+  it('should return error if Supabase signInWithOtp fails', async () => {
+    const signInWithOtpSpy = vi.fn().mockResolvedValue({
+      data: { user: null, session: null },
+      error: { message: 'Email rate limit exceeded' }
+    });
+    const mockSupabaseService: any = {
+      isConfigured: true,
+      supabase: {
+        auth: {
+          getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+          onAuthStateChange: vi.fn().mockReturnValue({ data: { subscription: { unsubscribe: () => {} } } }),
+          signInWithOtp: signInWithOtpSpy
+        }
+      }
+    };
+    const mockInjector: any = { get: vi.fn().mockReturnValue(null) };
+    const authService = new AuthService(mockSupabaseService, mockInjector);
+
+    const res = await authService.signInWithMagicLink('user@example.com');
+
+    expect(signInWithOtpSpy).toHaveBeenCalledWith({ email: 'user@example.com' });
+    expect(res.error).toBeDefined();
+    expect(res.error?.message).toBe('Email rate limit exceeded');
+  });
+
+  it('should catch thrown exceptions and return structured error response', async () => {
+    const signInWithOtpSpy = vi.fn().mockRejectedValue(new Error('Network error sending magic link'));
+    const mockSupabaseService: any = {
+      isConfigured: true,
+      supabase: {
+        auth: {
+          getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+          onAuthStateChange: vi.fn().mockReturnValue({ data: { subscription: { unsubscribe: () => {} } } }),
+          signInWithOtp: signInWithOtpSpy
+        }
+      }
+    };
+    const mockInjector: any = { get: vi.fn().mockReturnValue(null) };
+    const authService = new AuthService(mockSupabaseService, mockInjector);
+
+    const res = await authService.signInWithMagicLink('user@example.com');
+
+    expect(res.error).toBeDefined();
+    expect(res.error?.message).toBe('Network error sending magic link');
+  });
+});
+
+describe('AuthService updateProfile display_name validation', () => {
+  it('should throw an error if display_name is empty or whitespace only', async () => {
+    const mockSupabaseService: any = {
+      isConfigured: true,
+      supabase: {
+        auth: {
+          getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+          onAuthStateChange: vi.fn().mockReturnValue({ data: { subscription: { unsubscribe: () => {} } } })
+        }
+      }
+    };
+    const mockInjector: any = { get: vi.fn().mockReturnValue(null) };
+    const authService = new AuthService(mockSupabaseService, mockInjector);
+    authService.user.set({ id: 'user-1', email: 'test@example.com' } as any);
+
+    await expect(authService.updateProfile({ display_name: '   ' })).rejects.toThrow('Display name cannot be empty');
+  });
+
+  it('should throw an error if display_name exceeds 20 characters', async () => {
+    const mockSupabaseService: any = {
+      isConfigured: true,
+      supabase: {
+        auth: {
+          getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+          onAuthStateChange: vi.fn().mockReturnValue({ data: { subscription: { unsubscribe: () => {} } } })
+        }
+      }
+    };
+    const mockInjector: any = { get: vi.fn().mockReturnValue(null) };
+    const authService = new AuthService(mockSupabaseService, mockInjector);
+    authService.user.set({ id: 'user-1', email: 'test@example.com' } as any);
+
+    const longName = 'a'.repeat(21);
+    await expect(authService.updateProfile({ display_name: longName })).rejects.toThrow('Display name must not exceed 20 characters');
+  });
+
+  it('should successfully update profile when display_name is valid (1-20 chars)', async () => {
+    const upsertSpy = vi.fn().mockResolvedValue({ error: null });
+    const updateUserSpy = vi.fn().mockResolvedValue({ error: null });
+    const mockSupabaseService: any = {
+      isConfigured: true,
+      supabase: {
+        from: vi.fn().mockReturnValue({ upsert: upsertSpy }),
+        auth: {
+          getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+          onAuthStateChange: vi.fn().mockReturnValue({ data: { subscription: { unsubscribe: () => {} } } }),
+          updateUser: updateUserSpy
+        }
+      }
+    };
+    const mockInjector: any = { get: vi.fn().mockReturnValue(null) };
+    const authService = new AuthService(mockSupabaseService, mockInjector);
+    authService.user.set({ id: 'user-1', email: 'test@example.com' } as any);
+
+    await authService.updateProfile({ display_name: ' Valid User Name ' });
+
+    expect(authService.userProfile()?.display_name).toBe('Valid User Name');
+    expect(upsertSpy).toHaveBeenCalledWith(expect.objectContaining({ display_name: 'Valid User Name' }));
+  });
+});
+
+
+
