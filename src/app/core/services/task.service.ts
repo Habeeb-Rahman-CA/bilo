@@ -624,6 +624,59 @@ export class TaskService {
     this.syncService.enqueue('DELETE_TASK', { id });
   }
 
+  async batchDeleteTasks(ids: string[]): Promise<void> {
+    if (!ids || ids.length === 0) return;
+
+    const idSet = new Set(ids);
+    const existingTasks = this.tasks().filter(t => idSet.has(t.id));
+    if (existingTasks.length === 0) return;
+
+    // Log batch activity
+    const firstProjId = existingTasks[0].project_id;
+    this.projectService.logActivity(
+      firstProjId,
+      'Batch Delete',
+      `Permanently deleted ${existingTasks.length} task${existingTasks.length > 1 ? 's' : ''}`
+    );
+
+    // 1) Batch filter tasks
+    this.tasks.update(list => list.filter(t => !idSet.has(t.id)));
+
+    // 2) Batch filter task comments
+    this.taskComments.update(map => {
+      const updated = { ...map };
+      let changed = false;
+      idSet.forEach(id => {
+        if (id in updated) {
+          delete updated[id];
+          changed = true;
+        }
+      });
+      return changed ? updated : map;
+    });
+
+    // 3) Batch filter status history
+    this.taskStatusHistory.update(map => {
+      const updated = { ...map };
+      let changed = false;
+      idSet.forEach(id => {
+        if (id in updated) {
+          delete updated[id];
+          changed = true;
+        }
+      });
+      return changed ? updated : map;
+    });
+
+    // 4) Single localStorage serialization for the entire batch
+    this.saveToStorage();
+
+    // 5) Queue sync delete operations
+    idSet.forEach(id => {
+      this.syncService.enqueue('DELETE_TASK', { id });
+    });
+  }
+
   deleteTasksForProject(projectId: string) {
     if (!projectId) return;
 

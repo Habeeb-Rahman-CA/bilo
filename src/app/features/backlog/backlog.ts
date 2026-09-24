@@ -1171,9 +1171,7 @@ export class BacklogComponent implements OnInit {
       title: 'Delete Selected Tasks',
       message: `Are you sure you want to permanently delete ${ids.length} selected task${ids.length > 1 ? 's' : ''}?`,
       action: async () => {
-        for (const id of ids) {
-          await this.taskService.deleteTask(id);
-        }
+        await this.taskService.batchDeleteTasks(ids);
         this.clearSelection();
       }
     });
