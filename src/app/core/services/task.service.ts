@@ -24,6 +24,11 @@ export class TaskService {
   ) {
     this.loadFromStorage();
     this.loadTasksFromSupabase();
+
+    this.syncService.onConnectionRestored(() => {
+      console.log('[TaskService] Connection restored. Reloading remote tasks...');
+      this.loadTasksFromSupabase();
+    });
   }
 
   normalizeTaskStatuses(tasks: Task[]): { normalized: Task[]; hasChanges: boolean } {

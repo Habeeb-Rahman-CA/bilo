@@ -20,7 +20,7 @@ export class SupabaseService {
    * 4. Final fallback returns a controlled 503 response
    */
   private createResilientFetch(): typeof fetch {
-    const MAX_RETRIES = 1;
+    const MAX_RETRIES = 3;
     const BASE_DELAY_MS = 500;
     const TIMEOUT_MS = 8000;
 
@@ -116,6 +116,31 @@ export class SupabaseService {
     const isPlaceholderUrl = !url || url.includes('YOUR_SUPABASE') || url.includes('placeholder');
     const isPlaceholderKey = !key || key.includes('YOUR_SUPABASE') || key.includes('placeholder');
     return !isPlaceholderUrl && !isPlaceholderKey;
+  }
+
+  async checkConnectionHealth(): Promise<boolean> {
+    if (!this.isConfigured || typeof window === 'undefined' || !navigator.onLine) {
+      return false;
+    }
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const { error } = await this.client
+        .from('projects')
+        .select('id', { head: true, count: 'exact' })
+        .limit(1);
+      clearTimeout(timeoutId);
+      if (error) {
+        const code = String(error.code || '');
+        if (code === '42501' || code === 'PGRST116' || code === '23503' || code === 'PGRST100' || code === 'PGRST200') {
+          return true;
+        }
+        return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private initClient() {

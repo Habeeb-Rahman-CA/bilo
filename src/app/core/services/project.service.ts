@@ -23,6 +23,11 @@ export class ProjectService {
   ) {
     this.loadFromStorage();
     this.loadFromSupabase();
+
+    this.syncService.onConnectionRestored(() => {
+      console.log('[ProjectService] Connection restored. Reloading remote projects...');
+      this.loadFromSupabase();
+    });
   }
 
   loadFromStorage() {

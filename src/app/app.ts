@@ -30,6 +30,7 @@ import { JoinWorkspaceModalComponent } from './shared/components/join-workspace-
 import { ReportIssueModalComponent } from './shared/components/report-issue-modal';
 import { EditProfileModalComponent } from './shared/components/edit-profile-modal';
 import { AuthPageComponent } from './features/auth/auth-page';
+import { TaskService } from './core/services/task.service';
 import { Task, ProjectRole, Project } from './core/models/project.model';
 
 import { MaintenanceComponent } from './features/maintenance/maintenance';
@@ -73,6 +74,7 @@ export class App implements OnInit {
   editProfileModalOpen = signal<boolean>(false);
   userMenuOpen = signal<boolean>(false);
   notificationMenuOpen = signal<boolean>(false);
+  retryingConnection = signal<boolean>(false);
 
   // Incoming Invite Link State
   incomingInviteProjectId = signal<string | null>(null);
@@ -101,8 +103,23 @@ export class App implements OnInit {
     public themeService: ThemeService,
     public authService: AuthService,
     public projectService: ProjectService,
+    public taskService: TaskService,
     public supabaseService: SupabaseService
   ) {}
+
+  async retryConnection() {
+    if (this.retryingConnection()) return;
+    this.retryingConnection.set(true);
+    try {
+      const restored = await this.syncService.retryConnection();
+      if (restored) {
+        await this.taskService.loadTasksFromSupabase();
+        await this.projectService.loadFromSupabase();
+      }
+    } finally {
+      this.retryingConnection.set(false);
+    }
+  }
 
   async ngOnInit() {
     this.checkIncomingInviteLink();

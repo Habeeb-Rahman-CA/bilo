@@ -159,4 +159,30 @@ describe('SyncService User Data Isolation & DLQ Escalation', () => {
     expect(syncService.pendingSyncQueue().length).toBe(0);
     expect(syncService.deadLetterQueue().length).toBe(0);
   });
+
+  it('should probe connection health and trigger restored callbacks on retryConnection', async () => {
+    let callbackTriggered = false;
+    syncService.onConnectionRestored(() => {
+      callbackTriggered = true;
+    });
+
+    mockSupabaseService.checkConnectionHealth = async () => true;
+
+    const restored = await syncService.retryConnection();
+
+    expect(restored).toBe(true);
+    expect(syncService.isOnline()).toBe(true);
+    expect(syncService.connectionStatus()).toBe('online');
+    expect(callbackTriggered).toBe(true);
+  });
+
+  it('should set connectionStatus to degraded when checkConnectionHealth fails', async () => {
+    mockSupabaseService.checkConnectionHealth = async () => false;
+
+    const restored = await syncService.retryConnection();
+
+    expect(restored).toBe(false);
+    expect(syncService.isOnline()).toBe(false);
+    expect(syncService.connectionStatus()).toBe('degraded');
+  });
 });

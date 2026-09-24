@@ -27,9 +27,23 @@
         <span class="badge-mono badge-rose offline-header-badge" title="Supabase credentials missing or unconfigured - Operating in local storage mode only. Data will not persist to cloud DB." role="alert">
           <i class="fi fi-rr-exclamation"></i> <span class="offline-text">LOCAL ONLY (NO CLOUD DB)</span>
         </span>
-      } @else if (!syncService.isOnline()) {
-        <span class="badge-mono badge-amber offline-header-badge" title="Offline Mode - Changes saved locally" role="status">
+      } @else if (syncService.connectionStatus() === 'offline' || !syncService.isOnline()) {
+        <span class="badge-mono badge-amber offline-header-badge" title="Offline Mode - Backend connection lost. Changes stored locally." role="status">
           <i class="fi fi-rr-wifi-slash"></i> <span class="offline-text">OFFLINE</span> ({{ syncService.pendingSyncQueue().length }})
+          <button class="btn btn-ghost btn-xs text-amber retry-conn-btn" (click)="retryConnection()" [disabled]="retryingConnection()" title="Retry connection health check">
+            <i class="fi fi-rr-refresh" [class.spin]="retryingConnection()"></i> {{ retryingConnection() ? 'Retrying...' : 'Retry' }}
+          </button>
+        </span>
+      } @else if (syncService.connectionStatus() === 'degraded') {
+        <span class="badge-mono badge-amber offline-header-badge" title="Server Connection Degraded - Attempting to reconnect..." role="status">
+          <i class="fi fi-rr-refresh spin"></i> <span class="offline-text">RECONNECTING...</span>
+          <button class="btn btn-ghost btn-xs text-amber retry-conn-btn" (click)="retryConnection()" [disabled]="retryingConnection()" title="Retry connection health check">
+            <i class="fi fi-rr-refresh" [class.spin]="retryingConnection()"></i> {{ retryingConnection() ? 'Retrying...' : 'Retry' }}
+          </button>
+        </span>
+      } @else if (syncService.pendingSyncQueue().length > 0) {
+        <span class="badge-mono badge-sky offline-header-badge" title="Syncing pending mutations to cloud database..." role="status">
+          <i class="fi fi-rr-cloud-upload spin"></i> <span class="offline-text">SYNCING ({{ syncService.pendingSyncQueue().length }})</span>
         </span>
       }
 

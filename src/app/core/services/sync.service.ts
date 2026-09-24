@@ -28,29 +28,114 @@ export interface PendingSyncOp {
 export class SyncService {
   readonly MAX_RETRIES = 3;
 
-  isOnline = signal<boolean>(navigator.onLine);
+  isOnline = signal<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  connectionStatus = signal<'online' | 'degraded' | 'offline'>(
+    typeof navigator !== 'undefined' && navigator.onLine ? 'online' : 'offline'
+  );
   pendingSyncQueue = signal<PendingSyncOp[]>([]);
   deadLetterQueue = signal<PendingSyncOp[]>([]);
   syncing = signal<boolean>(false);
+
+  private onRestoredCallbacks: Array<() => void> = [];
+  private healthCheckTimer: any = null;
 
   constructor(private supabaseService: SupabaseService) {
     this.loadQueueFromStorage();
     this.loadDlqFromStorage();
 
-    window.addEventListener('online', () => {
-      console.log('[bilo Sync] Network connectivity restored. Triggering offline sync...');
-      this.isOnline.set(true);
-      this.processQueue();
-    });
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', async () => {
+        console.log('[bilo Sync] Network connectivity restored. Testing server connection...');
+        await this.retryConnection();
+      });
 
-    window.addEventListener('offline', () => {
-      console.log('[bilo Sync] Device went offline. Queueing local mutations for sync.');
-      this.isOnline.set(false);
-    });
+      window.addEventListener('offline', () => {
+        console.log('[bilo Sync] Device went offline. Queueing local mutations for sync.');
+        this.isOnline.set(false);
+        this.connectionStatus.set('offline');
+      });
+    }
+
+    this.startHealthCheckLoop();
 
     // Initial sync check if online and items pending
     if (this.isOnline() && this.pendingSyncQueue().length > 0) {
       this.processQueue();
+    }
+  }
+
+  onConnectionRestored(cb: () => void) {
+    this.onRestoredCallbacks.push(cb);
+  }
+
+  private notifyRestored() {
+    this.onRestoredCallbacks.forEach(cb => {
+      try {
+        cb();
+      } catch (e) {
+        console.error('[bilo Sync] Error executing connection restored callback:', e);
+      }
+    });
+  }
+
+  startHealthCheckLoop() {
+    if (typeof window === 'undefined') return;
+    if (this.healthCheckTimer) {
+      clearInterval(this.healthCheckTimer);
+    }
+
+    const runCheck = async () => {
+      if (!this.supabaseService.isConfigured) return;
+      if (!navigator.onLine) {
+        this.isOnline.set(false);
+        this.connectionStatus.set('offline');
+        return;
+      }
+
+      const isHealthy = await this.supabaseService.checkConnectionHealth();
+      const previousState = this.connectionStatus();
+
+      if (isHealthy) {
+        this.isOnline.set(true);
+        this.connectionStatus.set('online');
+        if (previousState !== 'online' || this.pendingSyncQueue().length > 0) {
+          console.log('[bilo Sync] Server connected. Processing pending sync queue...');
+          this.processQueue();
+          if (previousState !== 'online') {
+            this.notifyRestored();
+          }
+        }
+      } else {
+        this.connectionStatus.set('degraded');
+        this.isOnline.set(false);
+      }
+    };
+
+    // Run health check probe every 25 seconds
+    this.healthCheckTimer = setInterval(runCheck, 25000);
+  }
+
+  async retryConnection(): Promise<boolean> {
+    if (!this.supabaseService.isConfigured) {
+      return false;
+    }
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      this.isOnline.set(false);
+      this.connectionStatus.set('offline');
+      return false;
+    }
+
+    const isHealthy = await this.supabaseService.checkConnectionHealth();
+    if (isHealthy) {
+      this.isOnline.set(true);
+      this.connectionStatus.set('online');
+      await this.processQueue();
+      this.notifyRestored();
+      return true;
+    } else {
+      this.isOnline.set(false);
+      this.connectionStatus.set('degraded');
+      return false;
     }
   }
 
@@ -261,6 +346,7 @@ export class SyncService {
             ...q.slice(1)
           ]);
           await this.saveQueueToStorage(currentUserId);
+          setTimeout(() => this.processQueue(), 5000);
           break; // Pause loop for this cycle to allow transient network/server glitches to resolve
         }
       }

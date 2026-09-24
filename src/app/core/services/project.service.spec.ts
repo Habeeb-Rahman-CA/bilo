@@ -22,7 +22,8 @@ describe('ProjectService Workspace Naming', () => {
     };
 
     mockSyncService = {
-      isOnline: () => false
+      isOnline: () => false,
+      onConnectionRestored: (cb: any) => {}
     };
 
     mockAuthService = {
