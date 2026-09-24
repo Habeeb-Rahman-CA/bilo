@@ -317,7 +317,7 @@ export class CommandPaletteComponent implements AfterViewInit {
         badge: 'PROJECT',
         icon: 'fi fi-rr-box',
         action: () => {
-          this.projectService.activeProject.set(p);
+          this.projectService.setActiveProject(p);
           this.workspaceService.setWorkspace('06 SETTINGS');
           this.close();
         }

@@ -770,10 +770,7 @@ export class TasksComponent implements OnInit {
   onProjectChange(projId: string) {
     this.selectedProjectId.set(projId);
     if (projId !== 'all') {
-      const proj = this.projectService.projects().find(p => p.id === projId);
-      if (proj) {
-        this.projectService.activeProject.set(proj);
-      }
+      this.projectService.setActiveProject(projId);
     }
   }
 

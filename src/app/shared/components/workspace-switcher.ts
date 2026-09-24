@@ -440,11 +440,8 @@ export class WorkspaceSwitcherComponent {
   }
 
   selectWorkspace(project: Project) {
-    this.projectService.activeProject.set(project);
+    this.projectService.setActiveProject(project);
     this.isOpen.set(false);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('bilo_active_project_id', project.id);
-    }
   }
 
   getTaskStats(projectId: string) {

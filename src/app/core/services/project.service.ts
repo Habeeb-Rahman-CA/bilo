@@ -215,12 +215,57 @@ export class ProjectService {
         this.activities.set([]);
       }
 
-      this.saveToStorage();
     } catch (e) {
       console.warn('Could not load data from Supabase', e);
     } finally {
       this.loading.set(false);
     }
+  }
+
+  setActiveProject(projectIdOrProject: string | Project | null | undefined): boolean {
+    if (!projectIdOrProject) {
+      const current = this.activeProject();
+      if (current && this.projects().some(p => p.id === current.id)) {
+        return false;
+      }
+      const fallback = this.projects()[0] || null;
+      this.activeProject.set(fallback);
+      this.saveToStorage();
+      return fallback !== null;
+    }
+
+    if (typeof projectIdOrProject === 'object') {
+      const projId = projectIdOrProject.id;
+      const found = this.projects().find(p => p.id === projId) || projectIdOrProject;
+      if (found && !this.projects().some(p => p.id === found.id)) {
+        this.projects.update(list => [found, ...list]);
+      }
+      this.activeProject.set(found);
+      this.saveToStorage();
+      return true;
+    }
+
+    if (typeof projectIdOrProject === 'string') {
+      const found = this.projects().find(p => p.id === projectIdOrProject || p.slug === projectIdOrProject);
+      if (found) {
+        this.activeProject.set(found);
+        this.saveToStorage();
+        return true;
+      }
+    }
+
+    // Invalid or unknown project ID provided
+    const current = this.activeProject();
+    if (current && this.projects().some(p => p.id === current.id)) {
+      console.warn(`[ProjectService] setActiveProject called with non-matching ID "${projectIdOrProject}". Retaining active project "${current.name}".`);
+      return false;
+    }
+
+    const fallback = this.projects()[0] || null;
+    console.warn(`[ProjectService] setActiveProject called with non-matching ID "${projectIdOrProject}". Falling back to project "${fallback?.name || 'none'}".`);
+    this.activeProject.set(fallback);
+    this.saveToStorage();
+    return fallback !== null;
   }
 
   // --- CRUD Operations ---

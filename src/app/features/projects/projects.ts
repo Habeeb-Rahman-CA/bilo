@@ -565,10 +565,7 @@ export class ProjectsComponent {
 
   openProjectBoard(projectId: string) {
     this.projectService.explicitBoardProjectId.set(projectId);
-    const proj = this.projectService.projects().find(p => p.id === projectId);
-    if (proj) {
-      this.projectService.activeProject.set(proj);
-    }
+    this.projectService.setActiveProject(projectId);
     this.workspaceService.setWorkspace('03 TASKS');
   }
 }

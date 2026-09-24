@@ -165,4 +165,16 @@ describe('ProjectService Workspace Naming', () => {
     expect(options.some(o => o.value === 'Unassigned')).toBe(true);
     expect(options.some(o => o.value === 'John Doe')).toBe(true);
   });
+
+  it('should retain active project or fallback cleanly when setActiveProject is called with non-existent ID', async () => {
+    const proj = await projectService.createProject({ name: 'Valid Project' });
+    expect(projectService.activeProject()?.id).toBe(proj.id);
+
+    // Call setActiveProject with invalid/unknown ID
+    const result = projectService.setActiveProject('non-existent-id-999');
+    expect(result).toBe(false);
+    expect(projectService.activeProject()).not.toBeNull();
+    expect(projectService.activeProject()).not.toBeUndefined();
+    expect(projectService.activeProject()?.id).toBe(proj.id);
+  });
 });
