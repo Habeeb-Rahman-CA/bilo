@@ -106,6 +106,48 @@ export class ProjectService {
       .replace(/(^-|-$)/g, '') || 'workspace';
   }
 
+  generateUniqueName(name: string, excludeProjectId?: string): string {
+    const trimmed = (name || 'Untitled Project').trim();
+    const existingNames = new Set(
+      this.projects()
+        .filter(p => p.id !== excludeProjectId)
+        .map(p => (p.name || '').trim().toLowerCase())
+    );
+
+    if (!existingNames.has(trimmed.toLowerCase())) {
+      return trimmed;
+    }
+
+    let counter = 2;
+    let candidate = `${trimmed} (${counter})`;
+    while (existingNames.has(candidate.toLowerCase())) {
+      counter++;
+      candidate = `${trimmed} (${counter})`;
+    }
+    return candidate;
+  }
+
+  generateUniqueSlug(nameOrSlug: string, excludeProjectId?: string): string {
+    const baseSlug = this.generateSlug(nameOrSlug);
+    const existingSlugs = new Set(
+      this.projects()
+        .filter(p => p.id !== excludeProjectId)
+        .map(p => (p.slug || '').trim().toLowerCase())
+    );
+
+    if (!existingSlugs.has(baseSlug.toLowerCase())) {
+      return baseSlug;
+    }
+
+    let counter = 2;
+    let candidate = `${baseSlug}-${counter}`;
+    while (existingSlugs.has(candidate.toLowerCase())) {
+      counter++;
+      candidate = `${baseSlug}-${counter}`;
+    }
+    return candidate;
+  }
+
   private saveToStorage() {
     const currentUser = this.authService.user();
     if (!currentUser?.id) return;
@@ -182,11 +224,18 @@ export class ProjectService {
   async createProject(projectData: Partial<Project>): Promise<Project> {
     const currentUser = this.authService.user();
     const generatedId = crypto.randomUUID();
+
+    const rawName = (projectData.name || 'Untitled Project').trim();
+    const uniqueName = this.generateUniqueName(rawName);
+    const uniqueSlug = projectData.slug
+      ? this.generateUniqueSlug(projectData.slug)
+      : this.generateUniqueSlug(uniqueName);
+
     const newProj: Project = {
       id: generatedId,
       user_id: currentUser?.id,
-      name: projectData.name || 'Untitled Project',
-      slug: (projectData.name || 'untitled').toLowerCase().replace(/\s+/g, '-'),
+      name: uniqueName,
+      slug: uniqueSlug,
       description: projectData.description || '',
       repository_url: projectData.repository_url || '',
       status: projectData.status || 'active',
@@ -310,8 +359,21 @@ export class ProjectService {
   }
 
   async updateProject(id: string, updates: Partial<Project>): Promise<Project | null> {
-    const updatedFields = {
+    const currentProj = this.projects().find(p => p.id === id);
+    let finalName = updates.name ? updates.name.trim() : undefined;
+    let finalSlug = updates.slug ? updates.slug.trim() : undefined;
+
+    if (finalName && (!currentProj || currentProj.name.trim().toLowerCase() !== finalName.toLowerCase())) {
+      finalName = this.generateUniqueName(finalName, id);
+      finalSlug = this.generateUniqueSlug(finalName, id);
+    } else if (finalSlug) {
+      finalSlug = this.generateUniqueSlug(finalSlug, id);
+    }
+
+    const updatedFields: Partial<Project> = {
       ...updates,
+      ...(finalName ? { name: finalName } : {}),
+      ...(finalSlug ? { slug: finalSlug } : {}),
       updated_at: new Date().toISOString()
     };
 
@@ -331,16 +393,16 @@ export class ProjectService {
 
       this.syncService.enqueue('UPDATE_PROJECT', {
         id,
-        name: updates.name,
-        slug: updates.name ? updates.name.toLowerCase().replace(/\s+/g, '-') : undefined,
-        description: updates.description,
-        repository_url: updates.repository_url,
-        status: updates.status,
-        labels: updates.labels,
-        color: updates.color,
-        image_url: updates.image_url,
-        icon: updates.icon,
-        updated_at: new Date().toISOString()
+        name: updatedProj.name,
+        slug: updatedProj.slug,
+        description: updatedProj.description,
+        repository_url: updatedProj.repository_url,
+        status: updatedProj.status,
+        labels: updatedProj.labels,
+        color: updatedProj.color,
+        image_url: updatedProj.image_url,
+        icon: updatedProj.icon,
+        updated_at: updatedProj.updated_at
       });
     }
 

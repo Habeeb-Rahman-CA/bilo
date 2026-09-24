@@ -50,6 +50,10 @@ import { SelectComponent, SelectOption } from './select';
                 <span class="field-error-text font-mono">
                   <i class="fi fi-rr-exclamation"></i> Project Name is required
                 </span>
+              } @else if (isDuplicateName) {
+                <span class="field-info-text font-mono text-amber" style="font-size: 0.7rem; margin-top: 0.2rem; display: flex; align-items: center; gap: 0.3rem;">
+                  <i class="fi fi-rr-info"></i> A workspace named "{{ name.trim() }}" already exists. Saving will use "{{ suggestedUniqueName }}" for unique identity.
+                </span>
               }
             </div>
 
@@ -420,6 +424,18 @@ export class ProjectModalComponent implements OnInit, AfterViewInit {
 
   get isEditMode(): boolean {
     return !!(this.projectToEdit && this.projectToEdit.id);
+  }
+
+  get isDuplicateName(): boolean {
+    if (!this.name || !this.name.trim()) return false;
+    const excludeId = this.projectToEdit?.id;
+    const inputName = this.name.trim().toLowerCase();
+    return this.projectService.projects().some(p => p.id !== excludeId && (p.name || '').trim().toLowerCase() === inputName);
+  }
+
+  get suggestedUniqueName(): string {
+    const excludeId = this.projectToEdit?.id;
+    return this.projectService.generateUniqueName(this.name.trim(), excludeId);
   }
 
   async onFileSelected(event: Event) {

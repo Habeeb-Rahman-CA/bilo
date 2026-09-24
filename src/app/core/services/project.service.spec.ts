@@ -23,7 +23,8 @@ describe('ProjectService Workspace Naming', () => {
 
     mockSyncService = {
       isOnline: () => false,
-      onConnectionRestored: (cb: any) => {}
+      onConnectionRestored: (cb: any) => {},
+      enqueue: () => {}
     };
 
     mockAuthService = {
@@ -60,5 +61,32 @@ describe('ProjectService Workspace Naming', () => {
     const textFile = new File(['hello'], 'doc.txt', { type: 'text/plain' });
     const result = await projectService.uploadProjectImage(textFile);
     expect(result).toBe('');
+  });
+
+  it('should auto-disambiguate duplicate project names and slugs for the same user', async () => {
+    await projectService.createProject({ name: 'Alpha Engine' });
+    expect(projectService.projects()[0].name).toBe('Alpha Engine');
+    expect(projectService.projects()[0].slug).toBe('alpha-engine');
+
+    // Create project with identical name under same user
+    const secondProj = await projectService.createProject({ name: 'Alpha Engine' });
+    expect(secondProj.name).toBe('Alpha Engine (2)');
+    expect(secondProj.slug).toBe('alpha-engine-2');
+  });
+
+  it('should allow different users to create projects with the same workspace name', async () => {
+    // User 1 creates 'Beta Service'
+    const projUser1 = await projectService.createProject({ name: 'Beta Service' });
+    expect(projUser1.name).toBe('Beta Service');
+    expect(projUser1.slug).toBe('beta-service');
+
+    // Switch active session to User 2
+    mockAuthService.user.set({ id: 'user-456', email: 'user2@example.com' });
+    projectService.projects.set([]); // User 2 workspace scope
+
+    // User 2 creates 'Beta Service' without any suffix collision
+    const projUser2 = await projectService.createProject({ name: 'Beta Service' });
+    expect(projUser2.name).toBe('Beta Service');
+    expect(projUser2.slug).toBe('beta-service');
   });
 });
