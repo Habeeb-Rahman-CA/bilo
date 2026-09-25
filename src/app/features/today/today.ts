@@ -93,34 +93,47 @@ import { TaskModalComponent } from '../../shared/components/task-modal';
           </div>
 
           <div class="card-body donut-body">
+            <div class="donut-chart-container">
+              <!-- SVG Donut Chart -->
+              <svg class="donut-svg" viewBox="0 0 100 100">
+                <!-- Background track ring -->
+                <circle
+                  cx="50"
+                  cy="50"
+                  r="38"
+                  fill="transparent"
+                  stroke="var(--border-subtle)"
+                  stroke-width="16"
+                  [attr.stroke-dasharray]="filteredStatusTasksCount() === 0 ? '6 4' : null"
+                  [attr.opacity]="filteredStatusTasksCount() === 0 ? '0.6' : '0.25'"
+                />
+                @for (seg of donutSegments(); track seg.name) {
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="38"
+                    fill="transparent"
+                    [attr.stroke]="seg.color"
+                    stroke-width="16"
+                    [attr.stroke-dasharray]="seg.dashArray"
+                    [attr.stroke-dashoffset]="seg.dashOffset"
+                  />
+                }
+              </svg>
+              <div class="donut-center-text font-mono">
+                <span class="center-num">{{ filteredStatusTasksCount() }}</span>
+                <span class="center-lbl">TASKS</span>
+              </div>
+            </div>
+
             @if (filteredStatusTasksCount() === 0) {
-              <div class="empty-chart font-mono">
-                <i class="fi fi-rr-chart-pie text-subtle"></i>
-                <span>No tasks available for status overview</span>
+              <div class="empty-legend font-mono">
+                <div class="empty-legend-title">
+                  <i class="fi fi-rr-chart-pie text-cyan"></i> No tasks recorded
+                </div>
+                <p class="empty-legend-desc">Create tasks or select a project with tasks to view status overview.</p>
               </div>
             } @else {
-              <div class="donut-chart-container">
-                <!-- SVG Donut Chart -->
-                <svg class="donut-svg" viewBox="0 0 100 100">
-                  @for (seg of donutSegments(); track seg.name) {
-                    <circle
-                      cx="50"
-                      cy="50"
-                      r="38"
-                      fill="transparent"
-                      [attr.stroke]="seg.color"
-                      stroke-width="16"
-                      [attr.stroke-dasharray]="seg.dashArray"
-                      [attr.stroke-dashoffset]="seg.dashOffset"
-                    />
-                  }
-                </svg>
-                <div class="donut-center-text font-mono">
-                  <span class="center-num">{{ filteredStatusTasksCount() }}</span>
-                  <span class="center-lbl">TASKS</span>
-                </div>
-              </div>
-
               <!-- Donut Legend -->
               <div class="legend-list font-mono">
                 @for (st of statusCounts(); track st.name) {
@@ -432,6 +445,31 @@ import { TaskModalComponent } from '../../shared/components/task-modal';
       flex-direction: column;
       gap: 0.4rem;
       flex: 1;
+    }
+    .empty-legend {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 0.75rem 0.85rem;
+      background: var(--bg-surface-subtle);
+      border: 1px dashed var(--border-subtle);
+      border-radius: var(--radius-xs);
+      gap: 0.35rem;
+    }
+    .empty-legend-title {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .empty-legend-desc {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      line-height: 1.35;
+      margin: 0;
     }
     .legend-item {
       display: flex;
@@ -842,10 +880,11 @@ export class TodayComponent {
 
     return list.map(st => {
       const fraction = st.count / total;
-      const dashLength = fraction * circumference;
-      const dashArray = `${dashLength} ${circumference - dashLength}`;
+      // Cap dashLength slightly below full circumference (by 0.01) to avoid degenerate 2π SVG arc wrap-around
+      const dashLength = fraction >= 0.9999 ? circumference - 0.01 : fraction * circumference;
+      const dashArray = `${dashLength} ${circumference}`;
       const dashOffset = -currentOffset;
-      currentOffset += dashLength;
+      currentOffset += fraction * circumference;
 
       return {
         name: st.name,
