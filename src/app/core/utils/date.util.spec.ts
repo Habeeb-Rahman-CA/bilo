@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getLocalDateString, getOffsetDateString, parseYMDDate, formatDueDate, isOverdue, normalizeDueDate, isDueSoon } from './date.util';
+import { getLocalDateString, getOffsetDateString, parseYMDDate, formatDueDate, isOverdue, normalizeDueDate, isDueSoon, compareDueDates } from './date.util';
 
 describe('Date Utilities', () => {
   it('should return YYYY-MM-DD in local time without UTC offset shifting', () => {
@@ -53,4 +53,31 @@ describe('Date Utilities', () => {
     expect(isDueSoon(yesterdayStr, false, 7)).toBe(false); // Overdue, not due soon
     expect(isDueSoon(todayStr, true, 7)).toBe(false); // Completed task
   });
+
+  it('should consistently sort due dates with null values at the end in both ASC and DESC order', () => {
+    const d1 = '2026-09-20';
+    const d2 = '2026-10-01';
+
+    // Scheduled vs Scheduled ASC (mult = 1)
+    expect(compareDueDates(d1, d2, 1)).toBeLessThan(0);
+    // Scheduled vs Scheduled DESC (mult = -1)
+    expect(compareDueDates(d1, d2, -1)).toBeGreaterThan(0);
+
+    // Scheduled vs Null ASC
+    expect(compareDueDates(d1, null, 1)).toBeLessThan(0);
+    // Scheduled vs Null DESC (null should STILL come AFTER scheduled task!)
+    expect(compareDueDates(d1, null, -1)).toBeLessThan(0);
+
+    // Null vs Scheduled ASC
+    expect(compareDueDates(null, d1, 1)).toBeGreaterThan(0);
+    // Null vs Scheduled DESC (null should STILL come AFTER scheduled task!)
+    expect(compareDueDates(null, d1, -1)).toBeGreaterThan(0);
+
+    // Null vs Null (tie breaking by created_at)
+    const t1 = '2026-01-01T00:00:00Z';
+    const t2 = '2026-01-02T00:00:00Z';
+    expect(compareDueDates(null, null, 1, t1, t2)).toBeLessThan(0);
+    expect(compareDueDates(null, null, -1, t1, t2)).toBeGreaterThan(0);
+  });
 });
+

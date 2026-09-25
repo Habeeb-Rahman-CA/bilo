@@ -32,7 +32,7 @@ interface PaletteItem {
             class="palette-input font-mono"
             placeholder="Type a command, task, project, or workspace..."
             aria-label="Search command, task, project, or workspace"
-            [ngModel]="searchQuery()"
+            [ngModel]="rawSearchQuery()"
             (ngModelChange)="onSearchInput($event)"
             (keydown)="onKeydown($event)"
           />
@@ -199,7 +199,6 @@ export class CommandPaletteComponent implements AfterViewInit {
   @ViewChild('searchInput') searchInput!: ElementRef<HTMLInputElement>;
   @ViewChild('paletteBody') paletteBody!: ElementRef<HTMLDivElement>;
 
-  searchQuery = signal<string>('');
   selectedIndex = signal<number>(0);
 
   constructor(
@@ -337,10 +336,20 @@ export class CommandPaletteComponent implements AfterViewInit {
     );
   });
 
+  rawSearchQuery = signal<string>('');
+  searchQuery = signal<string>('');
+  private searchDebounceTimer: any = null;
+
   onSearchInput(value: string) {
-    this.searchQuery.set(value);
-    this.selectedIndex.set(0);
-    this.scrollToSelected();
+    this.rawSearchQuery.set(value);
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+    this.searchDebounceTimer = setTimeout(() => {
+      this.searchQuery.set(value);
+      this.selectedIndex.set(0);
+      this.scrollToSelected();
+    }, 150);
   }
 
   onKeydown(e: KeyboardEvent) {

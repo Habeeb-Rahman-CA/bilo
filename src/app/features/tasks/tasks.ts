@@ -1,4 +1,4 @@
-import { Component, signal, computed, effect, OnInit } from '@angular/core';
+import { Component, signal, computed, effect, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DragDropModule, CdkDragDrop } from '@angular/cdk/drag-drop';
@@ -9,6 +9,7 @@ import { WorkspaceService } from '../../core/services/workspace.service';
 import { TaskShareService } from '../../core/services/task-share.service';
 import { Project, Task, Workflow } from '../../core/models/project.model';
 import { getTaskKey } from '../../core/utils/task-key.util';
+import { compareDueDates } from '../../core/utils/date.util';
 import { TaskModalComponent } from '../../shared/components/task-modal';
 import { TaskDetailModalComponent } from '../../shared/components/task-detail-modal';
 import { SelectComponent, SelectOption } from '../../shared/components/select';
@@ -162,9 +163,12 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
             type="text"
             class="form-input search-input"
             placeholder="Search title, description..."
-            [ngModel]="searchQuery()"
-            (ngModelChange)="searchQuery.set($event)"
+            [ngModel]="rawSearchQuery()"
+            (ngModelChange)="onSearchInput($event)"
           />
+          @if (rawSearchQuery()) {
+            <button class="btn-clear" (click)="clearSearch()"><i class="fi fi-rr-cross"></i></button>
+          }
         </div>
       </div>
 
@@ -631,7 +635,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
     }
   `]
 })
-export class TasksComponent implements OnInit {
+export class TasksComponent implements OnInit, OnDestroy {
   selectedProjectId = signal<string>('all');
   selectedType = signal<string>('all');
   selectedPriority = signal<string>('all');
@@ -641,7 +645,33 @@ export class TasksComponent implements OnInit {
   selectedDueDateFilter = signal<string>('all');
   sortBy = signal<string>('created_at');
   sortOrder = signal<'asc' | 'desc'>('desc');
+  rawSearchQuery = signal<string>('');
   searchQuery = signal<string>('');
+  private searchDebounceTimer: any = null;
+
+  onSearchInput(val: string): void {
+    this.rawSearchQuery.set(val);
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+    this.searchDebounceTimer = setTimeout(() => {
+      this.searchQuery.set(val);
+    }, 200);
+  }
+
+  clearSearch(): void {
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+    this.rawSearchQuery.set('');
+    this.searchQuery.set('');
+  }
+
+  ngOnDestroy(): void {
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+  }
 
   projectFilterOptions = computed<SelectOption[]>(() => [
     { value: 'all', label: 'All Projects', icon: 'fi fi-rr-apps' },
@@ -765,7 +795,10 @@ export class TasksComponent implements OnInit {
           if (parsed.selectedDueDateFilter !== undefined) this.selectedDueDateFilter.set(parsed.selectedDueDateFilter);
           if (parsed.sortBy !== undefined) this.sortBy.set(parsed.sortBy);
           if (parsed.sortOrder !== undefined) this.sortOrder.set(parsed.sortOrder);
-          if (parsed.searchQuery !== undefined) this.searchQuery.set(parsed.searchQuery);
+          if (parsed.searchQuery !== undefined) {
+            this.rawSearchQuery.set(parsed.searchQuery);
+            this.searchQuery.set(parsed.searchQuery);
+          }
         } catch (e) {}
       } else {
         this.selectedProjectId.set('all');
@@ -809,6 +842,7 @@ export class TasksComponent implements OnInit {
       this.selectedLabel() !== 'all' ||
       this.selectedDueDateFilter() !== 'all' ||
       this.sortOrder() !== 'desc' ||
+      this.rawSearchQuery().trim() !== '' ||
       this.searchQuery().trim() !== ''
     );
   });
@@ -894,10 +928,7 @@ export class TasksComponent implements OnInit {
         const sb = severityWeight[(b.severity || '').toLowerCase()] || 0;
         diff = sa - sb;
       } else if (sort === 'due_date') {
-        if (!a.due_date && !b.due_date) diff = 0;
-        else if (!a.due_date) diff = 1;
-        else if (!b.due_date) diff = -1;
-        else diff = a.due_date.localeCompare(b.due_date);
+        return compareDueDates(a.due_date, b.due_date, mult, a.created_at, b.created_at);
       } else if (sort === 'title') {
         diff = a.title.localeCompare(b.title);
       } else if (sort === 'status') {
@@ -1005,6 +1036,7 @@ export class TasksComponent implements OnInit {
   }
 
   resetFilters() {
+    this.clearSearch();
     this.selectedProjectId.set('all');
     this.selectedType.set('all');
     this.selectedPriority.set('all');
@@ -1014,7 +1046,6 @@ export class TasksComponent implements OnInit {
     this.selectedDueDateFilter.set('all');
     this.sortBy.set('created_at');
     this.sortOrder.set('desc');
-    this.searchQuery.set('');
     localStorage.removeItem('bilo_board_filters');
   }
 

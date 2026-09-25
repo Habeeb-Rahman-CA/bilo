@@ -62,3 +62,41 @@ export function isDueSoon(dueDateInput?: string | null, isCompleted: boolean = f
 
   return taskDate >= todayStr && taskDate <= futureStr;
 }
+
+/**
+ * Safely compares two task due dates for sorting.
+ * Ensures unscheduled tasks (null / empty due_date) are ALWAYS placed consistently
+ * at the end of the list, regardless of ascending or descending sort order.
+ */
+export function compareDueDates(
+  aDueDate?: string | null,
+  bDueDate?: string | null,
+  mult: number = 1,
+  aCreatedAt?: string,
+  bCreatedAt?: string
+): number {
+  const normA = normalizeDueDate(aDueDate);
+  const normB = normalizeDueDate(bDueDate);
+
+  const hasA = normA !== null;
+  const hasB = normB !== null;
+
+  if (!hasA && !hasB) {
+    const da = aCreatedAt ? new Date(aCreatedAt).getTime() : 0;
+    const db = bCreatedAt ? new Date(bCreatedAt).getTime() : 0;
+    return (da - db) * mult;
+  }
+
+  if (!hasA) return 1;  // Unscheduled task 'a' always comes AFTER scheduled task 'b'
+  if (!hasB) return -1; // Scheduled task 'a' always comes BEFORE unscheduled task 'b'
+
+  let diff = normA!.localeCompare(normB!);
+  if (diff === 0) {
+    const da = aCreatedAt ? new Date(aCreatedAt).getTime() : 0;
+    const db = bCreatedAt ? new Date(bCreatedAt).getTime() : 0;
+    diff = da - db;
+  }
+
+  return diff * mult;
+}
+

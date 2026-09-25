@@ -1,4 +1,4 @@
-import { Component, signal, computed, effect, OnInit } from '@angular/core';
+import { Component, signal, computed, effect, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TaskService } from '../../core/services/task.service';
@@ -8,6 +8,7 @@ import { WorkspaceService } from '../../core/services/workspace.service';
 import { TaskShareService } from '../../core/services/task-share.service';
 import { Task } from '../../core/models/project.model';
 import { getTaskKey } from '../../core/utils/task-key.util';
+import { compareDueDates } from '../../core/utils/date.util';
 import { TaskDetailModalComponent } from '../../shared/components/task-detail-modal';
 import { TaskModalComponent } from '../../shared/components/task-modal';
 import { SelectComponent, SelectOption } from '../../shared/components/select';
@@ -42,10 +43,11 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
             type="text"
             class="search-input font-mono"
             placeholder="Search tasks by key, title, description..."
-            [(ngModel)]="searchQuery"
+            [ngModel]="rawSearchQuery()"
+            (ngModelChange)="onSearchInput($event)"
           />
-          @if (searchQuery()) {
-            <button class="btn-clear" (click)="searchQuery.set('')"><i class="fi fi-rr-cross"></i></button>
+          @if (rawSearchQuery()) {
+            <button class="btn-clear" (click)="clearSearch()"><i class="fi fi-rr-cross"></i></button>
           }
         </div>
 
@@ -828,8 +830,34 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
     }
   `]
 })
-export class BacklogComponent implements OnInit {
+export class BacklogComponent implements OnInit, OnDestroy {
+  rawSearchQuery = signal<string>('');
   searchQuery = signal<string>('');
+  private searchDebounceTimer: any = null;
+
+  onSearchInput(val: string): void {
+    this.rawSearchQuery.set(val);
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+    this.searchDebounceTimer = setTimeout(() => {
+      this.searchQuery.set(val);
+    }, 200);
+  }
+
+  clearSearch(): void {
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+    this.rawSearchQuery.set('');
+    this.searchQuery.set('');
+  }
+
+  ngOnDestroy(): void {
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+  }
   selectedProject = signal<string>('ALL');
   selectedType = signal<string>('ALL');
   selectedPriority = signal<string>('ALL');
@@ -943,7 +971,10 @@ export class BacklogComponent implements OnInit {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed.searchQuery !== undefined) this.searchQuery.set(parsed.searchQuery);
+        if (parsed.searchQuery !== undefined) {
+          this.rawSearchQuery.set(parsed.searchQuery);
+          this.searchQuery.set(parsed.searchQuery);
+        }
         if (parsed.selectedType !== undefined) this.selectedType.set(parsed.selectedType);
         if (parsed.selectedPriority !== undefined) this.selectedPriority.set(parsed.selectedPriority);
         if (parsed.selectedStatus !== undefined) this.selectedStatus.set(parsed.selectedStatus);
@@ -989,6 +1020,7 @@ export class BacklogComponent implements OnInit {
 
   hasActiveFilters = computed(() => {
     return (
+      this.rawSearchQuery().trim() !== '' ||
       this.searchQuery().trim() !== '' ||
       this.selectedType() !== 'ALL' ||
       this.selectedPriority() !== 'ALL' ||
@@ -1083,10 +1115,7 @@ export class BacklogComponent implements OnInit {
         const sb = severityWeight[(b.severity || '').toLowerCase()] || 0;
         diff = sa - sb;
       } else if (sort === 'due_date') {
-        if (!a.due_date && !b.due_date) diff = 0;
-        else if (!a.due_date) diff = 1;
-        else if (!b.due_date) diff = -1;
-        else diff = a.due_date.localeCompare(b.due_date);
+        return compareDueDates(a.due_date, b.due_date, mult, a.created_at, b.created_at);
       } else if (sort === 'title') {
         diff = a.title.localeCompare(b.title);
       } else if (sort === 'status') {
@@ -1099,7 +1128,7 @@ export class BacklogComponent implements OnInit {
   });
 
   resetFilters() {
-    this.searchQuery.set('');
+    this.clearSearch();
     this.selectedType.set('ALL');
     this.selectedPriority.set('ALL');
     this.selectedStatus.set('ALL');

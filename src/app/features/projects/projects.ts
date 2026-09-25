@@ -1,4 +1,4 @@
-import { Component, signal, computed } from '@angular/core';
+import { Component, signal, computed, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ProjectService } from '../../core/services/project.service';
@@ -37,9 +37,12 @@ import { WorkflowModalComponent } from '../../shared/components/workflow-modal';
               type="text"
               class="form-input search-input font-mono"
               placeholder="Search projects..."
-              [ngModel]="searchQuery()"
-              (ngModelChange)="searchQuery.set($event)"
+              [ngModel]="rawSearchQuery()"
+              (ngModelChange)="onSearchInput($event)"
             />
+            @if (rawSearchQuery()) {
+              <button class="btn-clear" (click)="clearSearch()" style="position: absolute; right: 0.5rem; background: none; border: none; color: var(--text-muted); cursor: pointer;"><i class="fi fi-rr-cross"></i></button>
+            }
           </div>
 
           <button class="btn btn-secondary btn-sm" (click)="openGlobalWorkflowModal()" title="Configure global status workflows">
@@ -494,8 +497,34 @@ import { WorkflowModalComponent } from '../../shared/components/workflow-modal';
     }
   `]
 })
-export class ProjectsComponent {
+export class ProjectsComponent implements OnDestroy {
+  rawSearchQuery = signal<string>('');
   searchQuery = signal<string>('');
+  private searchDebounceTimer: any = null;
+
+  onSearchInput(val: string): void {
+    this.rawSearchQuery.set(val);
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+    this.searchDebounceTimer = setTimeout(() => {
+      this.searchQuery.set(val);
+    }, 200);
+  }
+
+  clearSearch(): void {
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+    this.rawSearchQuery.set('');
+    this.searchQuery.set('');
+  }
+
+  ngOnDestroy(): void {
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+  }
   showProjectModal = signal<boolean>(false);
   editingProject = signal<Project | null>(null);
   showWorkflowModal = signal<boolean>(false);
