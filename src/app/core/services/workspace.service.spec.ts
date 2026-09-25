@@ -121,5 +121,25 @@ describe('WorkspaceService', () => {
 
     document.body.removeChild(contentEditableDiv);
   });
+
+  it('should sanitize invalid initial URL hash and correct address bar hash to default or saved workspace', () => {
+    window.location.hash = '#invalid_route_999';
+    const newService = new WorkspaceService(themeService);
+
+    expect(newService.activeWorkspace()).toBe('01 TODAY');
+    expect(window.location.hash).toBe('#today');
+  });
+
+  it('should sanitize invalid hashchange event and reset active workspace to valid route', () => {
+    service.setWorkspace('03 TASKS');
+    expect(window.location.hash).toBe('#tasks');
+
+    window.location.hash = '#unknown_hash';
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+
+    expect(service.activeWorkspace()).toBe('03 TASKS');
+    expect(window.location.hash).toBe('#tasks');
+  });
 });
+
 

@@ -57,11 +57,29 @@ export class WorkspaceService {
     this.initHashListener();
   }
 
+  private getSavedOrDefaultWorkspace(): WorkspaceSection {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('bilo_active_workspace') as WorkspaceSection;
+      if (saved && WORKSPACE_SECTION_TO_HASH[saved]) {
+        return saved;
+      }
+    }
+    return '01 TODAY';
+  }
+
   private getInitialWorkspace(): WorkspaceSection {
     if (typeof window !== 'undefined') {
-      const hash = window.location.hash.replace('#', '').toLowerCase().trim();
-      if (hash && WORKSPACE_HASH_MAP[hash]) {
-        return WORKSPACE_HASH_MAP[hash];
+      const rawHash = window.location.hash.replace('#', '').toLowerCase().trim();
+      if (rawHash) {
+        if (WORKSPACE_HASH_MAP[rawHash]) {
+          return WORKSPACE_HASH_MAP[rawHash];
+        } else {
+          // Invalid or unknown hash: fallback to saved or default workspace and correct the URL
+          const fallback = this.getSavedOrDefaultWorkspace();
+          const correctedHash = WORKSPACE_SECTION_TO_HASH[fallback] || 'today';
+          window.history.replaceState(null, '', '#' + correctedHash);
+          return fallback;
+        }
       }
 
       const saved = localStorage.getItem('bilo_active_workspace') as WorkspaceSection;
@@ -89,6 +107,9 @@ export class WorkspaceService {
       const hash = window.location.hash.replace('#', '').toLowerCase().trim();
       if (hash && WORKSPACE_HASH_MAP[hash]) {
         this.setWorkspace(WORKSPACE_HASH_MAP[hash], false);
+      } else {
+        const fallback = this.activeWorkspace() || this.getSavedOrDefaultWorkspace();
+        this.setWorkspace(fallback, true);
       }
     });
   }
