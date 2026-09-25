@@ -1,11 +1,12 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, OnDestroy } from '@angular/core';
 
 @Injectable({
   providedIn: 'root'
 })
-export class UpdateService {
+export class UpdateService implements OnDestroy {
   updateAvailable = signal<boolean>(false);
   private waitingWorker: ServiceWorker | null = null;
+  private checkInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     this.initServiceWorker();
@@ -35,11 +36,13 @@ export class UpdateService {
       });
 
       // 3. Periodically check for app updates every 15 minutes
-      setInterval(() => {
-        registration.update().catch((err) => {
-          console.warn('[UpdateService] Failed to check for SW updates:', err);
-        });
-      }, 15 * 60 * 1000);
+      if (typeof window !== 'undefined') {
+        this.checkInterval = setInterval(() => {
+          registration.update().catch((err) => {
+            console.warn('[UpdateService] Failed to check for SW updates:', err);
+          });
+        }, 15 * 60 * 1000);
+      }
     }).catch((err) => {
       console.warn('[UpdateService] Service Worker registration failed:', err);
     });
@@ -62,6 +65,13 @@ export class UpdateService {
       this.waitingWorker.postMessage({ type: 'SKIP_WAITING' });
     } else {
       window.location.reload();
+    }
+  }
+
+  ngOnDestroy(): void {
+    if (this.checkInterval !== null) {
+      clearInterval(this.checkInterval);
+      this.checkInterval = null;
     }
   }
 }

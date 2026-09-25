@@ -1,13 +1,16 @@
-import { Injectable, signal, computed } from '@angular/core';
+import { Injectable, signal, computed, OnDestroy } from '@angular/core';
 
 export type ThemeMode = 'light' | 'dark';
 
 @Injectable({
   providedIn: 'root'
 })
-export class ThemeService {
+export class ThemeService implements OnDestroy {
   readonly theme = signal<ThemeMode>(this.getInitialTheme());
   readonly isDarkMode = computed(() => this.theme() === 'dark');
+
+  private mediaQueryList: MediaQueryList | null = null;
+  private mediaQueryListener: ((e: MediaQueryListEvent) => void) | null = null;
 
   constructor() {
     this.applyTheme(this.theme());
@@ -16,13 +19,25 @@ export class ThemeService {
 
   private getInitialTheme(): ThemeMode {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('bilo_theme') as ThemeMode;
-      if (saved === 'dark' || saved === 'light') {
-        return saved;
+      try {
+        const saved = localStorage.getItem('bilo_theme');
+        if (saved === 'dark' || saved === 'light') {
+          return saved;
+        }
+        // Evict corrupted/invalid storage value to prevent flash of wrong theme
+        if (saved !== null) {
+          localStorage.removeItem('bilo_theme');
+        }
+      } catch (e) {
+        console.warn('[ThemeService] Could not access localStorage:', e);
       }
-      // Default to dark theme for modern developer black & grey experience
-      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-        return 'dark';
+
+      try {
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          return 'dark';
+        }
+      } catch (e) {
+        console.warn('[ThemeService] Could not query matchMedia:', e);
       }
     }
     return 'dark';
@@ -34,10 +49,15 @@ export class ThemeService {
   }
 
   setTheme(mode: ThemeMode) {
+    if (mode !== 'dark' && mode !== 'light') return;
     this.theme.set(mode);
     this.applyTheme(mode);
     if (typeof window !== 'undefined') {
-      localStorage.setItem('bilo_theme', mode);
+      try {
+        localStorage.setItem('bilo_theme', mode);
+      } catch (e) {
+        console.warn('[ThemeService] Could not save theme to localStorage:', e);
+      }
     }
   }
 
@@ -67,11 +87,38 @@ export class ThemeService {
   private listenSystemPreferenceChanges() {
     if (typeof window === 'undefined' || !window.matchMedia) return;
 
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-      const saved = localStorage.getItem('bilo_theme');
-      if (!saved) {
-        this.setTheme(e.matches ? 'dark' : 'light');
+    try {
+      this.mediaQueryList = window.matchMedia('(prefers-color-scheme: dark)');
+      this.mediaQueryListener = (e: MediaQueryListEvent) => {
+        try {
+          const saved = localStorage.getItem('bilo_theme');
+          if (saved !== 'dark' && saved !== 'light') {
+            this.setTheme(e.matches ? 'dark' : 'light');
+          }
+        } catch (err) {
+          console.warn('[ThemeService] Error checking localStorage on theme change:', err);
+        }
+      };
+
+      if (this.mediaQueryList.addEventListener) {
+        this.mediaQueryList.addEventListener('change', this.mediaQueryListener);
+      } else if ((this.mediaQueryList as any).addListener) {
+        (this.mediaQueryList as any).addListener(this.mediaQueryListener);
       }
-    });
+    } catch (e) {
+      console.warn('[ThemeService] Error adding matchMedia listener:', e);
+    }
+  }
+
+  ngOnDestroy() {
+    if (this.mediaQueryList && this.mediaQueryListener) {
+      if (this.mediaQueryList.removeEventListener) {
+        this.mediaQueryList.removeEventListener('change', this.mediaQueryListener);
+      } else if ((this.mediaQueryList as any).removeListener) {
+        (this.mediaQueryList as any).removeListener(this.mediaQueryListener);
+      }
+      this.mediaQueryList = null;
+      this.mediaQueryListener = null;
+    }
   }
 }
