@@ -168,4 +168,44 @@ describe('CalendarComponent - Touch Drag & Scheduling', () => {
     expect(component.filteredUnscheduledTasks().length).toBe(1);
     expect(component.filteredUnscheduledTasks()[0].title).toBe('Fix Database Bug');
   });
+
+  it('should support configurable week start days and output corresponding week headers and localStorage persistence', () => {
+    let currentWeekStart: any = 'sunday';
+    const mockWeekStart: any = () => currentWeekStart;
+    mockWeekStart.set = vi.fn((val: any) => { currentWeekStart = val; });
+    component.weekStart = mockWeekStart;
+
+    component.weekHeaders = () => {
+      switch (component.weekStart()) {
+        case 'monday':
+          return ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+        case 'saturday':
+          return ['SAT', 'SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI'];
+        case 'sunday':
+        default:
+          return ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+      }
+    };
+
+    component.setWeekStart = (start: any) => {
+      component.weekStart.set(start);
+      localStorage.setItem('bilo_calendar_week_start', start);
+    };
+
+    // Default Sunday
+    expect(component.weekHeaders()).toEqual(['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']);
+
+    // Change to Monday
+    component.setWeekStart('monday');
+    expect(mockWeekStart.set).toHaveBeenCalledWith('monday');
+    expect(localStorage.getItem('bilo_calendar_week_start')).toBe('monday');
+    expect(component.weekHeaders()).toEqual(['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']);
+
+    // Change to Saturday
+    component.setWeekStart('saturday');
+    expect(mockWeekStart.set).toHaveBeenCalledWith('saturday');
+    expect(localStorage.getItem('bilo_calendar_week_start')).toBe('saturday');
+    expect(component.weekHeaders()).toEqual(['SAT', 'SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI']);
+  });
 });
+

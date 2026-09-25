@@ -10,6 +10,8 @@ import { TaskModalComponent } from '../../shared/components/task-modal';
 import { DatePickerComponent } from '../../shared/components/date-picker';
 import { getLocalDateString, isoToLocalDateString } from '../../core/utils/date.util';
 
+export type WeekStartDay = 'sunday' | 'monday' | 'saturday';
+
 export interface CalendarDayCell {
   dayNumber: number;
   dateStr: string; // YYYY-MM-DD
@@ -47,6 +49,36 @@ export interface CalendarCellEvent {
             </button>
             <button class="btn btn-secondary btn-xs" (click)="nextMonth()" title="Next Month">
               <i class="fi fi-rr-angle-right"></i>
+            </button>
+          </div>
+
+          <div class="week-start-toggle font-mono">
+            <button
+              type="button"
+              class="btn btn-secondary btn-xs week-start-btn"
+              [class.active]="weekStart() === 'sunday'"
+              (click)="setWeekStart('sunday')"
+              title="Start week on Sunday"
+            >
+              SUN
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary btn-xs week-start-btn"
+              [class.active]="weekStart() === 'monday'"
+              (click)="setWeekStart('monday')"
+              title="Start week on Monday"
+            >
+              MON
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary btn-xs week-start-btn"
+              [class.active]="weekStart() === 'saturday'"
+              (click)="setWeekStart('saturday')"
+              title="Start week on Saturday"
+            >
+              SAT
             </button>
           </div>
         </div>
@@ -100,13 +132,9 @@ export interface CalendarCellEvent {
         <div class="calendar-grid-panel paper-panel">
           <!-- Weekday Headers -->
           <div class="week-header-row font-mono">
-            <div class="week-day">SUN</div>
-            <div class="week-day">MON</div>
-            <div class="week-day">TUE</div>
-            <div class="week-day">WED</div>
-            <div class="week-day">THU</div>
-            <div class="week-day">FRI</div>
-            <div class="week-day">SAT</div>
+            @for (dayName of weekHeaders(); track dayName) {
+              <div class="week-day">{{ dayName }}</div>
+            }
           </div>
 
           <!-- Days Grid (35 or 42 cells) -->
@@ -490,6 +518,23 @@ export interface CalendarCellEvent {
       background: var(--bg-surface-subtle);
       border-bottom: 1px solid var(--border-subtle);
     }
+    .week-start-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.2rem;
+      margin-left: 0.4rem;
+    }
+    .week-start-btn {
+      padding: 0.15rem 0.4rem;
+      font-size: 0.65rem;
+      font-weight: 700;
+      border-radius: var(--radius-xs);
+    }
+    .week-start-btn.active {
+      background: var(--accent-cyan);
+      color: #ffffff;
+      border-color: var(--accent-cyan);
+    }
     .week-day {
       padding: 0.5rem;
       text-align: center;
@@ -866,6 +911,25 @@ export class CalendarComponent implements OnInit, OnDestroy {
   draggedTaskId = signal<string | null>(null);
   dragOverDate = signal<string | null>(null);
 
+  weekStart = signal<WeekStartDay>('sunday');
+
+  setWeekStart(start: WeekStartDay) {
+    this.weekStart.set(start);
+    localStorage.setItem('bilo_calendar_week_start', start);
+  }
+
+  weekHeaders = computed<string[]>(() => {
+    switch (this.weekStart()) {
+      case 'monday':
+        return ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+      case 'saturday':
+        return ['SAT', 'SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI'];
+      case 'sunday':
+      default:
+        return ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    }
+  });
+
   private navDebounceTimer: any = null;
 
   constructor(
@@ -876,6 +940,10 @@ export class CalendarComponent implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.taskService.loadTasksFromSupabase();
+    const savedStart = localStorage.getItem('bilo_calendar_week_start') as WeekStartDay;
+    if (savedStart && ['sunday', 'monday', 'saturday'].includes(savedStart)) {
+      this.weekStart.set(savedStart);
+    }
   }
 
   ngOnDestroy(): void {
@@ -957,7 +1025,15 @@ export class CalendarComponent implements OnInit, OnDestroy {
 
     // First day of current month
     const firstDay = new Date(year, month, 1);
-    const startingDayOfWeek = firstDay.getDay(); // 0 = Sun, 1 = Mon ...
+    const firstDayOfWeek = firstDay.getDay(); // 0 = Sun, 1 = Mon ...
+
+    const offsetMap: Record<WeekStartDay, number> = {
+      sunday: 0,
+      monday: 1,
+      saturday: 6
+    };
+    const weekStartOffset = offsetMap[this.weekStart()] || 0;
+    const startOffset = (firstDayOfWeek - weekStartOffset + 7) % 7;
 
     // Days in current month
     const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -969,7 +1045,7 @@ export class CalendarComponent implements OnInit, OnDestroy {
     const allTasksList = this.tasks();
 
     // 1. Previous month padding days
-    for (let i = startingDayOfWeek - 1; i >= 0; i--) {
+    for (let i = startOffset - 1; i >= 0; i--) {
       const dayNum = daysInPrevMonth - i;
       const prevDate = new Date(year, month - 1, dayNum);
       const dateStr = this.formatToISO(prevDate);
