@@ -326,11 +326,21 @@ export class WorkflowService {
     }));
     this.saveToStorage();
 
-    for (const w of updated) {
+    if (this.supabaseService.supabase && updated.length > 0) {
       try {
+        const batchRecords = updated.map(w => ({
+          id: w.id,
+          project_id: key,
+          position: w.position,
+          name: w.name,
+          color: w.color,
+          allow_all_transitions: w.allow_all_transitions !== false,
+          allowed_transitions: w.allowed_transitions || []
+        }));
+
         await this.supabaseService.supabase
           .from('workflows')
-          .upsert({ id: w.id, project_id: key, position: w.position, name: w.name, color: w.color });
+          .upsert(batchRecords);
       } catch (e) {
         console.warn('Supabase workflow position update warning:', e);
       }
@@ -356,17 +366,17 @@ export class WorkflowService {
             .delete()
             .eq('project_id', key);
         }
-        for (const w of defaults) {
-          await this.supabaseService.supabase
-            .from('workflows')
-            .upsert({
-              id: w.id,
-              project_id: key,
-              name: w.name,
-              color: w.color,
-              position: w.position
-            });
-        }
+        const batchDefaults = defaults.map(w => ({
+          id: w.id,
+          project_id: key,
+          name: w.name,
+          color: w.color,
+          position: w.position
+        }));
+
+        await this.supabaseService.supabase
+          .from('workflows')
+          .upsert(batchDefaults);
       } catch (e) {
         console.warn('Supabase resetToDefaultWorkflows warning:', e);
       }
