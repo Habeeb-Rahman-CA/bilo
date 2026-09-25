@@ -42,8 +42,10 @@ import { getLocalDateString } from '../../core/utils/date.util';
       @if (isExporting()) {
         <div class="export-progress-banner font-mono">
           <div class="export-progress-header">
-            <i class="fi fi-rr-spinner spinner-icon spinning text-cyan"></i>
-            <span>{{ exportStepMessage() }}</span>
+            <span class="export-step-badge font-mono">
+              <i class="fi fi-rr-spinner spinner-icon spinning text-cyan"></i>
+              <span>{{ exportStepMessage() }}</span>
+            </span>
             <span class="export-pct">{{ exportProgress() }}%</span>
           </div>
           <div class="progress-bar-track">
@@ -185,14 +187,61 @@ import { getLocalDateString } from '../../core/utils/date.util';
           <div class="paper-panel archive-box">
             <div class="box-header">
               <h3><i class="fi fi-rr-time-past text-cyan"></i> Workspace Activity Stream</h3>
-              <span class="badge-mono font-mono">{{ activities().length }} Entries</span>
+              <span class="badge-mono font-mono">{{ filteredActivities().length }} Entries</span>
+            </div>
+
+            <!-- Activity Search & Date Range Filter Strip -->
+            <div class="archive-filter-strip font-mono">
+              <div class="search-input-wrap">
+                <i class="fi fi-rr-search search-icon"></i>
+                <input
+                  type="text"
+                  class="archive-search-input"
+                  [ngModel]="activitySearchQuery()"
+                  (ngModelChange)="onActivitySearch($event)"
+                  placeholder="Search activity log..."
+                />
+                @if (activitySearchQuery()) {
+                  <button class="clear-search-btn" (click)="onActivitySearch('')" title="Clear search">
+                    <i class="fi fi-rr-cross-small"></i>
+                  </button>
+                }
+              </div>
+
+              <div class="date-range-wrap font-mono">
+                <input
+                  type="date"
+                  class="archive-date-input"
+                  [ngModel]="activityStartDate()"
+                  (ngModelChange)="onActivityStartDateChange($event)"
+                  title="Filter from date"
+                />
+                <span class="text-subtle">to</span>
+                <input
+                  type="date"
+                  class="archive-date-input"
+                  [ngModel]="activityEndDate()"
+                  (ngModelChange)="onActivityEndDateChange($event)"
+                  title="Filter to date"
+                />
+                @if (activitySearchQuery() || activityStartDate() || activityEndDate()) {
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-xs clear-all-filters-btn font-mono"
+                    (click)="clearActivityFilters()"
+                    title="Clear activity search and date filters"
+                  >
+                    Clear
+                  </button>
+                }
+              </div>
             </div>
 
             <div class="box-body">
-              @if (activities().length === 0) {
+              @if (filteredActivities().length === 0) {
                 <div class="empty-archive font-mono">
                   <i class="fi fi-rr-box-alt text-muted"></i>
-                  <span>No activities recorded yet.</span>
+                  <span>{{ (activitySearchQuery() || activityStartDate() || activityEndDate()) ? 'No activities match the search / date range criteria.' : 'No activities recorded yet.' }}</span>
                 </div>
               } @else {
                 <div class="activity-timeline font-mono">
@@ -209,10 +258,10 @@ import { getLocalDateString } from '../../core/utils/date.util';
               }
             </div>
 
-            @if (activities().length > 0) {
+            @if (filteredActivities().length > 0) {
               <div class="archive-box-footer font-mono">
                 <span class="pagination-info">
-                  Showing {{ activityStartIndex() }}-{{ activityEndIndex() }} of {{ activities().length }}
+                  Showing {{ activityStartIndex() }}-{{ activityEndIndex() }} of {{ filteredActivities().length }}
                 </span>
                 <div class="pagination-nav">
                   <button
@@ -488,44 +537,84 @@ import { getLocalDateString } from '../../core/utils/date.util';
       gap: 0.25rem;
       font-size: 0.7rem;
     }
-    .export-progress-banner {
+    .date-range-wrap {
       display: flex;
-      flex-direction: column;
-      gap: 0.45rem;
-      padding: 0.65rem 0.85rem;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.725rem;
+    }
+    .archive-date-input {
       background: var(--bg-surface-subtle);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-xs);
+      color: var(--text-main);
+      padding: 0.2rem 0.35rem;
+      font-size: 0.725rem;
+      outline: none;
+      transition: border-color 0.15s ease;
+    }
+    .archive-date-input:focus {
+      border-color: var(--color-primary);
+    }
+    .clear-all-filters-btn {
+      font-size: 0.675rem;
+      padding: 0.15rem 0.35rem;
+    }
+    .export-progress-banner {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem;
+      background: rgba(6, 182, 212, 0.08);
+      border: 1px solid rgba(6, 182, 212, 0.4);
+      border-radius: var(--radius-xs);
+      box-shadow: 0 2px 8px rgba(6, 182, 212, 0.12);
     }
     .export-progress-header {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
-      font-size: 0.775rem;
+      gap: 0.6rem;
+      font-size: 0.8rem;
+      font-weight: 600;
       color: var(--text-main);
+    }
+    .export-step-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      color: var(--color-primary);
     }
     .export-pct {
       margin-left: auto;
-      font-weight: 700;
+      font-weight: 800;
+      font-size: 0.825rem;
       color: var(--color-primary);
+      background: rgba(6, 182, 212, 0.15);
+      padding: 0.1rem 0.45rem;
+      border-radius: 4px;
+      border: 1px solid rgba(6, 182, 212, 0.3);
     }
     .progress-bar-track {
       width: 100%;
-      height: 6px;
-      background: var(--border-subtle);
-      border-radius: 3px;
+      height: 8px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
       overflow: hidden;
+      position: relative;
     }
     .progress-bar-fill {
       height: 100%;
-      background: var(--color-primary);
-      transition: width 0.15s ease;
+      background: linear-gradient(90deg, #06b6d4, #3b82f6);
+      transition: width 0.18s ease-out;
+      border-radius: 3px;
     }
     @keyframes spin {
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
     }
     .spinning {
+      display: inline-block;
       animation: spin 1s linear infinite;
     }
   `]
@@ -625,6 +714,9 @@ export class ArchiveComponent {
   // Activity stream state & signals
   activityPage = signal<number>(1);
   readonly activityPageSize = 15;
+  activitySearchQuery = signal<string>('');
+  activityStartDate = signal<string>('');
+  activityEndDate = signal<string>('');
 
   activities = computed(() => {
     const list = this.projectService.activities();
@@ -633,20 +725,54 @@ export class ArchiveComponent {
     return list.filter(a => a.project_id === activeProjId);
   });
 
+  filteredActivities = computed(() => {
+    let list = this.activities();
+    const q = this.activitySearchQuery().toLowerCase().trim();
+    const startDate = this.activityStartDate();
+    const endDate = this.activityEndDate();
+
+    if (q) {
+      list = list.filter(a =>
+        (a.action && a.action.toLowerCase().includes(q)) ||
+        (a.description && a.description.toLowerCase().includes(q))
+      );
+    }
+
+    if (startDate) {
+      const startMs = new Date(startDate + 'T00:00:00').getTime();
+      list = list.filter(a => {
+        if (!a.timestamp) return false;
+        const tMs = new Date(a.timestamp).getTime();
+        return !isNaN(tMs) && tMs >= startMs;
+      });
+    }
+
+    if (endDate) {
+      const endMs = new Date(endDate + 'T23:59:59.999').getTime();
+      list = list.filter(a => {
+        if (!a.timestamp) return false;
+        const tMs = new Date(a.timestamp).getTime();
+        return !isNaN(tMs) && tMs <= endMs;
+      });
+    }
+
+    return list;
+  });
+
   totalActivityPages = computed(() => {
-    const total = this.activities().length;
+    const total = this.filteredActivities().length;
     return Math.max(1, Math.ceil(total / this.activityPageSize));
   });
 
   paginatedActivities = computed(() => {
-    const list = this.activities();
+    const list = this.filteredActivities();
     const page = Math.min(this.activityPage(), this.totalActivityPages());
     const start = (page - 1) * this.activityPageSize;
     return list.slice(start, start + this.activityPageSize);
   });
 
   activityStartIndex = computed(() => {
-    if (this.activities().length === 0) return 0;
+    if (this.filteredActivities().length === 0) return 0;
     const page = Math.min(this.activityPage(), this.totalActivityPages());
     return (page - 1) * this.activityPageSize + 1;
   });
@@ -654,8 +780,30 @@ export class ArchiveComponent {
   activityEndIndex = computed(() => {
     const page = Math.min(this.activityPage(), this.totalActivityPages());
     const end = page * this.activityPageSize;
-    return Math.min(end, this.activities().length);
+    return Math.min(end, this.filteredActivities().length);
   });
+
+  onActivitySearch(query: string) {
+    this.activitySearchQuery.set(query);
+    this.activityPage.set(1);
+  }
+
+  onActivityStartDateChange(date: string) {
+    this.activityStartDate.set(date);
+    this.activityPage.set(1);
+  }
+
+  onActivityEndDateChange(date: string) {
+    this.activityEndDate.set(date);
+    this.activityPage.set(1);
+  }
+
+  clearActivityFilters() {
+    this.activitySearchQuery.set('');
+    this.activityStartDate.set('');
+    this.activityEndDate.set('');
+    this.activityPage.set(1);
+  }
 
   prevActivityPage() {
     if (this.activityPage() > 1) {
@@ -673,10 +821,17 @@ export class ArchiveComponent {
     return new Promise(resolve => setTimeout(resolve, 0));
   }
 
+  parseExcelDate(dateStr?: string | null): Date | string {
+    if (!dateStr || dateStr.trim() === '') return 'N/A';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return d;
+  }
+
   private async createStyledSheetAsync(
     headers: string[],
     descriptions: string[],
-    dataRows: (string | number)[][],
+    dataRows: (string | number | Date)[][],
     baseProgress: number = 0,
     progressWeight: number = 25
   ): Promise<XLSX.WorkSheet> {
@@ -720,14 +875,31 @@ export class ArchiveComponent {
         row.forEach((val, colIdx) => {
           const cellRef = XLSX.utils.encode_cell({ r: rowIdx + 2, c: colIdx });
           const isNum = typeof val === 'number';
-          ws[cellRef] = {
-            v: val ?? '',
-            t: isNum ? 'n' : 's',
-            s: {
-              font: { sz: 10, name: 'Calibri', color: { rgb: '1C1917' } },
-              alignment: { vertical: 'center', horizontal: isNum ? 'right' : 'left' }
-            }
-          };
+          const isDateObj = val instanceof Date && !isNaN(val.getTime());
+
+          if (isDateObj) {
+            const hasTime = val.getHours() !== 0 || val.getMinutes() !== 0 || val.getSeconds() !== 0;
+            const dateFormat = hasTime ? 'yyyy-mm-dd hh:mm' : 'yyyy-mm-dd';
+            ws[cellRef] = {
+              v: val,
+              t: 'd',
+              z: dateFormat,
+              s: {
+                numFmt: dateFormat,
+                font: { sz: 10, name: 'Calibri', color: { rgb: '1C1917' } },
+                alignment: { vertical: 'center', horizontal: 'left' }
+              }
+            };
+          } else {
+            ws[cellRef] = {
+              v: val ?? '',
+              t: isNum ? 'n' : 's',
+              s: {
+                font: { sz: 10, name: 'Calibri', color: { rgb: '1C1917' } },
+                alignment: { vertical: 'center', horizontal: isNum ? 'right' : 'left' }
+              }
+            };
+          }
         });
       });
 
@@ -751,7 +923,8 @@ export class ArchiveComponent {
     ws['!cols'] = headers.map((h, colIdx) => {
       let maxLen = Math.max(h.length, (descriptions[colIdx] || '').length);
       dataRows.forEach(r => {
-        const str = String(r[colIdx] ?? '');
+        const cellVal = r[colIdx];
+        const str = cellVal instanceof Date ? cellVal.toISOString().slice(0, 10) : String(cellVal ?? '');
         if (str.length > maxLen) maxLen = str.length;
       });
       return { wch: Math.min(Math.max(maxLen + 4, 15), 55) };
@@ -789,7 +962,7 @@ export class ArchiveComponent {
       const completedTasksList = this.completedTasks();
       const projList = this.projectService.projects();
       const allTaskList = this.taskService.tasks();
-      const completedRows: (string | number)[][] = [];
+      const completedRows: (string | number | Date)[][] = [];
 
       for (let i = 0; i < completedTasksList.length; i += 250) {
         const chunk = completedTasksList.slice(i, i + 250);
@@ -802,8 +975,8 @@ export class ArchiveComponent {
             'COMPLETED',
             this.getProjectName(t.project_id),
             t.assignee || 'Unassigned',
-            t.due_date || 'N/A',
-            t.created_at ? new Date(t.created_at).toLocaleDateString() : 'N/A'
+            this.parseExcelDate(t.due_date),
+            this.parseExcelDate(t.created_at)
           ]);
         });
         await this.yieldToMain();
@@ -834,7 +1007,7 @@ export class ArchiveComponent {
         'Timestamp when task was logged'
       ];
 
-      const allTaskRows: (string | number)[][] = [];
+      const allTaskRows: (string | number | Date)[][] = [];
       for (let i = 0; i < allTaskList.length; i += 250) {
         const chunk = allTaskList.slice(i, i + 250);
         chunk.forEach(t => {
@@ -847,8 +1020,8 @@ export class ArchiveComponent {
             t.completed ? 'YES' : 'NO',
             this.getProjectName(t.project_id),
             t.assignee || 'Unassigned',
-            t.due_date || 'N/A',
-            t.created_at ? new Date(t.created_at).toLocaleDateString() : 'N/A'
+            this.parseExcelDate(t.due_date),
+            this.parseExcelDate(t.created_at)
           ]);
         });
         await this.yieldToMain();
@@ -913,7 +1086,7 @@ export class ArchiveComponent {
       const activityRows = activityList.map(act => [
         act.action,
         act.description,
-        this.formatDate(act.timestamp)
+        this.parseExcelDate(act.timestamp)
       ]);
 
       const activitiesWs = await this.createStyledSheetAsync(

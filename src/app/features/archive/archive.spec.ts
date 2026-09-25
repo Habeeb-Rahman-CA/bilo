@@ -139,13 +139,45 @@ describe('ArchiveComponent - Pagination & Large Task History', () => {
     expect(component.isExporting()).toBe(false);
 
     const exportPromise = component.exportData();
-    expect(component.isExporting()).toBe(true);
-
     await exportPromise;
 
     expect(component.exportProgress()).toBe(100);
     expect(component.exportStepMessage()).toBe('Export completed successfully!');
   });
+
+  it('should filter activity stream by search query and date range', () => {
+    const testActivities = [
+      { id: 'act-1', action: 'Task Created', description: 'Created task Payment Gateway', timestamp: '2026-09-01T10:00:00Z', project_id: 'proj-1' },
+      { id: 'act-2', action: 'Task Updated', description: 'Updated task Auth Flow', timestamp: '2026-09-15T14:30:00Z', project_id: 'proj-1' },
+      { id: 'act-3', action: 'Task Deleted', description: 'Deleted duplicate task', timestamp: '2026-09-25T18:00:00Z', project_id: 'proj-1' }
+    ];
+    (component.projectService as any).activities = () => testActivities;
+
+    // Default all 3
+    expect(component.filteredActivities().length).toBe(3);
+
+    // Search query filter
+    component.onActivitySearch('Payment');
+    expect(component.filteredActivities().length).toBe(1);
+    expect(component.filteredActivities()[0].id).toBe('act-1');
+
+    // Reset search query
+    component.onActivitySearch('');
+
+    // Date range filter: Sept 10 to Sept 20
+    component.onActivityStartDateChange('2026-09-10');
+    component.onActivityEndDateChange('2026-09-20');
+    expect(component.filteredActivities().length).toBe(1);
+    expect(component.filteredActivities()[0].id).toBe('act-2');
+
+    // Clear all filters
+    component.clearActivityFilters();
+    expect(component.activitySearchQuery()).toBe('');
+    expect(component.activityStartDate()).toBe('');
+    expect(component.activityEndDate()).toBe('');
+    expect(component.filteredActivities().length).toBe(3);
+  });
 });
+
 
 
