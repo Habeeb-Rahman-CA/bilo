@@ -9,7 +9,7 @@ import { WorkspaceService } from '../../core/services/workspace.service';
 import { TaskShareService } from '../../core/services/task-share.service';
 import { Project, Task, Workflow } from '../../core/models/project.model';
 import { getTaskKey } from '../../core/utils/task-key.util';
-import { compareDueDates } from '../../core/utils/date.util';
+import { compareDueDates, getLocalDateString } from '../../core/utils/date.util';
 import { TaskModalComponent } from '../../shared/components/task-modal';
 import { TaskDetailModalComponent } from '../../shared/components/task-detail-modal';
 import { SelectComponent, SelectOption } from '../../shared/components/select';
@@ -1187,7 +1187,7 @@ export class TasksComponent implements OnInit, OnDestroy, AfterViewInit {
     const q = this.searchQuery().toLowerCase().trim();
     const sort = this.sortBy();
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
 
     list = list.filter(t => {
       if (projId !== 'all' && t.project_id !== projId) return false;
@@ -1338,7 +1338,7 @@ export class TasksComponent implements OnInit, OnDestroy, AfterViewInit {
 
   isOverdue(dueDate?: string): boolean {
     if (!dueDate) return false;
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
     return dueDate < todayStr;
   }
 

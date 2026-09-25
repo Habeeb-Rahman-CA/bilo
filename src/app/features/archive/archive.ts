@@ -5,6 +5,7 @@ import { TaskService } from '../../core/services/task.service';
 import { ProjectService } from '../../core/services/project.service';
 import { Task, Project } from '../../core/models/project.model';
 import { getTaskKey } from '../../core/utils/task-key.util';
+import { getLocalDateString } from '../../core/utils/date.util';
 
 @Component({
   selector: 'app-archive',
@@ -433,7 +434,7 @@ export class ArchiveComponent {
     XLSX.utils.book_append_sheet(wb, activitiesWs, 'Activity Stream');
 
     // Generate & download formatted .xlsx file
-    const filename = `bilo-workspace-export-${new Date().toISOString().split('T')[0]}.xlsx`;
+    const filename = `bilo-workspace-export-${getLocalDateString()}.xlsx`;
     XLSX.writeFile(wb, filename);
   }
 

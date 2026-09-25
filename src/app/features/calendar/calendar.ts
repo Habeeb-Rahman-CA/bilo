@@ -8,6 +8,7 @@ import { Task } from '../../core/models/project.model';
 import { TaskDetailModalComponent } from '../../shared/components/task-detail-modal';
 import { TaskModalComponent } from '../../shared/components/task-modal';
 import { DatePickerComponent } from '../../shared/components/date-picker';
+import { getLocalDateString, isoToLocalDateString } from '../../core/utils/date.util';
 
 export interface CalendarDayCell {
   dayNumber: number;
@@ -807,7 +808,7 @@ export class CalendarComponent implements OnInit {
     const year = curr.getFullYear();
     const month = curr.getMonth();
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
 
     // First day of current month
     const firstDay = new Date(year, month, 1);
@@ -871,11 +872,11 @@ export class CalendarComponent implements OnInit {
   });
 
   private buildDayCell(dayNumber: number, dateStr: string, isCurrentMonth: boolean, isToday: boolean, allTasks: Task[]): CalendarDayCell {
-    const createdTasks = allTasks.filter(t => t.created_at && t.created_at.startsWith(dateStr));
+    const createdTasks = allTasks.filter(t => t.created_at && isoToLocalDateString(t.created_at) === dateStr);
 
     const closedTasks = allTasks.filter(t => {
       if (!t.completed && (t.status || '').toLowerCase() !== 'done') return false;
-      const closedDate = t.updated_at ? t.updated_at.split('T')[0] : (t.created_at ? t.created_at.split('T')[0] : '');
+      const closedDate = t.updated_at ? isoToLocalDateString(t.updated_at) : (t.created_at ? isoToLocalDateString(t.created_at) : '');
       return closedDate === dateStr;
     });
 

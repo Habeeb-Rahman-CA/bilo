@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getLocalDateString, getOffsetDateString, parseYMDDate, formatDueDate, isOverdue, normalizeDueDate, isDueSoon, compareDueDates } from './date.util';
+import { getLocalDateString, getOffsetDateString, parseYMDDate, formatDueDate, isOverdue, normalizeDueDate, isDueSoon, compareDueDates, isoToLocalDateString, isSameLocalDate } from './date.util';
 
 describe('Date Utilities', () => {
   it('should return YYYY-MM-DD in local time without UTC offset shifting', () => {
@@ -88,6 +88,20 @@ describe('Date Utilities', () => {
     expect(compareDueDates(null, null, 1, t1, t2)).toBeLessThan(0);
     expect(compareDueDates(null, null, -1, t1, t2)).toBeGreaterThan(0);
     expect(compareDueDates('No due date', 'None', 1, t1, t2)).toBeLessThan(0);
+  });
+
+  it('should convert ISO UTC timestamps to local YYYY-MM-DD date strings without shifting across timezones', () => {
+    const isoUtc = '2026-09-25T14:30:00.000Z';
+    const localStr = isoToLocalDateString(isoUtc);
+    expect(localStr).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(isoToLocalDateString('')).toBe('');
+    expect(isoToLocalDateString(null)).toBe('');
+  });
+
+  it('should correctly compare local dates for cross-timezone equality', () => {
+    expect(isSameLocalDate('2026-09-25T10:00:00Z', '2026-09-25')).toBe(true);
+    expect(isSameLocalDate('2026-09-25', '2026-09-26')).toBe(false);
+    expect(isSameLocalDate(null, '2026-09-25')).toBe(false);
   });
 });
 

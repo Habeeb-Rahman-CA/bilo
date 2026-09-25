@@ -8,7 +8,7 @@ import { WorkspaceService } from '../../core/services/workspace.service';
 import { TaskShareService } from '../../core/services/task-share.service';
 import { Task } from '../../core/models/project.model';
 import { getTaskKey } from '../../core/utils/task-key.util';
-import { compareDueDates } from '../../core/utils/date.util';
+import { compareDueDates, getLocalDateString, getOffsetDateString } from '../../core/utils/date.util';
 import { TaskDetailModalComponent } from '../../shared/components/task-detail-modal';
 import { TaskModalComponent } from '../../shared/components/task-modal';
 import { SelectComponent, SelectOption } from '../../shared/components/select';
@@ -1431,8 +1431,8 @@ export class BacklogComponent implements OnInit, OnDestroy {
     }
 
     if (dueFilter !== 'all') {
-      const todayStr = new Date().toISOString().split('T')[0];
-      const weekAhead = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
+      const todayStr = getLocalDateString();
+      const weekAhead = getOffsetDateString(7);
       if (dueFilter === 'overdue') list = list.filter(t => t.due_date && t.due_date < todayStr && !t.completed);
       else if (dueFilter === 'today') list = list.filter(t => t.due_date === todayStr);
       else if (dueFilter === 'week') list = list.filter(t => t.due_date && t.due_date >= todayStr && t.due_date <= weekAhead);

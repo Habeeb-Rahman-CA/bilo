@@ -68,6 +68,27 @@ export function isDueSoon(dueDateInput?: string | null, isCompleted: boolean = f
 }
 
 /**
+ * Converts an ISO UTC timestamp (e.g. "2026-09-25T20:30:00.000Z") to a local YYYY-MM-DD date string
+ * in the user's current timezone.
+ */
+export function isoToLocalDateString(isoString?: string | null): string {
+  if (!isoString || typeof isoString !== 'string') return '';
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return isoString.split('T')[0] || '';
+  return getLocalDateString(d);
+}
+
+/**
+ * Checks if two date inputs (ISO string or YYYY-MM-DD) represent the exact same calendar day in local time.
+ */
+export function isSameLocalDate(dateA?: string | null, dateB?: string | null): boolean {
+  if (!dateA || !dateB) return false;
+  const localA = dateA.includes('T') ? isoToLocalDateString(dateA) : normalizeDueDate(dateA);
+  const localB = dateB.includes('T') ? isoToLocalDateString(dateB) : normalizeDueDate(dateB);
+  return !!localA && !!localB && localA === localB;
+}
+
+/**
  * Safely compares two task due dates for sorting.
  * Ensures unscheduled tasks (null / empty due_date) are ALWAYS placed consistently
  * at the end of the list, regardless of ascending or descending sort order.
