@@ -458,7 +458,7 @@ import { RichEditorComponent } from './rich-editor';
                                     </span>
                                     <span class="activity-user">
                                       <i class="fi fi-rr-user"></i>
-                                      <span>{{ (h.changed_by && h.changed_by !== 'Self') ? h.changed_by : 'User' }}</span>
+                                      <span>{{ getActorDisplayName(h) }}</span>
                                     </span>
                                   </div>
 
@@ -1877,6 +1877,35 @@ export class TaskDetailModalComponent implements OnInit {
     if (!this.previewImageModal() && !this.isEditingTitle() && !this.isEditingDesc() && !this.isEditingLabels()) {
       this.close.emit();
     }
+  }
+
+  getActorDisplayName(h: TaskStatusHistory): string {
+    const userIdOrName = h.user_id || h.changed_by;
+    if (!userIdOrName || userIdOrName === 'Self') return 'User';
+
+    const currentUser = this.authService.user();
+    if (currentUser) {
+      if (userIdOrName === currentUser.id || userIdOrName === currentUser.email) {
+        const meta = currentUser.user_metadata;
+        const currentName = meta?.['display_name'] || meta?.['full_name'] || meta?.['name'] ||
+          (currentUser.email ? currentUser.email.split('@')[0] : 'User');
+        return currentName;
+      }
+    }
+
+    const option = this.assigneeOptions.find(opt => opt.value === userIdOrName || opt.label.includes(userIdOrName));
+    if (option && option.value !== 'Unassigned') {
+      return option.label.replace(' (You)', '');
+    }
+
+    if (h.changed_by && h.changed_by !== 'Self') {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(h.changed_by);
+      if (!isUuid) {
+        return h.changed_by;
+      }
+    }
+
+    return 'User';
   }
 
   async ngOnInit() {

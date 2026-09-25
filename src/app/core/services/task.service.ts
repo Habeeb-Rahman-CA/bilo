@@ -403,7 +403,7 @@ export class TaskService {
       to_status: initialStatus,
       action_type: 'created',
       details: `Created task with initial status "${initialStatus}"`,
-      changed_by: currentUser?.email ? currentUser.email.split('@')[0] : 'User',
+      changed_by: currentUser?.id || (currentUser?.email ? currentUser.email.split('@')[0] : 'User'),
       created_at: newTask.created_at
     };
     this.recordStatusHistory(historyEntry);
@@ -455,13 +455,15 @@ export class TaskService {
     if (updatedTask) {
       const taskObj: Task = updatedTask;
       const currentUser = this.authService.user();
-      const updaterName = currentUser?.email ? currentUser.email.split('@')[0] : (taskObj.assignee || 'User');
+      const userId = currentUser?.id;
+      const updaterName = userId || (currentUser?.email ? currentUser.email.split('@')[0] : (taskObj.assignee || 'User'));
 
       // 1) Status Change
       if (updates.status && existingTask && updates.status.trim().toLowerCase() !== existingTask.status.trim().toLowerCase()) {
         const historyEntry: TaskStatusHistory = {
           id: crypto.randomUUID(),
           task_id: id,
+          user_id: userId,
           from_status: existingTask.status,
           to_status: updates.status,
           action_type: 'status',
@@ -481,6 +483,7 @@ export class TaskService {
         this.recordStatusHistory({
           id: crypto.randomUUID(),
           task_id: id,
+          user_id: userId,
           from_status: taskObj.status,
           to_status: taskObj.status,
           action_type: 'assignee',
@@ -495,6 +498,7 @@ export class TaskService {
         this.recordStatusHistory({
           id: crypto.randomUUID(),
           task_id: id,
+          user_id: userId,
           from_status: taskObj.status,
           to_status: taskObj.status,
           action_type: 'priority',
@@ -509,6 +513,7 @@ export class TaskService {
         this.recordStatusHistory({
           id: crypto.randomUUID(),
           task_id: id,
+          user_id: userId,
           from_status: taskObj.status,
           to_status: taskObj.status,
           action_type: 'title',
@@ -523,6 +528,7 @@ export class TaskService {
         this.recordStatusHistory({
           id: crypto.randomUUID(),
           task_id: id,
+          user_id: userId,
           from_status: taskObj.status,
           to_status: taskObj.status,
           action_type: 'description',
@@ -538,6 +544,7 @@ export class TaskService {
         this.recordStatusHistory({
           id: crypto.randomUUID(),
           task_id: id,
+          user_id: userId,
           from_status: taskObj.status,
           to_status: taskObj.status,
           action_type: 'due_date',
@@ -563,12 +570,22 @@ export class TaskService {
   }
 
   recordStatusHistory(entry: TaskStatusHistory) {
+    const currentUser = this.authService.user();
+    const userId = entry.user_id || currentUser?.id;
+    const finalChangedBy = entry.user_id ? entry.user_id : (currentUser?.id || entry.changed_by || 'User');
+
+    const updatedEntry: TaskStatusHistory = {
+      ...entry,
+      user_id: userId,
+      changed_by: finalChangedBy
+    };
+
     this.taskStatusHistory.update(map => ({
       ...map,
-      [entry.task_id]: [...(map[entry.task_id] || []), entry]
+      [updatedEntry.task_id]: [...(map[updatedEntry.task_id] || []), updatedEntry]
     }));
     this.saveToStorage();
-    this.syncService.enqueue('ADD_STATUS_HISTORY', entry);
+    this.syncService.enqueue('ADD_STATUS_HISTORY', updatedEntry);
   }
 
   async loadStatusHistoryForTask(taskId: string): Promise<TaskStatusHistory[]> {
@@ -618,9 +635,10 @@ export class TaskService {
           {
             id: 'init-' + task.id,
             task_id: task.id,
+            user_id: task.user_id,
             from_status: '',
             to_status: task.status,
-            changed_by: task.assignee || 'Self',
+            changed_by: task.user_id || task.assignee || 'Self',
             created_at: task.created_at
           }
         ];
@@ -720,7 +738,8 @@ export class TaskService {
     if (existingTasks.length === 0) return;
 
     const currentUser = this.authService.user();
-    const updaterName = currentUser?.email ? currentUser.email.split('@')[0] : 'User';
+    const userId = currentUser?.id;
+    const updaterName = userId || (currentUser?.email ? currentUser.email.split('@')[0] : 'User');
     const now = new Date().toISOString();
 
     // 1) Update matching tasks in a single signal update
@@ -759,6 +778,7 @@ export class TaskService {
         this.recordStatusHistory({
           id: crypto.randomUUID(),
           task_id: existingTask.id,
+          user_id: userId,
           from_status: existingTask.status,
           to_status: updates.status,
           action_type: 'status',
@@ -772,6 +792,7 @@ export class TaskService {
         this.recordStatusHistory({
           id: crypto.randomUUID(),
           task_id: existingTask.id,
+          user_id: userId,
           from_status: existingTask.status,
           to_status: existingTask.status,
           action_type: 'priority',
@@ -911,16 +932,19 @@ export class TaskService {
     const task = this.tasks().find(t => t.id === taskId);
     if (task) {
       this.projectService.logActivity(task.project_id, 'Comment Added', `Added comment on "${task.title}"`);
+      const currentUser = this.authService.user();
+      const userId = currentUser?.id;
       this.recordStatusHistory({
         id: crypto.randomUUID(),
         task_id: taskId,
+        user_id: userId,
         from_status: task.status,
         to_status: task.status,
         action_type: 'comment',
         details: attachments && attachments.length > 0
           ? `Added a comment with ${attachments.length} image attachment(s)`
           : `Added a comment`,
-        changed_by: displayName,
+        changed_by: userId || displayName,
         created_at: newComm.created_at
       });
     }
