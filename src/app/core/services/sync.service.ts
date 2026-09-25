@@ -518,6 +518,28 @@ export class SyncService {
   readonly LOCK_TIMEOUT_MS = 30000;
   private lastSyncStartTime: number = 0;
 
+  private async executeOpWithTimeout(
+    op: PendingSyncOp,
+    currentUserId: string,
+    timeoutMs: number = 15000
+  ): Promise<{ success: boolean; fatal?: boolean; rateLimited?: boolean; error?: string }> {
+    let timer: any;
+    const timeoutPromise = new Promise<{ success: boolean; fatal?: boolean; rateLimited?: boolean; error?: string }>(resolve => {
+      timer = setTimeout(() => {
+        resolve({ success: false, fatal: false, error: `Operation ${op.type} (${op.id}) timed out after ${timeoutMs}ms` });
+      }, timeoutMs);
+    });
+
+    try {
+      return await Promise.race([
+        this.executeOpResult(op, currentUserId),
+        timeoutPromise
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async processQueue() {
     const now = Date.now();
     if (this.syncing()) {
@@ -558,7 +580,7 @@ export class SyncService {
         }
 
         attemptedIds.add(op.id);
-        const result = await this.executeOpResult(op, currentUserId);
+        const result = await this.executeOpWithTimeout(op, currentUserId, 15000);
 
         if (result.success) {
           this.pendingSyncQueue.update(q => q.filter(o => o.id !== op.id));

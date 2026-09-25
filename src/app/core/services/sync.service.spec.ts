@@ -350,7 +350,35 @@ describe('SyncService User Data Isolation & DLQ Escalation', () => {
     expect(syncService.deadLetterQueue().length).toBe(1);
     expect(syncService.deadLetterQueue()[0].lastError).toContain('FK retry failed');
   });
+
+  it('should timeout hanging operations in processQueue and ensure syncing signal resets to false', async () => {
+    mockSupabaseService.supabase.from = () => ({
+      upsert: () => new Promise(() => {}) // Never resolves (simulating hung connection)
+    });
+
+    syncService.pendingSyncQueue.set([
+      {
+        id: 'op-hung',
+        user_id: 'user-111',
+        type: 'CREATE_TASK',
+        payload: { id: 't-hung', title: 'Hung Promise Task' },
+        timestamp: new Date().toISOString()
+      }
+    ]);
+
+    // Override executeOpWithTimeout to use a 50ms timeout for fast test execution
+    const origExecute = (syncService as any).executeOpWithTimeout;
+    (syncService as any).executeOpWithTimeout = (op: any, uid: string) => origExecute.call(syncService, op, uid, 50);
+
+    await syncService.processQueue();
+
+    expect(syncService.syncing()).toBe(false);
+    expect(syncService.pendingSyncQueue().length).toBe(1);
+    expect(syncService.pendingSyncQueue()[0].retryCount).toBe(1);
+  });
 });
+
+
 
 
 
