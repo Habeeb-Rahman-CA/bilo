@@ -72,6 +72,8 @@ export class TaskShareService {
    * Checks URL query params or hash for ?task=KEY or ?task=UUID
    */
   checkUrlForTaskParam() {
+    if (typeof window === 'undefined') return;
+
     const urlParams = new URLSearchParams(window.location.search);
     let taskParam = urlParams.get('task') || urlParams.get('taskId');
 
@@ -89,9 +91,12 @@ export class TaskShareService {
     }
 
     if (taskParam) {
+      this.hasProcessedInitialUrl = true;
       const opened = this.openTaskByParam(taskParam);
-      if (opened) {
-        this.hasProcessedInitialUrl = true;
+      if (!opened) {
+        // Clean up invalid task parameter from URL to prevent broken navigation state
+        const cleanUrl = window.location.pathname + (window.location.hash || '');
+        window.history.replaceState(null, '', cleanUrl);
       }
     }
   }
@@ -125,6 +130,7 @@ export class TaskShareService {
       return true;
     }
 
+    this.showToast(`Shared task "${cleanParam}" not found or may have been deleted`);
     return false;
   }
 
