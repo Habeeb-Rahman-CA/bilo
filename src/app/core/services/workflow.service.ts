@@ -211,21 +211,10 @@ export class WorkflowService {
     }
 
     targetProjectId = targetProjectId || 'global';
+    const currentList = this.workflowsByProject()[targetProjectId] || [];
+    const remainingWorkflows = currentList.filter(w => w.id !== id);
 
-    this.workflowsByProject.update(map => {
-      const result: Record<string, Workflow[]> = { ...map };
-      for (const p in result) {
-        if (!projectId || p === targetProjectId) {
-          result[p] = result[p].filter(w => w.id !== id);
-        }
-      }
-      return result;
-    });
-    this.saveToStorage();
-
-    const remainingWorkflows = (this.workflowsByProject()[targetProjectId] || []);
     let fallbackWf: Workflow | undefined;
-
     if (fallbackWorkflowId) {
       fallbackWf = remainingWorkflows.find(w => w.id === fallbackWorkflowId || w.name === fallbackWorkflowId);
     }
@@ -237,6 +226,7 @@ export class WorkflowService {
       fallbackWf = defaults[0];
     }
 
+    // 1) Reassign all affected tasks FIRST before removing column from signal state
     if (this.injector && fallbackWf) {
       try {
         const taskService = this.injector.get(TaskService);
@@ -245,11 +235,12 @@ export class WorkflowService {
           const deletedWfNameLower = deletedWf?.name?.trim().toLowerCase();
 
           const affectedTasks = allTasks.filter(t => {
-            if (t.workflow_id === id) return true;
-            if (targetProjectId !== 'global' && t.project_id !== targetProjectId) return false;
-            if (t.status === id) return true;
-            if (deletedWfNameLower && t.status?.trim().toLowerCase() === deletedWfNameLower) return true;
-            return false;
+            const matchesWfId = t.workflow_id === id;
+            const matchesStatusId = t.status === id;
+            const matchesStatusName = !!(deletedWfNameLower && t.status?.trim().toLowerCase() === deletedWfNameLower);
+            const matchesProject = targetProjectId === 'global' || !t.project_id || t.project_id === targetProjectId || !projectId;
+
+            return (matchesWfId || matchesStatusId || matchesStatusName) && matchesProject;
           });
 
           for (const t of affectedTasks) {
@@ -276,6 +267,19 @@ export class WorkflowService {
       }
     }
 
+    // 2) Remove column from signal state & local storage after task reassignment
+    this.workflowsByProject.update(map => {
+      const result: Record<string, Workflow[]> = { ...map };
+      for (const p in result) {
+        if (!projectId || p === targetProjectId) {
+          result[p] = result[p].filter(w => w.id !== id);
+        }
+      }
+      return result;
+    });
+    this.saveToStorage();
+
+    // 3) Remove workflow from database
     try {
       await this.supabaseService.supabase
         .from('workflows')
