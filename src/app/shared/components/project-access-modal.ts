@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ProjectService } from '../../core/services/project.service';
 import { AuthService } from '../../core/services/auth.service';
 import { Project, ProjectMember, ProjectRole } from '../../core/models/project.model';
+import { copyToClipboard } from '../../core/utils/clipboard.util';
 import { ConfirmModalComponent } from './confirm-modal';
 import { SelectComponent, SelectOption } from './select';
 
@@ -384,12 +385,10 @@ export class ProjectAccessModalComponent implements OnInit {
       this.generatedInviteLink.set(link);
     }
     if (!link) return;
-    try {
-      await navigator.clipboard.writeText(link);
+    const success = await copyToClipboard(link);
+    if (success) {
       this.linkCopied.set(true);
       setTimeout(() => this.linkCopied.set(false), 3000);
-    } catch (e) {
-      console.warn('Failed to copy to clipboard:', e);
     }
   }
 

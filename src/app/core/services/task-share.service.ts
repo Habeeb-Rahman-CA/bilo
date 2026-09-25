@@ -1,6 +1,7 @@
 import { Injectable, signal, effect } from '@angular/core';
 import { Task, Project } from '../models/project.model';
 import { getTaskKey } from '../utils/task-key.util';
+import { copyToClipboard } from '../utils/clipboard.util';
 import { TaskService } from './task.service';
 import { ProjectService } from './project.service';
 import { WorkspaceService } from './workspace.service';
@@ -47,20 +48,11 @@ export class TaskShareService {
     const baseUrl = `${window.location.origin}${window.location.pathname}`;
     const shareUrl = `${baseUrl}?task=${key}`;
 
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(shareUrl);
-      } else {
-        const textarea = document.createElement('textarea');
-        textarea.value = shareUrl;
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textarea);
-      }
+    const success = await copyToClipboard(shareUrl);
+    if (success) {
       this.showToast(`Link copied for ${key}!`);
-    } catch (e) {
-      console.error('Failed to copy share link', e);
+    } else {
+      console.warn('Failed to auto-copy share link to clipboard:', shareUrl);
       this.showToast(`Share URL: ${shareUrl}`);
     }
 
