@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getLocalDateString, getOffsetDateString, parseYMDDate, formatDueDate, isOverdue } from './date.util';
+import { getLocalDateString, getOffsetDateString, parseYMDDate, formatDueDate, isOverdue, normalizeDueDate, isDueSoon } from './date.util';
 
 describe('Date Utilities', () => {
   it('should return YYYY-MM-DD in local time without UTC offset shifting', () => {
@@ -33,5 +33,24 @@ describe('Date Utilities', () => {
     expect(isOverdue(yesterdayStr, false)).toBe(true);
     expect(isOverdue(yesterdayStr, true)).toBe(false); // Completed tasks are not overdue
     expect(isOverdue(tomorrowStr, false)).toBe(false);
+  });
+
+  it('should normalize ISO timestamp due dates to local YYYY-MM-DD', () => {
+    expect(normalizeDueDate('2026-09-25T18:30:00Z')).toBe('2026-09-25');
+    expect(normalizeDueDate('2026-09-25')).toBe('2026-09-25');
+    expect(normalizeDueDate(null)).toBeNull();
+  });
+
+  it('should evaluate isDueSoon accurately for upcoming tasks', () => {
+    const todayStr = getLocalDateString();
+    const in3DaysStr = getOffsetDateString(3);
+    const in10DaysStr = getOffsetDateString(10);
+    const yesterdayStr = getOffsetDateString(-1);
+
+    expect(isDueSoon(todayStr, false, 7)).toBe(true);
+    expect(isDueSoon(in3DaysStr, false, 7)).toBe(true);
+    expect(isDueSoon(in10DaysStr, false, 7)).toBe(false);
+    expect(isDueSoon(yesterdayStr, false, 7)).toBe(false); // Overdue, not due soon
+    expect(isDueSoon(todayStr, true, 7)).toBe(false); // Completed task
   });
 });

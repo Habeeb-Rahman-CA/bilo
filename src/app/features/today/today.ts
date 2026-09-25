@@ -6,6 +6,7 @@ import { ProjectService } from '../../core/services/project.service';
 import { WorkspaceService } from '../../core/services/workspace.service';
 import { WorkflowService } from '../../core/services/workflow.service';
 import { Task } from '../../core/models/project.model';
+import { isDueSoon } from '../../core/utils/date.util';
 import { TaskDetailModalComponent } from '../../shared/components/task-detail-modal';
 import { TaskModalComponent } from '../../shared/components/task-modal';
 @Component({
@@ -751,9 +752,7 @@ export class TodayComponent {
 
   dueSoonCount = computed(() => {
     const tasks = this.activeWorkspaceTasks();
-    const todayStr = new Date().toISOString().split('T')[0];
-    const sevenDaysAhead = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
-    return tasks.filter(t => !t.completed && t.due_date && t.due_date >= todayStr && t.due_date <= sevenDaysAhead).length;
+    return tasks.filter(t => !t.completed && (t.status || '').toLowerCase() !== 'done' && isDueSoon(t.due_date, false, 7)).length;
   });
 
   totalTaskCount = computed(() => this.activeWorkspaceTasks().length);

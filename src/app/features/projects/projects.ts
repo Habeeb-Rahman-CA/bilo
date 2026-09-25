@@ -6,6 +6,7 @@ import { TaskService } from '../../core/services/task.service';
 import { WorkflowService } from '../../core/services/workflow.service';
 import { WorkspaceService } from '../../core/services/workspace.service';
 import { Project, Task } from '../../core/models/project.model';
+import { isDueSoon, isOverdue } from '../../core/utils/date.util';
 import { ProjectModalComponent } from '../../shared/components/project-modal';
 import { WorkflowModalComponent } from '../../shared/components/workflow-modal';
 
@@ -528,8 +529,7 @@ export class ProjectsComponent {
     const percent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
     const openBugs = tasks.filter(t => !t.completed && (t.status || '').toLowerCase() !== 'done' && t.type === 'bug').length;
 
-    const todayStr = new Date().toISOString().split('T')[0];
-    const dueSoon = tasks.filter(t => !t.completed && (t.status || '').toLowerCase() !== 'done' && t.due_date && t.due_date <= todayStr).length;
+    const dueSoon = tasks.filter(t => !t.completed && (t.status || '').toLowerCase() !== 'done' && (isDueSoon(t.due_date, false, 7) || isOverdue(t.due_date, false))).length;
 
     return {
       totalTasks,

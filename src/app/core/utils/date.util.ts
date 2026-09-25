@@ -38,10 +38,27 @@ export function formatDueDate(dateInput?: string | null): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+export function normalizeDueDate(dueDateInput?: string | null): string | null {
+  if (!dueDateInput || typeof dueDateInput !== 'string') return null;
+  const clean = dueDateInput.split('T')[0].trim();
+  return clean.length >= 10 ? clean.slice(0, 10) : null;
+}
+
 export function isOverdue(dueDateInput?: string | null, isCompleted: boolean = false): boolean {
   if (!dueDateInput || isCompleted) return false;
-  const cleanDate = dueDateInput.split('T')[0].trim();
+  const cleanDate = normalizeDueDate(dueDateInput);
   if (!cleanDate) return false;
   const todayStr = getLocalDateString();
   return cleanDate < todayStr;
+}
+
+export function isDueSoon(dueDateInput?: string | null, isCompleted: boolean = false, daysAhead: number = 7): boolean {
+  if (!dueDateInput || isCompleted) return false;
+  const taskDate = normalizeDueDate(dueDateInput);
+  if (!taskDate) return false;
+
+  const todayStr = getLocalDateString();
+  const futureStr = getOffsetDateString(daysAhead);
+
+  return taskDate >= todayStr && taskDate <= futureStr;
 }
