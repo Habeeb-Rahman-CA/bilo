@@ -5,7 +5,7 @@ import { ProjectService } from './project.service';
 import { PushNotificationService } from './push-notification.service';
 import { AuthService } from './auth.service';
 import { WorkflowService } from './workflow.service';
-import { Task, TaskComment, TaskStatusHistory } from '../models/project.model';
+import { Task, TaskComment, TaskStatusHistory, Workflow } from '../models/project.model';
 import { sanitizeLabels } from '../utils/label.util';
 
 export interface BatchOperationProgress {
@@ -620,6 +620,99 @@ export class TaskService {
     }
 
     return updatedTask;
+  }
+
+  async restoreTask(id: string): Promise<Task | null> {
+    const existingTask = this.tasks().find(t => t.id === id);
+    if (!existingTask) return null;
+
+    let projWorkflows: Workflow[] = [];
+    if (this.injector) {
+      try {
+        const workflowService = this.injector.get(WorkflowService);
+        if (workflowService) {
+          projWorkflows = workflowService.getWorkflowsForProject(existingTask.project_id) || [];
+        }
+      } catch (e) {}
+    }
+
+    if (projWorkflows.length === 0) {
+      projWorkflows = [
+        { id: 'wf-backlog', project_id: existingTask.project_id || 'global', name: 'Backlog', color: '#64748b', position: 0, created_at: '' },
+        { id: 'wf-todo', project_id: existingTask.project_id || 'global', name: 'To Do', color: '#3b82f6', position: 1, created_at: '' },
+        { id: 'wf-in-progress', project_id: existingTask.project_id || 'global', name: 'In Progress', color: '#eab308', position: 2, created_at: '' },
+        { id: 'wf-in-review', project_id: existingTask.project_id || 'global', name: 'In Review', color: '#a855f7', position: 3, created_at: '' },
+        { id: 'wf-done', project_id: existingTask.project_id || 'global', name: 'Done', color: '#22c55e', position: 4, created_at: '' }
+      ];
+    }
+
+    const isDoneStatus = (statusName?: string) => {
+      if (!statusName) return false;
+      const s = statusName.trim().toLowerCase();
+      return s === 'done' || s === 'completed' || s === 'closed';
+    };
+
+    // 1. Check task's status history for the most recent non-completed status that exists in current project workflow
+    let targetWf: Workflow | undefined;
+    const historyList = this.taskStatusHistory()[id] || [];
+    if (historyList.length > 0) {
+      for (let i = historyList.length - 1; i >= 0; i--) {
+        const fromStatus = historyList[i].from_status;
+        if (fromStatus && !isDoneStatus(fromStatus)) {
+          const match = projWorkflows.find(w => w.name.trim().toLowerCase() === fromStatus.trim().toLowerCase() && !isDoneStatus(w.name));
+          if (match) {
+            targetWf = match;
+            break;
+          }
+        }
+      }
+    }
+
+    // 2. If no valid status from history, check if existingTask.status is non-completed and exists in workflow
+    if (!targetWf && existingTask.status && !isDoneStatus(existingTask.status)) {
+      targetWf = projWorkflows.find(w => w.name.trim().toLowerCase() === existingTask.status.trim().toLowerCase() && !isDoneStatus(w.name));
+    }
+
+    // 3. Otherwise, look for an explicit "To Do" / "todo" or "In Progress" column
+    if (!targetWf) {
+      targetWf = projWorkflows.find(w => {
+        const name = w.name.trim().toLowerCase();
+        return (name === 'to do' || name === 'todo' || name === 'in progress') && !isDoneStatus(w.name);
+      });
+    }
+
+    // 4. Otherwise, look for "Backlog" column
+    if (!targetWf) {
+      targetWf = projWorkflows.find(w => {
+        const name = w.name.trim().toLowerCase();
+        return name === 'backlog' && !isDoneStatus(w.name);
+      });
+    }
+
+    // 5. Otherwise, pick the first non-completed workflow column in current column order
+    if (!targetWf) {
+      targetWf = projWorkflows.find(w => !isDoneStatus(w.name));
+    }
+
+    // 5. Fallback to first workflow column
+    if (!targetWf && projWorkflows.length > 0) {
+      targetWf = projWorkflows[0];
+    }
+
+    const targetStatus = targetWf ? targetWf.name : 'To Do';
+    const targetWorkflowId = targetWf ? targetWf.id : undefined;
+
+    const updated = await this.updateTask(id, {
+      completed: false,
+      status: targetStatus,
+      workflow_id: targetWorkflowId
+    });
+
+    if (updated) {
+      this.projectService.logActivity(existingTask.project_id, 'Task Restored', `Restored task "${existingTask.title}" to "${targetStatus}" status`);
+    }
+
+    return updated;
   }
 
   recordStatusHistory(entry: TaskStatusHistory) {
