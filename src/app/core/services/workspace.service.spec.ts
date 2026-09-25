@@ -98,4 +98,28 @@ describe('WorkspaceService', () => {
 
     expect(spy).toHaveBeenCalled();
   });
+
+  it('should ignore N and T shortcuts when target is inside a contenteditable rich text element', () => {
+    const spy = vi.spyOn(themeService, 'toggleTheme');
+    const contentEditableDiv = document.createElement('div');
+    contentEditableDiv.setAttribute('contenteditable', 'true');
+    const childSpan = document.createElement('span');
+    contentEditableDiv.appendChild(childSpan);
+    document.body.appendChild(contentEditableDiv);
+
+    const eventN = new KeyboardEvent('keydown', { key: 'n', bubbles: true });
+    Object.defineProperty(eventN, 'target', { value: childSpan });
+    window.dispatchEvent(eventN);
+
+    expect(service.globalCreateTaskModalOpen()).toBe(false);
+
+    const eventT = new KeyboardEvent('keydown', { key: 't', bubbles: true });
+    Object.defineProperty(eventT, 'target', { value: childSpan });
+    window.dispatchEvent(eventT);
+
+    expect(spy).not.toHaveBeenCalled();
+
+    document.body.removeChild(contentEditableDiv);
+  });
 });
+

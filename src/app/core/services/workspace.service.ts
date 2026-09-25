@@ -127,11 +127,20 @@ export class WorkspaceService {
     window.addEventListener('keydown', (e: KeyboardEvent) => {
       // Don't intercept shortcuts when typing in inputs/textareas/contenteditable
       const target = e.target as HTMLElement;
-      const isInput = target && (
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.tagName === 'SELECT' ||
-        target.isContentEditable
+      const isInput = !!(
+        target && (
+          target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable ||
+          (typeof target.closest === 'function' && (
+            !!target.closest('[contenteditable="true"]') ||
+            !!target.closest('[contenteditable=""]') ||
+            !!target.closest('.ProseMirror') ||
+            !!target.closest('.ql-editor') ||
+            !!target.closest('[role="textbox"]')
+          ))
+        )
       );
 
       // Global hotkeys (Cmd+K / Ctrl+K)
