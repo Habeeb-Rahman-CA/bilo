@@ -534,15 +534,20 @@ export class WorkflowService {
     }));
     this.saveToStorage();
 
-    for (const w of updated) {
+    if (this.supabaseService.supabase && updated.length > 0) {
       try {
+        const batchRecords = updated.map(w => ({
+          id: w.id,
+          project_id: key,
+          position: w.position,
+          name: w.name,
+          color: w.color,
+          allow_all_transitions: w.allow_all_transitions,
+          allowed_transitions: w.allowed_transitions
+        }));
         await this.supabaseService.supabase
           .from('workflows')
-          .update({
-            allow_all_transitions: w.allow_all_transitions,
-            allowed_transitions: w.allowed_transitions
-          })
-          .eq('id', w.id);
+          .upsert(batchRecords);
       } catch (e) {
         console.warn('Supabase sequential pipeline update warning:', e);
       }
@@ -563,6 +568,25 @@ export class WorkflowService {
       [key]: updated
     }));
     this.saveToStorage();
+
+    if (this.supabaseService.supabase && updated.length > 0) {
+      try {
+        const batchRecords = updated.map(w => ({
+          id: w.id,
+          project_id: key,
+          position: w.position,
+          name: w.name,
+          color: w.color,
+          allow_all_transitions: true,
+          allowed_transitions: []
+        }));
+        await this.supabaseService.supabase
+          .from('workflows')
+          .upsert(batchRecords);
+      } catch (e) {
+        console.warn('Supabase allow all transitions update warning:', e);
+      }
+    }
   }
 
   resetState() {

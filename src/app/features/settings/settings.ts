@@ -1337,14 +1337,6 @@ export class SettingsComponent {
     }
     this.deletedColumnIds = [];
     await this.workflowService.updateWorkflowPositions(projectId, this.columns);
-    for (const col of this.columns) {
-      await this.workflowService.updateWorkflowTransitions(
-        projectId,
-        col.id,
-        col.allow_all_transitions !== false,
-        col.allowed_transitions || []
-      );
-    }
   }
 
   private triggerSavedToast() {
