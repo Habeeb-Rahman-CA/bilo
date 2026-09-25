@@ -281,5 +281,46 @@ describe('SyncService User Data Isolation & DLQ Escalation', () => {
     expect(syncService.pendingSyncQueue()[0].retryCount).toBe(0);
     expect(syncService.deadLetterQueue().length).toBe(0);
   });
+
+  it('should deduplicate 50 rapid UPDATE_TASK enqueues down to a single queued operation', async () => {
+    syncService.isOnline.set(false); // keep offline to inspect queue without immediate drain
+
+    for (let i = 1; i <= 50; i++) {
+      await syncService.enqueue('UPDATE_TASK', { id: 'task-rapid', title: `Title ${i}` });
+    }
+
+    expect(syncService.pendingSyncQueue().length).toBe(1);
+    expect(syncService.pendingSyncQueue()[0].payload).toEqual({ id: 'task-rapid', title: 'Title 50' });
+  });
+
+  it('should coalesce UPDATE_COMMENT into ADD_COMMENT for the same comment', () => {
+    const queue: any[] = [
+      { id: '1', user_id: 'user-111', type: 'ADD_COMMENT', payload: { id: 'c-1', task_id: 't-1', content: 'Original' }, timestamp: '1' },
+      { id: '2', user_id: 'user-111', type: 'UPDATE_COMMENT', payload: { id: 'c-1', content: 'Edited V1' }, timestamp: '2' },
+      { id: '3', user_id: 'user-111', type: 'UPDATE_COMMENT', payload: { id: 'c-1', content: 'Edited V2' }, timestamp: '3' }
+    ];
+
+    const compacted = syncService.compactQueue(queue);
+    expect(compacted.length).toBe(1);
+    expect(compacted[0].type).toBe('ADD_COMMENT');
+    expect(compacted[0].payload).toEqual({ id: 'c-1', task_id: 't-1', content: 'Edited V2' });
+  });
+
+  it('should preserve in-flight operation at q[0] during rapid enqueues while syncing is active', async () => {
+    syncService.isOnline.set(false);
+    syncService.syncing.set(true);
+
+    syncService.pendingSyncQueue.set([
+      { id: 'op-inflight', user_id: 'user-111', type: 'UPDATE_TASK', payload: { id: 'task-1', title: 'In-Flight Title' }, timestamp: '1' }
+    ]);
+
+    await syncService.enqueue('UPDATE_TASK', { id: 'task-1', title: 'New Edit 1' });
+    await syncService.enqueue('UPDATE_TASK', { id: 'task-1', title: 'New Edit 2' });
+
+    expect(syncService.pendingSyncQueue().length).toBe(2);
+    expect(syncService.pendingSyncQueue()[0].id).toBe('op-inflight');
+    expect(syncService.pendingSyncQueue()[1].payload).toEqual({ id: 'task-1', title: 'New Edit 2' });
+  });
 });
+
 

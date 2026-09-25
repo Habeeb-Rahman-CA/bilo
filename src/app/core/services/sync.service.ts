@@ -257,15 +257,34 @@ export class SyncService {
 
       if (op.type === 'CREATE_TASK') {
         const taskId = op.payload?.id;
+        const projId = op.payload?.project_id;
+        if (projId && deletedProjectIds.has(projId)) continue;
+
         if (taskId && deletedTaskIds.has(taskId)) {
           const delIdx = result.findIndex(r => r.type === 'DELETE_TASK' && r.payload?.id === taskId);
           if (delIdx !== -1) result.splice(delIdx, 1);
           continue;
         }
+        if (taskId) {
+          const updateIndices: number[] = [];
+          for (let rIdx = 0; rIdx < result.length; rIdx++) {
+            if (result[rIdx].type === 'UPDATE_TASK' && result[rIdx].payload?.id === taskId) {
+              op.payload = { ...op.payload, ...result[rIdx].payload };
+              updateIndices.push(rIdx);
+            }
+          }
+          for (let u = updateIndices.length - 1; u >= 0; u--) {
+            result.splice(updateIndices[u], 1);
+          }
+        }
+        result.unshift(op);
+        continue;
       }
 
       if (op.type === 'UPDATE_TASK') {
         const taskId = op.payload?.id;
+        const projId = op.payload?.project_id;
+        if (projId && deletedProjectIds.has(projId)) continue;
         if (taskId && deletedTaskIds.has(taskId)) continue;
 
         const existingCreate = result.find(r => r.type === 'CREATE_TASK' && r.payload?.id === taskId);
@@ -279,6 +298,14 @@ export class SyncService {
           existingUpdate.payload = { ...op.payload, ...existingUpdate.payload };
           continue;
         }
+        result.unshift(op);
+        continue;
+      }
+
+      // Handle Task-subordinate entities (Comments, Status History) when task is deleted
+      if (op.type === 'ADD_COMMENT' || op.type === 'UPDATE_COMMENT' || op.type === 'DELETE_COMMENT' || op.type === 'ADD_STATUS_HISTORY') {
+        const taskId = op.payload?.task_id;
+        if (taskId && deletedTaskIds.has(taskId)) continue;
       }
 
       // Handle Project operations
@@ -296,17 +323,45 @@ export class SyncService {
           if (delIdx !== -1) result.splice(delIdx, 1);
           continue;
         }
+        if (projId) {
+          const updateIndices: number[] = [];
+          for (let rIdx = 0; rIdx < result.length; rIdx++) {
+            if (result[rIdx].type === 'UPDATE_PROJECT' && result[rIdx].payload?.id === projId) {
+              op.payload = { ...op.payload, ...result[rIdx].payload };
+              updateIndices.push(rIdx);
+            }
+          }
+          for (let u = updateIndices.length - 1; u >= 0; u--) {
+            result.splice(updateIndices[u], 1);
+          }
+        }
+        result.unshift(op);
+        continue;
       }
 
       if (op.type === 'UPDATE_PROJECT') {
         const projId = op.payload?.id;
         if (projId && deletedProjectIds.has(projId)) continue;
 
+        const existingCreate = result.find(r => r.type === 'CREATE_PROJECT' && r.payload?.id === projId);
+        if (existingCreate) {
+          existingCreate.payload = { ...op.payload, ...existingCreate.payload };
+          continue;
+        }
+
         const existingUpdate = result.find(r => r.type === 'UPDATE_PROJECT' && r.payload?.id === projId);
         if (existingUpdate) {
           existingUpdate.payload = { ...op.payload, ...existingUpdate.payload };
           continue;
         }
+        result.unshift(op);
+        continue;
+      }
+
+      // Handle Project-subordinate entities when project is deleted
+      if (op.type === 'ADD_PROJECT_ACTIVITY') {
+        const projId = op.payload?.project_id;
+        if (projId && deletedProjectIds.has(projId)) continue;
       }
 
       // Handle Comment operations
@@ -324,6 +379,50 @@ export class SyncService {
           if (delIdx !== -1) result.splice(delIdx, 1);
           continue;
         }
+        if (commId) {
+          const updateIndices: number[] = [];
+          for (let rIdx = 0; rIdx < result.length; rIdx++) {
+            if (result[rIdx].type === 'UPDATE_COMMENT' && result[rIdx].payload?.id === commId) {
+              op.payload = { ...op.payload, ...result[rIdx].payload };
+              updateIndices.push(rIdx);
+            }
+          }
+          for (let u = updateIndices.length - 1; u >= 0; u--) {
+            result.splice(updateIndices[u], 1);
+          }
+        }
+        result.unshift(op);
+        continue;
+      }
+
+      if (op.type === 'UPDATE_COMMENT') {
+        const commId = op.payload?.id;
+        if (commId && deletedCommentIds.has(commId)) continue;
+
+        const existingAdd = result.find(r => r.type === 'ADD_COMMENT' && r.payload?.id === commId);
+        if (existingAdd) {
+          existingAdd.payload = { ...op.payload, ...existingAdd.payload };
+          continue;
+        }
+
+        const existingUpdate = result.find(r => r.type === 'UPDATE_COMMENT' && r.payload?.id === commId);
+        if (existingUpdate) {
+          existingUpdate.payload = { ...op.payload, ...existingUpdate.payload };
+          continue;
+        }
+        result.unshift(op);
+        continue;
+      }
+
+      // Handle duplicate Status History entries
+      if (op.type === 'ADD_STATUS_HISTORY') {
+        const isDuplicate = result.some(r =>
+          r.type === 'ADD_STATUS_HISTORY' &&
+          r.payload?.task_id === op.payload?.task_id &&
+          r.payload?.from_status === op.payload?.from_status &&
+          r.payload?.to_status === op.payload?.to_status
+        );
+        if (isDuplicate) continue;
       }
 
       result.unshift(op);
@@ -349,7 +448,15 @@ export class SyncService {
       retryCount: 0
     };
 
-    this.pendingSyncQueue.update(q => this.compactQueue([...q, op]));
+    this.pendingSyncQueue.update(q => {
+      if (this.syncing() && q.length > 0) {
+        const inFlight = q[0];
+        const rest = q.slice(1);
+        return [inFlight, ...this.compactQueue([...rest, op])];
+      }
+      return this.compactQueue([...q, op]);
+    });
+
     await this.saveQueueToStorage(currentUserId);
 
     if (this.isOnline()) {
