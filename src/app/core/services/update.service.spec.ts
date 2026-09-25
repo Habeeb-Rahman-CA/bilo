@@ -51,4 +51,32 @@ describe('UpdateService', () => {
 
     expect(clearIntervalSpy).toHaveBeenCalled();
   });
+
+  it('should detect open modal dialogs as unsaved changes', () => {
+    service = new UpdateService();
+    expect(service.hasUnsavedChanges()).toBe(false);
+
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    document.body.appendChild(modal);
+
+    expect(service.hasUnsavedChanges()).toBe(true);
+
+    document.body.removeChild(modal);
+    expect(service.hasUnsavedChanges()).toBe(false);
+  });
+
+  it('should prompt user confirmation on activateUpdate if unsaved data exists', () => {
+    service = new UpdateService();
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    document.body.appendChild(modal);
+
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    service.activateUpdate();
+
+    expect(confirmSpy).toHaveBeenCalled();
+    document.body.removeChild(modal);
+  });
 });
