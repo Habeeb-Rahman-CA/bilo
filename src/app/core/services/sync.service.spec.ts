@@ -321,6 +321,36 @@ describe('SyncService User Data Isolation & DLQ Escalation', () => {
     expect(syncService.pendingSyncQueue()[0].id).toBe('op-inflight');
     expect(syncService.pendingSyncQueue()[1].payload).toEqual({ id: 'task-1', title: 'New Edit 2' });
   });
+
+  it('should propagate FK retry error and escalate to DLQ if FK violation recovery fails', async () => {
+    let upsertCallCount = 0;
+    mockSupabaseService.supabase.from = () => ({
+      upsert: async (payload: any[]) => {
+        upsertCallCount++;
+        // First call fails with FK violation 23503
+        // Second call (retry) fails with another DB error
+        return { error: { code: '23503', message: 'violates foreign key constraint "tasks_workflow_id_fkey"' } };
+      }
+    });
+
+    syncService.pendingSyncQueue.set([
+      {
+        id: 'op-fk-fail',
+        user_id: 'user-111',
+        type: 'CREATE_TASK',
+        payload: { id: 't-fk', title: 'FK Task', workflow_id: 'deleted-wf-id' },
+        timestamp: new Date().toISOString()
+      }
+    ]);
+
+    await syncService.processQueue();
+
+    expect(upsertCallCount).toBe(2); // Initial attempt + FK retry attempt
+    expect(syncService.pendingSyncQueue().length).toBe(0);
+    expect(syncService.deadLetterQueue().length).toBe(1);
+    expect(syncService.deadLetterQueue()[0].lastError).toContain('FK retry failed');
+  });
 });
+
 
 

@@ -623,6 +623,8 @@ export class SyncService {
           const cleanPayload = this.sanitizeTaskPayload(payload);
           cleanPayload.user_id = currentUserId;
           let { error } = await sb.from('tasks').upsert([cleanPayload]);
+
+          // Retry 1: Schema mismatch (missing columns like attachments)
           if (error && error.code === 'PGRST204') {
             delete cleanPayload.attachments;
             const retry = await sb.from('tasks').upsert([cleanPayload]);
@@ -631,6 +633,24 @@ export class SyncService {
             }
             return { success: true };
           }
+
+          // Retry 2: FK Constraint violation (e.g. deleted workflow or project on server)
+          if (error && (error.code === '23503' || String(error.message).includes('foreign key constraint'))) {
+            if (cleanPayload.workflow_id) cleanPayload.workflow_id = null;
+            if (cleanPayload.project_id) cleanPayload.project_id = null;
+
+            const fkRetry = await sb.from('tasks').upsert([cleanPayload]);
+            if (fkRetry.error) {
+              return {
+                success: false,
+                fatal: this.isFatalError(fkRetry.error),
+                rateLimited: this.isRateLimitError(fkRetry.error),
+                error: `FK retry failed: ${fkRetry.error.message}`
+              };
+            }
+            return { success: true };
+          }
+
           if (error) {
             return { success: false, fatal: this.isFatalError(error), rateLimited: this.isRateLimitError(error), error: error.message };
           }
@@ -640,6 +660,8 @@ export class SyncService {
           const { id, ...updates } = this.sanitizeTaskPayload(payload);
           const cleanUpdates: any = { id, ...updates, user_id: currentUserId };
           let { error } = await sb.from('tasks').upsert([cleanUpdates]);
+
+          // Retry 1: Schema mismatch (missing columns like attachments)
           if (error && error.code === 'PGRST204') {
             delete cleanUpdates.attachments;
             const retry = await sb.from('tasks').upsert([cleanUpdates]);
@@ -648,6 +670,24 @@ export class SyncService {
             }
             return { success: true };
           }
+
+          // Retry 2: FK Constraint violation (e.g. deleted workflow or project on server)
+          if (error && (error.code === '23503' || String(error.message).includes('foreign key constraint'))) {
+            if (cleanUpdates.workflow_id) cleanUpdates.workflow_id = null;
+            if (cleanUpdates.project_id) cleanUpdates.project_id = null;
+
+            const fkRetry = await sb.from('tasks').upsert([cleanUpdates]);
+            if (fkRetry.error) {
+              return {
+                success: false,
+                fatal: this.isFatalError(fkRetry.error),
+                rateLimited: this.isRateLimitError(fkRetry.error),
+                error: `FK retry failed: ${fkRetry.error.message}`
+              };
+            }
+            return { success: true };
+          }
+
           if (error) {
             return { success: false, fatal: this.isFatalError(error), rateLimited: this.isRateLimitError(error), error: error.message };
           }
@@ -671,11 +711,14 @@ export class SyncService {
               return { success: false, fatal: this.isFatalError(retry.error), rateLimited: this.isRateLimitError(retry.error), error: retry.error.message };
             }
             if (currentUserId) {
-              await sb.from('project_members').upsert([{
+              const { error: memErr } = await sb.from('project_members').upsert([{
                 project_id: payload.id,
                 user_id: currentUserId,
                 role: 'owner'
               }]);
+              if (memErr) {
+                console.warn('[bilo Sync] project_members upsert warning:', memErr.message);
+              }
             }
             return { success: true };
           }
@@ -683,11 +726,14 @@ export class SyncService {
             return { success: false, fatal: this.isFatalError(error), rateLimited: this.isRateLimitError(error), error: error.message };
           }
           if (currentUserId) {
-            await sb.from('project_members').upsert([{
+            const { error: memErr } = await sb.from('project_members').upsert([{
               project_id: payload.id,
               user_id: currentUserId,
               role: 'owner'
             }]);
+            if (memErr) {
+              console.warn('[bilo Sync] project_members upsert warning:', memErr.message);
+            }
           }
           return { success: true };
         }
@@ -735,14 +781,10 @@ export class SyncService {
         case 'ADD_COMMENT': {
           const cleanPayload = { ...payload, user_id: currentUserId };
           if (!cleanPayload.task_id || !this.isValidUuid(cleanPayload.task_id)) {
-            return { success: true };
+            return { success: false, fatal: true, error: 'Invalid or missing task_id UUID' };
           }
           const { error } = await sb.from('task_comments').upsert([cleanPayload]);
           if (error) {
-            if (error.code === '23503') {
-              console.warn('[bilo Sync] task_comments FK missing, resolved gracefully:', cleanPayload);
-              return { success: true };
-            }
             return { success: false, fatal: this.isFatalError(error), rateLimited: this.isRateLimitError(error), error: error.message };
           }
           return { success: true };
@@ -765,14 +807,10 @@ export class SyncService {
         case 'ADD_STATUS_HISTORY': {
           const cleanPayload = { ...payload, user_id: currentUserId };
           if (!cleanPayload.task_id || !this.isValidUuid(cleanPayload.task_id)) {
-            return { success: true };
+            return { success: false, fatal: true, error: 'Invalid or missing task_id UUID' };
           }
           const { error } = await sb.from('task_status_history').upsert([cleanPayload]);
           if (error) {
-            if (error.code === '23503') {
-              console.warn('[bilo Sync] task_status_history FK missing, resolved gracefully:', cleanPayload);
-              return { success: true };
-            }
             return { success: false, fatal: this.isFatalError(error), rateLimited: this.isRateLimitError(error), error: error.message };
           }
           return { success: true };
