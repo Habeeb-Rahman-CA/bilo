@@ -42,46 +42,70 @@ import { TaskModalComponent } from '../../shared/components/task-modal';
         </div>
       } @else {
         <div class="stats-row">
-        <!-- Card 1: Completed -->
-        <div class="stat-card paper-panel">
-          <div class="stat-top font-mono">
-            <span class="stat-label">COMPLETED</span>
-            <i class="fi fi-rr-check-circle text-emerald stat-icon"></i>
+          <!-- Card 1: Completed -->
+          <div class="stat-card paper-panel">
+            <div class="stat-top font-mono">
+              <span class="stat-label">COMPLETED</span>
+              <i class="fi fi-rr-check-circle text-emerald stat-icon"></i>
+            </div>
+            <div class="stat-value font-mono">
+              @if (isLoading()) {
+                <span class="skeleton-stat"></span>
+              } @else {
+                {{ completed7dCount() }}
+              }
+            </div>
+            <div class="stat-sub font-mono">Tasks finished in last 7d</div>
           </div>
-          <div class="stat-value font-mono">{{ completed7dCount() }}</div>
-          <div class="stat-sub font-mono">Tasks finished in last 7d</div>
-        </div>
 
-        <!-- Card 2: Updated -->
-        <div class="stat-card paper-panel">
-          <div class="stat-top font-mono">
-            <span class="stat-label">UPDATED</span>
-            <i class="fi fi-rr-refresh text-cyan stat-icon"></i>
+          <!-- Card 2: Updated -->
+          <div class="stat-card paper-panel">
+            <div class="stat-top font-mono">
+              <span class="stat-label">UPDATED</span>
+              <i class="fi fi-rr-refresh text-cyan stat-icon"></i>
+            </div>
+            <div class="stat-value font-mono">
+              @if (isLoading()) {
+                <span class="skeleton-stat"></span>
+              } @else {
+                {{ updated7dCount() }}
+              }
+            </div>
+            <div class="stat-sub font-mono">Tasks modified in last 7d</div>
           </div>
-          <div class="stat-value font-mono">{{ updated7dCount() }}</div>
-          <div class="stat-sub font-mono">Tasks modified in last 7d</div>
-        </div>
 
-        <!-- Card 3: Created -->
-        <div class="stat-card paper-panel">
-          <div class="stat-top font-mono">
-            <span class="stat-label">CREATED</span>
-            <i class="fi fi-rr-plus text-purple stat-icon"></i>
+          <!-- Card 3: Created -->
+          <div class="stat-card paper-panel">
+            <div class="stat-top font-mono">
+              <span class="stat-label">CREATED</span>
+              <i class="fi fi-rr-plus text-purple stat-icon"></i>
+            </div>
+            <div class="stat-value font-mono">
+              @if (isLoading()) {
+                <span class="skeleton-stat"></span>
+              } @else {
+                {{ created7dCount() }}
+              }
+            </div>
+            <div class="stat-sub font-mono">New issues in last 7d</div>
           </div>
-          <div class="stat-value font-mono">{{ created7dCount() }}</div>
-          <div class="stat-sub font-mono">New issues in last 7d</div>
-        </div>
 
-        <!-- Card 4: Due Soon -->
-        <div class="stat-card paper-panel">
-          <div class="stat-top font-mono">
-            <span class="stat-label">DUE SOON</span>
-            <i class="fi fi-rr-clock text-amber stat-icon"></i>
+          <!-- Card 4: Due Soon -->
+          <div class="stat-card paper-panel">
+            <div class="stat-top font-mono">
+              <span class="stat-label">DUE SOON</span>
+              <i class="fi fi-rr-clock text-amber stat-icon"></i>
+            </div>
+            <div class="stat-value font-mono">
+              @if (isLoading()) {
+                <span class="skeleton-stat"></span>
+              } @else {
+                {{ dueSoonCount() }}
+              }
+            </div>
+            <div class="stat-sub font-mono">Due within next 7d</div>
           </div>
-          <div class="stat-value font-mono">{{ dueSoonCount() }}</div>
-          <div class="stat-sub font-mono">Due within next 7d</div>
         </div>
-      </div>
 
       <!-- ROW 2: Status Overview (Pie/Donut Chart) + Recent Activity (Latest 5) -->
       <div class="dashboard-grid-2col">
@@ -89,66 +113,83 @@ import { TaskModalComponent } from '../../shared/components/task-modal';
         <div class="paper-panel grid-card">
           <div class="card-header">
             <h3><i class="fi fi-rr-chart-pie text-cyan"></i> Status Overview</h3>
-            <span class="badge-mono font-mono">{{ filteredStatusTasksCount() }} Tasks</span>
+            <span class="badge-mono font-mono">
+              @if (isLoading()) {
+                Loading...
+              } @else {
+                {{ filteredStatusTasksCount() }} Tasks
+              }
+            </span>
           </div>
 
           <div class="card-body donut-body">
-            <div class="donut-chart-container">
-              <!-- SVG Donut Chart -->
-              <svg class="donut-svg" viewBox="0 0 100 100">
-                <!-- Background track ring -->
-                <circle
-                  cx="50"
-                  cy="50"
-                  r="38"
-                  fill="transparent"
-                  stroke="var(--border-subtle)"
-                  stroke-width="16"
-                  [attr.stroke-dasharray]="filteredStatusTasksCount() === 0 ? '6 4' : null"
-                  [attr.opacity]="filteredStatusTasksCount() === 0 ? '0.6' : '0.25'"
-                />
-                @for (seg of donutSegments(); track seg.name) {
+            @if (isLoading()) {
+              <div class="skeleton-donut-container">
+                <div class="skeleton-circle"></div>
+                <div class="skeleton-legend font-mono">
+                  <div class="skeleton-line"></div>
+                  <div class="skeleton-line"></div>
+                  <div class="skeleton-line"></div>
+                </div>
+              </div>
+            } @else {
+              <div class="donut-chart-container">
+                <!-- SVG Donut Chart -->
+                <svg class="donut-svg" viewBox="0 0 100 100">
+                  <!-- Background track ring -->
                   <circle
                     cx="50"
                     cy="50"
                     r="38"
                     fill="transparent"
-                    [attr.stroke]="seg.color"
+                    stroke="var(--border-subtle)"
                     stroke-width="16"
-                    [attr.stroke-dasharray]="seg.dashArray"
-                    [attr.stroke-dashoffset]="seg.dashOffset"
+                    [attr.stroke-dasharray]="filteredStatusTasksCount() === 0 ? '6 4' : null"
+                    [attr.opacity]="filteredStatusTasksCount() === 0 ? '0.6' : '0.25'"
                   />
-                }
-              </svg>
-              <div class="donut-center-text font-mono">
-                <span class="center-num">{{ filteredStatusTasksCount() }}</span>
-                <span class="center-lbl">TASKS</span>
-              </div>
-            </div>
-
-            @if (filteredStatusTasksCount() === 0) {
-              <div class="empty-legend font-mono">
-                <div class="empty-legend-title">
-                  <i class="fi fi-rr-chart-pie text-cyan"></i> No tasks recorded
+                  @for (seg of donutSegments(); track seg.name) {
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="38"
+                      fill="transparent"
+                      [attr.stroke]="seg.color"
+                      stroke-width="16"
+                      [attr.stroke-dasharray]="seg.dashArray"
+                      [attr.stroke-dashoffset]="seg.dashOffset"
+                    />
+                  }
+                </svg>
+                <div class="donut-center-text font-mono">
+                  <span class="center-num">{{ filteredStatusTasksCount() }}</span>
+                  <span class="center-lbl">TASKS</span>
                 </div>
-                <p class="empty-legend-desc">Create tasks or select a project with tasks to view status overview.</p>
               </div>
-            } @else {
-              <!-- Donut Legend -->
-              <div class="legend-list font-mono">
-                @for (st of statusCounts(); track st.name) {
-                  <div class="legend-item">
-                    <div class="legend-left">
-                      <span class="status-dot" [style.background-color]="st.color"></span>
-                      <span class="legend-name">{{ st.name }}</span>
-                    </div>
-                    <div class="legend-right">
-                      <span class="legend-cnt">{{ st.count }}</span>
-                      <span class="legend-pct">({{ st.percent }}%)</span>
-                    </div>
+
+              @if (filteredStatusTasksCount() === 0) {
+                <div class="empty-legend font-mono">
+                  <div class="empty-legend-title">
+                    <i class="fi fi-rr-chart-pie text-cyan"></i> No tasks recorded
                   </div>
-                }
-              </div>
+                  <p class="empty-legend-desc">Create tasks or select a project with tasks to view status overview.</p>
+                </div>
+              } @else {
+                <!-- Donut Legend -->
+                <div class="legend-list font-mono">
+                  @for (st of statusCounts(); track st.name) {
+                    <div class="legend-item">
+                      <div class="legend-left">
+                        <span class="status-dot" [style.background-color]="st.color"></span>
+                        <span class="legend-name">{{ st.name }}</span>
+                      </div>
+                      <div class="legend-right">
+                        <span class="legend-cnt">{{ st.count }}</span>
+                        <span class="legend-pct">({{ st.percent }}%)</span>
+                      </div>
+                    </div>
+                  }
+                </div>
+              }
             }
           </div>
         </div>
@@ -158,7 +199,9 @@ import { TaskModalComponent } from '../../shared/components/task-modal';
           <div class="card-header">
             <h3><i class="fi fi-rr-time-past text-amber"></i> Recent Activity</h3>
             <span class="badge-mono font-mono">
-              @if (allRecentActivities().length === 0) {
+              @if (isLoading()) {
+                Loading...
+              } @else if (allRecentActivities().length === 0) {
                 0 Activities
               } @else {
                 Showing {{ displayedActivities().length }} of {{ allRecentActivities().length }}
@@ -167,7 +210,13 @@ import { TaskModalComponent } from '../../shared/components/task-modal';
           </div>
 
           <div class="card-body">
-            @if (allRecentActivities().length === 0) {
+            @if (isLoading()) {
+              <div class="skeleton-timeline font-mono">
+                <div class="skeleton-timeline-item"></div>
+                <div class="skeleton-timeline-item"></div>
+                <div class="skeleton-timeline-item"></div>
+              </div>
+            } @else if (allRecentActivities().length === 0) {
               <div class="empty-chart font-mono">
                 <i class="fi fi-rr-time-past text-subtle"></i>
                 <span>No recent activity logged</span>
@@ -215,7 +264,14 @@ import { TaskModalComponent } from '../../shared/components/task-modal';
           </div>
 
           <div class="card-body vbars-body">
-            @if (totalTaskCount() === 0) {
+            @if (isLoading()) {
+              <div class="skeleton-bars font-mono">
+                <div class="skeleton-bar-col"></div>
+                <div class="skeleton-bar-col"></div>
+                <div class="skeleton-bar-col"></div>
+                <div class="skeleton-bar-col"></div>
+              </div>
+            } @else if (totalTaskCount() === 0) {
               <div class="empty-chart font-mono">
                 <i class="fi fi-rr-stats text-subtle"></i>
                 <span>No task priority data available</span>
@@ -247,7 +303,13 @@ import { TaskModalComponent } from '../../shared/components/task-modal';
           </div>
 
           <div class="card-body hbars-body">
-            @if (totalTaskCount() === 0) {
+            @if (isLoading()) {
+              <div class="skeleton-timeline font-mono">
+                <div class="skeleton-line"></div>
+                <div class="skeleton-line"></div>
+                <div class="skeleton-line"></div>
+              </div>
+            } @else if (totalTaskCount() === 0) {
               <div class="empty-chart font-mono">
                 <i class="fi fi-rr-box text-subtle"></i>
                 <span>No task type data available</span>
@@ -782,11 +844,82 @@ import { TaskModalComponent } from '../../shared/components/task-modal';
         width: 95px;
       }
     }
+
+    /* Skeleton Loading Placeholders */
+    @keyframes skeleton-pulse {
+      0% { opacity: 0.4; }
+      50% { opacity: 0.85; }
+      100% { opacity: 0.4; }
+    }
+    .skeleton-stat {
+      display: inline-block;
+      width: 44px;
+      height: 24px;
+      background: var(--bg-surface-subtle);
+      border-radius: var(--radius-xs);
+      animation: skeleton-pulse 1.5s ease-in-out infinite;
+    }
+    .skeleton-donut-container {
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      width: 100%;
+      padding: 0.5rem 0;
+    }
+    .skeleton-circle {
+      width: 110px;
+      height: 110px;
+      border-radius: 50%;
+      border: 14px solid var(--bg-surface-subtle);
+      animation: skeleton-pulse 1.5s ease-in-out infinite;
+      flex-shrink: 0;
+    }
+    .skeleton-legend {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      flex: 1;
+      padding-left: 1rem;
+    }
+    .skeleton-line {
+      height: 20px;
+      background: var(--bg-surface-subtle);
+      border-radius: var(--radius-xs);
+      animation: skeleton-pulse 1.5s ease-in-out infinite;
+    }
+    .skeleton-timeline {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      padding: 0.5rem 0;
+    }
+    .skeleton-timeline-item {
+      height: 26px;
+      background: var(--bg-surface-subtle);
+      border-radius: var(--radius-xs);
+      animation: skeleton-pulse 1.5s ease-in-out infinite;
+    }
+    .skeleton-bars {
+      display: flex;
+      justify-content: space-around;
+      align-items: flex-end;
+      height: 140px;
+      padding: 1rem 0 0.5rem 0;
+    }
+    .skeleton-bar-col {
+      width: 24px;
+      height: 65%;
+      background: var(--bg-surface-subtle);
+      border-radius: var(--radius-xs);
+      animation: skeleton-pulse 1.5s ease-in-out infinite;
+    }
   `]
 })
 export class TodayComponent {
   showNewTaskModal = signal<boolean>(false);
   activeDetailTask = signal<Task | null>(null);
+
+  isLoading = computed(() => this.taskService.loading());
 
   openCreateModal() {
     this.showNewTaskModal.set(true);
