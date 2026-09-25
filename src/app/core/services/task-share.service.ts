@@ -111,21 +111,36 @@ export class TaskShareService {
 
     if (tasks.length === 0) return false;
 
-    const matched = tasks.find(t => {
-      // 1. Direct UUID or prefix match
-      if (t.id.toUpperCase() === cleanParam || t.id.toUpperCase().startsWith(cleanParam)) return true;
-      // 2. Exact Key match (e.g. BIL-104)
-      const key = getTaskKey(t, projects).toUpperCase();
-      if (key === cleanParam) return true;
-      // 3. Numeric match if user passed e.g. ?task=104
-      const parts = key.split('-');
-      if (parts[1] && parts[1] === cleanParam) return true;
-      return false;
-    });
+    // 1. Exact UUID match (highest priority)
+    let matched = tasks.find(t => t.id.toUpperCase() === cleanParam);
+
+    // 2. UUID Prefix match (if param is at least 8 chars long)
+    if (!matched && cleanParam.length >= 8) {
+      matched = tasks.find(t => t.id.toUpperCase().startsWith(cleanParam));
+    }
+
+    // 3. Sequential Task Key match (e.g. BIL-1, BIL-104)
+    if (!matched) {
+      matched = tasks.find(t => {
+        const key = getTaskKey(t, projects, tasks).toUpperCase();
+        return key === cleanParam;
+      });
+    }
+
+    // 4. Fallback Task Key / Numeric match
+    if (!matched) {
+      matched = tasks.find(t => {
+        const key = getTaskKey(t, projects).toUpperCase();
+        if (key === cleanParam) return true;
+        const parts = key.split('-');
+        if (parts[1] && parts[1] === cleanParam) return true;
+        return false;
+      });
+    }
 
     if (matched) {
       this.activeSharedTask.set(matched);
-      const matchedKey = getTaskKey(matched, projects);
+      const matchedKey = getTaskKey(matched, projects, tasks);
       this.showToast(`Opened shared task ${matchedKey}`);
       return true;
     }

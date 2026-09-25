@@ -3,14 +3,14 @@ import { getTaskKey } from './task-key.util';
 import { Task, Project } from '../models/project.model';
 
 describe('getTaskKey Utility', () => {
-  it('should return default fallback DEV-100 when task is null or undefined', () => {
-    expect(getTaskKey(null)).toBe('DEV-100');
-    expect(getTaskKey(undefined)).toBe('DEV-100');
+  it('should return default fallback DEV-1 when task is null or undefined', () => {
+    expect(getTaskKey(null)).toBe('DEV-1');
+    expect(getTaskKey(undefined)).toBe('DEV-1');
   });
 
-  it('should return default fallback DEV-100 when task has no id', () => {
+  it('should return default fallback DEV-1 when task has no id', () => {
     const emptyTask = { id: '' } as Task;
-    expect(getTaskKey(emptyTask)).toBe('DEV-100');
+    expect(getTaskKey(emptyTask)).toBe('DEV-1');
   });
 
   it('should default to DEV prefix when no projects are provided', () => {
@@ -28,7 +28,7 @@ describe('getTaskKey Utility', () => {
 
     const key = getTaskKey(task);
     expect(key.startsWith('DEV-')).toBe(true);
-    expect(key).toMatch(/^DEV-\d{3}$/);
+    expect(key).toMatch(/^DEV-\d{4}$/);
   });
 
   it('should derive prefix from multi-word project names', () => {
@@ -110,5 +110,20 @@ describe('getTaskKey Utility', () => {
     const key1 = getTaskKey(task);
     const key2 = getTaskKey(task);
     expect(key1).toBe(key2);
+  });
+
+  it('should generate collision-free sequential keys (BMS-1, BMS-2) when allTasks is provided', () => {
+    const projects: Project[] = [
+      { id: 'p1', name: 'Bilo Management System', slug: 'bilo', status: 'active', created_at: '', updated_at: '' }
+    ];
+    const tasks: Task[] = [
+      { id: 't-101', title: 'Task 1', project_id: 'p1', type: 'task', priority: 'high', position: 0, completed: false, created_at: '2026-01-01T10:00:00Z', updated_at: '' },
+      { id: 't-102', title: 'Task 2', project_id: 'p1', type: 'task', priority: 'high', position: 1, completed: false, created_at: '2026-01-01T10:05:00Z', updated_at: '' },
+      { id: 't-103', title: 'Task 3', project_id: 'p1', type: 'task', priority: 'high', position: 2, completed: false, created_at: '2026-01-01T10:10:00Z', updated_at: '' }
+    ];
+
+    expect(getTaskKey(tasks[0], projects, tasks)).toBe('BMS-1');
+    expect(getTaskKey(tasks[1], projects, tasks)).toBe('BMS-2');
+    expect(getTaskKey(tasks[2], projects, tasks)).toBe('BMS-3');
   });
 });
