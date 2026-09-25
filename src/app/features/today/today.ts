@@ -205,7 +205,7 @@ import { TaskModalComponent } from '../../shared/components/task-modal';
                     <div class="vbar-track">
                       <div
                         class="vbar-fill"
-                        [style.height]="pri.percent + '%'"
+                        [style.height]="pri.barHeight + '%'"
                         [style.background-color]="pri.color"
                       ></div>
                     </div>
@@ -243,7 +243,7 @@ import { TaskModalComponent } from '../../shared/components/task-modal';
                     <div class="hbar-track">
                       <div
                         class="hbar-fill"
-                        [style.width]="tp.percent + '%'"
+                        [style.width]="tp.barWidth + '%'"
                         [style.background-color]="tp.color"
                       ></div>
                     </div>
@@ -912,7 +912,13 @@ export class TodayComponent {
       return { name: p.name, count, color: p.color };
     });
 
-    return this.calculateIntegerPercentages(rawItems, total);
+    const maxCount = Math.max(...rawItems.map(i => i.count), 0);
+    const withPercentages = this.calculateIntegerPercentages(rawItems, total);
+
+    return withPercentages.map(item => ({
+      ...item,
+      barHeight: maxCount === 0 ? 0 : Math.round((item.count / maxCount) * 100)
+    }));
   });
 
   // Types of Work
@@ -932,12 +938,19 @@ export class TodayComponent {
       return { name: tp.name, count, icon: tp.icon, color: tp.color };
     });
 
-    return this.calculateIntegerPercentages(rawItems, total);
+    const maxCount = Math.max(...rawItems.map(i => i.count), 0);
+    const withPercentages = this.calculateIntegerPercentages(rawItems, total);
+
+    return withPercentages.map(item => ({
+      ...item,
+      barWidth: maxCount === 0 ? 0 : Math.round((item.count / maxCount) * 100)
+    }));
   });
 
   // Hamilton-Appell Largest Remainder Method for 100% total integer percentage calculation
   private calculateIntegerPercentages<T extends { count: number }>(items: T[], total: number): (T & { percent: number })[] {
-    if (total === 0) {
+    const sumCounts = items.reduce((acc, curr) => acc + curr.count, 0);
+    if (total === 0 || sumCounts === 0) {
       return items.map(item => ({ ...item, percent: 0 }));
     }
 
@@ -953,7 +966,7 @@ export class TodayComponent {
     });
 
     const sumFloors = calcItems.reduce((acc, curr) => acc + curr.percent, 0);
-    let diff = 100 - sumFloors;
+    let diff = (sumCounts === total ? 100 : Math.round((sumCounts / total) * 100)) - sumFloors;
 
     if (diff > 0) {
       const sortedByRemainder = [...calcItems].sort((a, b) => b.remainder - a.remainder);
