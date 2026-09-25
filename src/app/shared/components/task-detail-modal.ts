@@ -8,6 +8,7 @@ import { TaskShareService } from '../../core/services/task-share.service';
 import { AuthService } from '../../core/services/auth.service';
 import { Task, TaskComment, TaskStatusHistory, TaskPriority, TaskSeverity, TaskReproducibility, TaskType, Workflow } from '../../core/models/project.model';
 import { getTaskKey } from '../../core/utils/task-key.util';
+import { sanitizeLabels } from '../../core/utils/label.util';
 import { SelectComponent, SelectOption } from './select';
 import { DatePickerComponent } from './date-picker';
 import { ConfirmModalComponent } from './confirm-modal';
@@ -2074,10 +2075,7 @@ export class TaskDetailModalComponent implements OnInit {
   async saveLabels() {
     if (!this.isEditingLabels()) return;
     this.isEditingLabels.set(false);
-    const parsed = this.labelsInputText
-      .split(',')
-      .map(l => l.trim().toLowerCase())
-      .filter(l => l.length > 0);
+    const parsed = sanitizeLabels(this.labelsInputText.split(','));
     const updated = await this.taskService.updateTask(this.task.id, { labels: parsed });
     if (updated) {
       this.task = updated;

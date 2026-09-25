@@ -3,6 +3,13 @@ export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 export type TaskSeverity = 'critical' | 'major' | 'minor' | 'trivial';
 export type TaskReproducibility = 'always' | 'often' | 'sometimes' | 'rarely' | 'unable';
 
+export type TaskAttachmentType = 'url' | 'base64' | 'unknown';
+export interface ParsedTaskAttachment {
+  type: TaskAttachmentType;
+  value: string;
+  mimeType?: string;
+}
+
 export type ProjectRole = 'owner' | 'admin' | 'member' | 'viewer';
 
 export interface UserProfile {

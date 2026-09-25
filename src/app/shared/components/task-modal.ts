@@ -10,6 +10,7 @@ import { DatePickerComponent } from './date-picker';
 import { SelectComponent, SelectOption } from './select';
 import { RichEditorComponent } from './rich-editor';
 import { compressImageFile, MAX_ATTACHMENT_FILE_SIZE_BYTES, MAX_ATTACHMENTS_PER_TASK } from '../../core/utils/image-compressor.util';
+import { sanitizeLabels } from '../../core/utils/label.util';
 
 @Component({
   selector: 'app-task-modal',
@@ -766,10 +767,7 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
       this.projectId = this.projectService.activeProject()?.id || (this.projectService.projects()[0]?.id || '');
     }
 
-    const parsedLabels = this.labelsInput
-      .split(',')
-      .map(l => l.trim().toLowerCase())
-      .filter(l => l.length > 0);
+    const parsedLabels = sanitizeLabels(this.labelsInput.split(','));
 
     const available = this.getAvailableStatuses();
     const finalStatus = this.isEditMode

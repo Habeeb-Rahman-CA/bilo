@@ -6,6 +6,7 @@ import { PushNotificationService } from './push-notification.service';
 import { AuthService } from './auth.service';
 import { WorkflowService } from './workflow.service';
 import { Task, TaskComment, TaskStatusHistory } from '../models/project.model';
+import { sanitizeLabels } from '../utils/label.util';
 
 @Injectable({
   providedIn: 'root'
@@ -358,7 +359,7 @@ export class TaskService {
       reporter: taskData.reporter || currentUser?.email || 'User',
       is_app_report: taskData.is_app_report || false,
       report_category: taskData.report_category,
-      labels: taskData.labels || [],
+      labels: sanitizeLabels(taskData.labels),
       attachments: taskData.attachments || [],
       assignee: taskData.assignee || 'Unassigned',
       due_date: taskData.due_date || '',
@@ -432,6 +433,10 @@ export class TaskService {
     if (updates.title !== undefined) {
       const cleanTitle = updates.title.trim();
       updatedFields.title = cleanTitle.length > 0 ? cleanTitle : (existingTask.title || 'Untitled Task');
+    }
+
+    if (updates.labels !== undefined) {
+      updatedFields.labels = sanitizeLabels(updates.labels);
     }
 
     if (updates.workflow_id !== undefined) {

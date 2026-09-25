@@ -545,6 +545,8 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       display: flex;
       gap: 0.3rem;
       flex-wrap: wrap;
+      max-height: 4.5rem;
+      overflow: hidden;
     }
     .label-chip {
       font-size: 0.65rem;
@@ -554,6 +556,10 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       padding: 0.08rem 0.35rem;
       border-radius: var(--radius-xs);
       cursor: pointer;
+      max-width: 140px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .label-chip:hover,
     .label-chip.active-label {

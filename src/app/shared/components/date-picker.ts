@@ -1,6 +1,7 @@
 import { Component, ElementRef, EventEmitter, HostListener, Input, OnChanges, Output, SimpleChanges, ViewChild, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { getLocalDateString, getOffsetDateString } from '../../core/utils/date.util';
 
 export interface DatePickerDay {
   dayNumber: number;
@@ -483,20 +484,15 @@ export class DatePickerComponent implements OnChanges {
   }
 
   selectToday() {
-    const today = new Date().toISOString().split('T')[0];
-    this.selectDate(today);
+    this.selectDate(getLocalDateString());
   }
 
   selectTomorrow() {
-    const tom = new Date();
-    tom.setDate(tom.getDate() + 1);
-    this.selectDate(tom.toISOString().split('T')[0]);
+    this.selectDate(getOffsetDateString(1));
   }
 
   selectNextWeek() {
-    const nw = new Date();
-    nw.setDate(nw.getDate() + 7);
-    this.selectDate(nw.toISOString().split('T')[0]);
+    this.selectDate(getOffsetDateString(7));
   }
 
   calendarDays(): DatePickerDay[] {
@@ -504,7 +500,7 @@ export class DatePickerComponent implements OnChanges {
     const year = curr.getFullYear();
     const month = curr.getMonth();
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
     const firstDay = new Date(year, month, 1);
     const startDayOfWeek = firstDay.getDay(); // 0 (Sun) - 6 (Sat)
     const daysInMonth = new Date(year, month + 1, 0).getDate();
