@@ -153,22 +153,28 @@ import { TaskModalComponent } from '../../shared/components/task-modal';
           </div>
         </div>
 
-        <!-- Card 2: Recent Activity (Latest 5 Entries) -->
+        <!-- Card 2: Recent Activity -->
         <div class="paper-panel grid-card">
           <div class="card-header">
             <h3><i class="fi fi-rr-time-past text-amber"></i> Recent Activity</h3>
-            <span class="badge-mono font-mono">Latest 5</span>
+            <span class="badge-mono font-mono">
+              @if (allRecentActivities().length === 0) {
+                0 Activities
+              } @else {
+                Showing {{ displayedActivities().length }} of {{ allRecentActivities().length }}
+              }
+            </span>
           </div>
 
           <div class="card-body">
-            @if (recentActivities().length === 0) {
+            @if (allRecentActivities().length === 0) {
               <div class="empty-chart font-mono">
                 <i class="fi fi-rr-time-past text-subtle"></i>
                 <span>No recent activity logged</span>
               </div>
             } @else {
               <div class="timeline-list font-mono">
-                @for (act of recentActivities(); track act.id) {
+                @for (act of displayedActivities(); track act.id) {
                   <div class="timeline-item">
                     <span class="timeline-dot"></span>
                     <div class="timeline-content">
@@ -178,6 +184,23 @@ import { TaskModalComponent } from '../../shared/components/task-modal';
                   </div>
                 }
               </div>
+
+              @if (allRecentActivities().length > 5) {
+                <div class="activity-footer font-mono">
+                  @if (hasMoreActivities()) {
+                    <button class="activity-footer-btn" (click)="loadMoreActivities()">
+                      <i class="fi fi-rr-angle-small-down"></i> Load More (+5)
+                    </button>
+                    <button class="activity-footer-btn" (click)="viewAllActivities()">
+                      <i class="fi fi-rr-eye"></i> View All ({{ allRecentActivities().length }})
+                    </button>
+                  } @else {
+                    <button class="activity-footer-btn" (click)="collapseActivities()">
+                      <i class="fi fi-rr-angle-small-up"></i> Show Less
+                    </button>
+                  }
+                </div>
+              }
             }
           </div>
         </div>
@@ -527,6 +550,32 @@ import { TaskModalComponent } from '../../shared/components/task-modal';
       font-size: 0.675rem;
       color: var(--text-muted);
     }
+    .activity-footer {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+      padding-top: 0.5rem;
+      border-top: 1px dashed var(--border-subtle);
+    }
+    .activity-footer-btn {
+      background: var(--bg-surface-subtle);
+      color: var(--text-main);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xs);
+      font-size: 0.725rem;
+      padding: 0.25rem 0.6rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    .activity-footer-btn:hover {
+      background: var(--bg-surface);
+      border-color: var(--border-main);
+    }
 
     /* Vertical Bars Priority Breakdown */
     .vbars-body {
@@ -795,13 +844,38 @@ export class TodayComponent {
 
   totalTaskCount = computed(() => this.activeWorkspaceTasks().length);
 
-  recentActivities = computed(() => {
+  activityLimit = signal<number>(5);
+
+  allRecentActivities = computed(() => {
     const activities = this.projectService.activities();
     const activeProjId = this.projectService.activeProject()?.id;
-    const filtered = activeProjId
+    return activeProjId
       ? activities.filter(a => !a.project_id || a.project_id === activeProjId)
       : activities;
-    return filtered.slice(0, 5);
+  });
+
+  displayedActivities = computed(() => {
+    return this.allRecentActivities().slice(0, this.activityLimit());
+  });
+
+  hasMoreActivities = computed(() => {
+    return this.allRecentActivities().length > this.activityLimit();
+  });
+
+  loadMoreActivities(): void {
+    this.activityLimit.update(l => l + 5);
+  }
+
+  viewAllActivities(): void {
+    this.activityLimit.set(this.allRecentActivities().length);
+  }
+
+  collapseActivities(): void {
+    this.activityLimit.set(5);
+  }
+
+  recentActivities = computed(() => {
+    return this.displayedActivities();
   });
 
   getTasksForStatusOverview = computed(() => {
