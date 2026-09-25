@@ -876,7 +876,21 @@ export class TaskService {
     return localComments;
   }
 
-  async addComment(taskId: string, content: string, authorName: string = 'User', attachments: string[] = []): Promise<TaskComment> {
+  async addComment(taskId: string, content: string, authorName: string = 'User', attachments: string[] = []): Promise<TaskComment | null> {
+    const cleanContent = (content || '').trim();
+    const validAttachments = attachments && Array.isArray(attachments)
+      ? attachments.filter(a => !!a && typeof a === 'string' && a.trim() !== '')
+      : [];
+
+    // Reject empty comments (no text and no attachments)
+    if (!cleanContent && validAttachments.length === 0) {
+      console.warn('[TaskService] Rejected empty comment (no text and no attachments).');
+      return null;
+    }
+
+    // Enforce 10,000 character length limit
+    const finalContent = cleanContent.length > 10000 ? cleanContent.slice(0, 10000) : cleanContent;
+
     const currentUser = this.authService.user();
     const displayName = authorName !== 'User' && authorName !== 'Self' ? authorName : (
       currentUser?.user_metadata?.['display_name'] ||
@@ -889,8 +903,8 @@ export class TaskService {
       task_id: taskId,
       user_id: currentUser?.id,
       author_name: displayName,
-      content,
-      attachments: attachments && attachments.length > 0 ? attachments : undefined,
+      content: finalContent,
+      attachments: validAttachments.length > 0 ? validAttachments : undefined,
       created_at: new Date().toISOString()
     };
 

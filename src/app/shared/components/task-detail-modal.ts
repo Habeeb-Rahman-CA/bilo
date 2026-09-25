@@ -2190,7 +2190,9 @@ export class TaskDetailModalComponent implements OnInit {
       'User',
       attachments
     );
-    this.comments.update(list => [...list, added]);
+    if (added) {
+      this.comments.update(list => [...list, added]);
+    }
     this.newCommentText = '';
     this.commentAttachments.set([]);
     await this.refreshHistory();
