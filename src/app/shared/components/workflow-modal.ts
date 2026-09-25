@@ -202,6 +202,11 @@ export class WorkflowModalComponent implements OnInit {
     if (!this.newColumnName.trim()) return;
     const name = this.newColumnName.trim();
     const projId = this.project?.id || 'global';
+    const existingNames = this.columns.map(c => c.name.trim().toLowerCase());
+    if (existingNames.includes(name.toLowerCase())) {
+      alert(`A workflow status column named "${name}" already exists in this project.`);
+      return;
+    }
     const created = await this.workflowService.createWorkflow(projId, name);
     this.columns.push(JSON.parse(JSON.stringify(created)));
     this.newColumnName = '';

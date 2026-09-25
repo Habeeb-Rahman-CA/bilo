@@ -113,12 +113,21 @@ export class WorkflowService {
   async createWorkflow(projectId: string, name: string, color: string = '#06b6d4'): Promise<Workflow> {
     const key = projectId || 'global';
     const current = this.getWorkflowsForProject(key);
+    const cleanName = (name || '').trim() || 'New Status';
+
+    let finalName = cleanName;
+    let counter = 1;
+    while (current.some(w => w.name.trim().toLowerCase() === finalName.toLowerCase())) {
+      finalName = `${cleanName} (${counter})`;
+      counter++;
+    }
+
     const generatedId = crypto.randomUUID();
 
     const newWorkflow: Workflow = {
       id: generatedId,
       project_id: key,
-      name: name.trim(),
+      name: finalName,
       color: color || '#06b6d4',
       position: current.length,
       created_at: new Date().toISOString()
@@ -151,6 +160,19 @@ export class WorkflowService {
   async updateWorkflow(id: string, updates: Partial<Workflow>, projectId?: string): Promise<Workflow | null> {
     let updatedWf: Workflow | null = null;
     const targetProj = projectId || 'global';
+    const currentWorkflows = this.getWorkflowsForProject(targetProj);
+
+    const finalUpdates = { ...updates };
+    if (updates.name !== undefined) {
+      const cleanName = updates.name.trim() || 'Status';
+      let finalName = cleanName;
+      let counter = 1;
+      while (currentWorkflows.some(w => w.id !== id && w.name.trim().toLowerCase() === finalName.toLowerCase())) {
+        finalName = `${cleanName} (${counter})`;
+        counter++;
+      }
+      finalUpdates.name = finalName;
+    }
 
     this.workflowsByProject.update(map => {
       const result: Record<string, Workflow[]> = { ...map };
@@ -158,7 +180,7 @@ export class WorkflowService {
         if (!projectId || p === targetProj) {
           result[p] = result[p].map(w => {
             if (w.id === id) {
-              updatedWf = { ...w, ...updates };
+              updatedWf = { ...w, ...finalUpdates };
               return updatedWf;
             }
             return w;

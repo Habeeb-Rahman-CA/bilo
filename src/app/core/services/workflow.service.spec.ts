@@ -59,6 +59,14 @@ describe('WorkflowService', () => {
     expect(list.some(w => w.id === created.id)).toBe(true);
   });
 
+  it('should deduplicate workflow names within the same project', async () => {
+    const created1 = await service.createWorkflow('proj-dup', 'Testing Stage');
+    const created2 = await service.createWorkflow('proj-dup', 'Testing Stage');
+
+    expect(created1.name).toBe('Testing Stage');
+    expect(created2.name).toBe('Testing Stage (1)');
+  });
+
   it('should update an existing workflow', async () => {
     const created = await service.createWorkflow('proj-1', 'Code Review');
     const updated = await service.updateWorkflow(created.id, { name: 'Peer Review', color: '#00ff00' }, 'proj-1');
