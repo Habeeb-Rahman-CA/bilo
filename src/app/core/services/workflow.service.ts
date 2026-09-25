@@ -363,37 +363,8 @@ export class WorkflowService {
     const key = projectId || 'global';
     const oldWorkflows = this.getWorkflowsForProject(key);
     const defaults = createDefaultWorkflowsForProject(key);
-    this.workflowsByProject.update(map => ({
-      ...map,
-      [key]: defaults
-    }));
-    this.saveToStorage();
 
-    if (this.supabaseService.supabase) {
-      try {
-        const oldIds = oldWorkflows.map(w => w.id);
-        if (oldIds.length > 0) {
-          await this.supabaseService.supabase
-            .from('workflows')
-            .delete()
-            .eq('project_id', key);
-        }
-        const batchDefaults = defaults.map(w => ({
-          id: w.id,
-          project_id: key,
-          name: w.name,
-          color: w.color,
-          position: w.position
-        }));
-
-        await this.supabaseService.supabase
-          .from('workflows')
-          .upsert(batchDefaults);
-      } catch (e) {
-        console.warn('Supabase resetToDefaultWorkflows warning:', e);
-      }
-    }
-
+    // 1) Migrate all project tasks FIRST to matching default workflows BEFORE replacing signal state
     if (this.injector) {
       try {
         const taskService = this.injector.get(TaskService);
@@ -437,6 +408,39 @@ export class WorkflowService {
         }
       } catch (e) {
         console.warn('Task migration during resetToDefaultWorkflows warning:', e);
+      }
+    }
+
+    // 2) Update workflowsByProject signal state & local storage after tasks are safely migrated
+    this.workflowsByProject.update(map => ({
+      ...map,
+      [key]: defaults
+    }));
+    this.saveToStorage();
+
+    // 3) Delete old workflows and batch insert new defaults in Supabase
+    if (this.supabaseService.supabase) {
+      try {
+        const oldIds = oldWorkflows.map(w => w.id);
+        if (oldIds.length > 0) {
+          await this.supabaseService.supabase
+            .from('workflows')
+            .delete()
+            .eq('project_id', key);
+        }
+        const batchDefaults = defaults.map(w => ({
+          id: w.id,
+          project_id: key,
+          name: w.name,
+          color: w.color,
+          position: w.position
+        }));
+
+        await this.supabaseService.supabase
+          .from('workflows')
+          .upsert(batchDefaults);
+      } catch (e) {
+        console.warn('Supabase resetToDefaultWorkflows warning:', e);
       }
     }
 

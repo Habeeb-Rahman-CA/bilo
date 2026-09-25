@@ -26,9 +26,19 @@ describe('SyncService User Data Isolation & DLQ Escalation', () => {
             if (item && item.id === 'task-deleted-parent') {
               return { error: { code: '23503', message: 'violates foreign key constraint' } };
             }
+            if (item && item.id === 't-fail') {
+              return { error: { code: '500', message: 'Transient 500 Error' } };
+            }
             return { error: mockUpsertError };
           },
-          update: () => ({ eq: async () => ({ error: mockUpsertError }) }),
+          update: () => ({
+            eq: async (col: string, val: string) => {
+              if (val === 't-fail') {
+                return { error: { code: '500', message: 'Transient 500 Error' } };
+              }
+              return { error: mockUpsertError };
+            }
+          }),
           delete: () => ({
             eq: async (col: string, val: string) => {
               if (val === 'task-deleted-parent') {
@@ -119,6 +129,35 @@ describe('SyncService User Data Isolation & DLQ Escalation', () => {
     expect(syncService.pendingSyncQueue().length).toBe(0);
     expect(syncService.deadLetterQueue().length).toBe(1);
     expect(syncService.deadLetterQueue()[0].id).toBe('op-transient');
+  });
+
+  it('should rotate transiently failing op to end of queue and continue processing remaining items', async () => {
+    syncService.pendingSyncQueue.set([
+      {
+        id: 'op-failing',
+        user_id: 'user-111',
+        type: 'UPDATE_TASK',
+        payload: { id: 't-fail', title: 'Fail' },
+        timestamp: new Date().toISOString(),
+        retryCount: 0
+      },
+      {
+        id: 'op-success',
+        user_id: 'user-111',
+        type: 'CREATE_PROJECT',
+        payload: { id: 'p-succ-1', name: 'Success Proj' },
+        timestamp: new Date().toISOString(),
+        retryCount: 0
+      }
+    ]);
+
+    mockUpsertError = null;
+
+    await syncService.processQueue();
+
+    expect(syncService.pendingSyncQueue().length).toBe(1);
+    expect(syncService.pendingSyncQueue()[0].id).toBe('op-failing');
+    expect(syncService.pendingSyncQueue()[0].retryCount).toBe(1);
   });
 
   it('should reset syncing signal to false even if processQueue throws an exception', async () => {

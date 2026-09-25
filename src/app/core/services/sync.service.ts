@@ -322,6 +322,8 @@ export class SyncService {
       const currentUserId = await this.getCurrentUserId();
       if (!currentUserId) return;
 
+      const attemptedIds = new Set<string>();
+
       while (this.pendingSyncQueue().length > 0 && this.isOnline()) {
         const queue = this.pendingSyncQueue();
         const op = queue[0];
@@ -333,10 +335,16 @@ export class SyncService {
           continue;
         }
 
+        if (attemptedIds.has(op.id)) {
+          // All remaining items in the queue have been attempted in this pass. Exit loop to avoid rapid retry spinning.
+          break;
+        }
+
+        attemptedIds.add(op.id);
         const result = await this.executeOpResult(op, currentUserId);
 
         if (result.success) {
-          this.pendingSyncQueue.update(q => q.slice(1));
+          this.pendingSyncQueue.update(q => q.filter(o => o.id !== op.id));
           await this.saveQueueToStorage(currentUserId);
         } else if (result.fatal || (op.retryCount || 0) + 1 >= this.MAX_RETRIES) {
           const reason = result.error || (result.fatal ? 'Fatal database error' : 'Exceeded max retries');
@@ -346,13 +354,14 @@ export class SyncService {
         } else {
           const newRetryCount = (op.retryCount || 0) + 1;
           console.warn(`[bilo Sync] Transient error syncing op ${op.type} (${op.id}), retry ${newRetryCount}/${this.MAX_RETRIES}: ${result.error}`);
-          this.pendingSyncQueue.update(q => [
-            { ...op, retryCount: newRetryCount, lastError: result.error },
-            ...q.slice(1)
-          ]);
+          const updatedOp: PendingSyncOp = {
+            ...op,
+            retryCount: newRetryCount,
+            lastError: result.error
+          };
+          // Move transiently failing item to the END of the queue so it does not block remaining sync items!
+          this.pendingSyncQueue.update(q => [...q.filter(o => o.id !== op.id), updatedOp]);
           await this.saveQueueToStorage(currentUserId);
-          setTimeout(() => this.processQueue(), 5000);
-          break; // Pause loop for this cycle to allow transient network/server glitches to resolve
         }
       }
     } catch (e) {
