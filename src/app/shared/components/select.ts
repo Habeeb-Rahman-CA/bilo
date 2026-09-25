@@ -522,22 +522,26 @@ export class SelectComponent implements OnChanges, OnDestroy {
     this.isOpen.set(true);
     this.updateActiveIndex();
 
-    document.addEventListener('scroll', this.onScrollCapture, true);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('scroll', this.onScrollCapture, true);
 
-    setTimeout(() => {
-      if (this.popoverEl?.nativeElement) {
-        document.body.appendChild(this.popoverEl.nativeElement);
-      }
-      if (this.searchInputEl) {
-        this.searchInputEl.nativeElement.focus();
-      }
-    }, 0);
+      setTimeout(() => {
+        if (this.popoverEl?.nativeElement && document.body) {
+          document.body.appendChild(this.popoverEl.nativeElement);
+        }
+        if (this.searchInputEl) {
+          this.searchInputEl.nativeElement.focus();
+        }
+      }, 0);
+    }
   }
 
   closePopover() {
-    document.removeEventListener('scroll', this.onScrollCapture, true);
-    if (this.popoverEl?.nativeElement && this.popoverEl.nativeElement.parentNode === document.body) {
-      this.popoverEl.nativeElement.remove();
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('scroll', this.onScrollCapture, true);
+      if (this.popoverEl?.nativeElement && document.body && this.popoverEl.nativeElement.parentNode === document.body) {
+        this.popoverEl.nativeElement.remove();
+      }
     }
     this.isOpen.set(false);
     this.searchQuery.set('');
