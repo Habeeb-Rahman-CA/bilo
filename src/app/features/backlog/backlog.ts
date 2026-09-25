@@ -20,6 +20,15 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
   imports: [CommonModule, FormsModule, TaskDetailModalComponent, TaskModalComponent, SelectComponent, ConfirmModalComponent],
   template: `
     <div class="backlog-workspace font-mono">
+      <!-- Restricted Transition Toast Notification -->
+      @if (restrictedToastMessage()) {
+        <div class="workflow-restriction-banner font-mono">
+          <i class="fi fi-rr-lock text-amber"></i>
+          <span>{{ restrictedToastMessage() }}</span>
+          <button type="button" class="btn-close-toast" (click)="clearRestrictedToast()">&times;</button>
+        </div>
+      }
+
       <!-- Top Banner Bar -->
       <div class="view-header-strip paper-panel">
         <div class="view-header-left">
@@ -1084,12 +1093,6 @@ export class BacklogComponent implements OnInit, OnDestroy {
     this.rawSearchQuery.set('');
     this.searchQuery.set('');
   }
-
-  ngOnDestroy(): void {
-    if (this.searchDebounceTimer) {
-      clearTimeout(this.searchDebounceTimer);
-    }
-  }
   selectedProject = signal<string>('ALL');
   selectedType = signal<string>('ALL');
   selectedPriority = signal<string>('ALL');
@@ -1346,6 +1349,13 @@ export class BacklogComponent implements OnInit, OnDestroy {
     this.taskService.loadTasksFromSupabase();
   }
 
+  ngOnDestroy(): void {
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+    this.clearRestrictedToast();
+  }
+
   allTasks = computed(() => this.taskService.tasks());
 
   hasActiveFilters = computed(() => {
@@ -1534,8 +1544,43 @@ export class BacklogComponent implements OnInit, OnDestroy {
     });
   }
 
+  restrictedToastMessage = signal<string>('');
+  private restrictedToastTimer: any = null;
+
+  showRestrictedToast(message: string, durationMs: number = 4000): void {
+    if (this.restrictedToastTimer) {
+      clearTimeout(this.restrictedToastTimer);
+      this.restrictedToastTimer = null;
+    }
+    this.restrictedToastMessage.set(message);
+    this.restrictedToastTimer = setTimeout(() => {
+      this.restrictedToastMessage.set('');
+      this.restrictedToastTimer = null;
+    }, durationMs);
+  }
+
+  clearRestrictedToast(): void {
+    if (this.restrictedToastTimer) {
+      clearTimeout(this.restrictedToastTimer);
+      this.restrictedToastTimer = null;
+    }
+    this.restrictedToastMessage.set('');
+  }
+
   async updateStatus(id: string, statusVal: string) {
-    await this.taskService.updateTask(id, { status: statusVal, completed: statusVal === 'done' });
+    const task = this.taskService.tasks().find(t => t.id === id);
+    if (task && task.status !== statusVal) {
+      const workflows = this.workflowService.getWorkflowsForProject(task.project_id);
+      const targetWf = workflows.find(w => w.name === statusVal);
+      if (targetWf) {
+        const allowed = this.workflowService.canTransition(task.status, targetWf.id, task.project_id);
+        if (!allowed) {
+          this.showRestrictedToast(`Workflow Rule: Transitioning from "${task.status}" to "${statusVal}" is restricted.`);
+          return;
+        }
+      }
+    }
+    await this.taskService.updateTask(id, { status: statusVal, completed: statusVal.toLowerCase() === 'done' });
   }
 
   deleteTask(t: Task) {

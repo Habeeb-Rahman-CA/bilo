@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, OnInit, Output, HostListener, signal } from '@angular/core';
+import { Component, EventEmitter, Input, OnInit, OnDestroy, Output, HostListener, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TaskService } from '../../core/services/task.service';
@@ -21,6 +21,15 @@ import { RichEditorComponent } from './rich-editor';
   template: `
     <div class="task-detail-overlay" (click)="close.emit()">
       <div class="task-detail-panel font-mono" (click)="$event.stopPropagation()">
+        <!-- Restricted Transition Toast Notification -->
+        @if (restrictedToastMessage()) {
+          <div class="workflow-restriction-banner font-mono">
+            <i class="fi fi-rr-lock text-amber"></i>
+            <span>{{ restrictedToastMessage() }}</span>
+            <button type="button" class="btn-close-toast" (click)="clearRestrictedToast()">&times;</button>
+          </div>
+        }
+
         <!-- Top Navigation Header Bar -->
         <div class="detail-nav-bar paper-panel">
           <div class="nav-left">
@@ -1816,7 +1825,7 @@ import { RichEditorComponent } from './rich-editor';
     }
   `]
 })
-export class TaskDetailModalComponent implements OnInit {
+export class TaskDetailModalComponent implements OnInit, OnDestroy {
   @Input() task!: Task;
   @Output() close = new EventEmitter<void>();
   @Output() editTask = new EventEmitter<Task>();
@@ -2096,8 +2105,47 @@ export class TaskDetailModalComponent implements OnInit {
     }
   }
 
+  restrictedToastMessage = signal<string>('');
+  private restrictedToastTimer: any = null;
+
+  showRestrictedToast(message: string, durationMs: number = 4000): void {
+    if (this.restrictedToastTimer) {
+      clearTimeout(this.restrictedToastTimer);
+      this.restrictedToastTimer = null;
+    }
+    this.restrictedToastMessage.set(message);
+    this.restrictedToastTimer = setTimeout(() => {
+      this.restrictedToastMessage.set('');
+      this.restrictedToastTimer = null;
+    }, durationMs);
+  }
+
+  clearRestrictedToast(): void {
+    if (this.restrictedToastTimer) {
+      clearTimeout(this.restrictedToastTimer);
+      this.restrictedToastTimer = null;
+    }
+    this.restrictedToastMessage.set('');
+  }
+
+  ngOnDestroy(): void {
+    this.clearRestrictedToast();
+  }
+
   // Metadata Field Handlers
   async updateStatus(newStatus: string) {
+    if (this.task && newStatus !== this.task.status) {
+      const available = this.getAvailableStatuses();
+      const wf = available.find(w => w.name === newStatus);
+      if (wf) {
+        const allowed = this.workflowService.canTransition(this.task.status, wf.id, this.task.project_id);
+        if (!allowed) {
+          this.showRestrictedToast(`Workflow Rule: Transitioning from "${this.task.status}" to "${newStatus}" is restricted.`);
+          return;
+        }
+      }
+    }
+
     const available = this.getAvailableStatuses();
     const wf = available.find(w => w.name === newStatus);
 

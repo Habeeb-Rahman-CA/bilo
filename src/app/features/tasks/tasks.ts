@@ -1,7 +1,7 @@
-import { Component, signal, computed, effect, OnInit, OnDestroy } from '@angular/core';
+import { Component, signal, computed, effect, OnInit, OnDestroy, AfterViewInit, HostListener, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { DragDropModule, CdkDragDrop } from '@angular/cdk/drag-drop';
+import { DragDropModule, CdkDragDrop, CdkDragStart, CdkDrag } from '@angular/cdk/drag-drop';
 import { TaskService } from '../../core/services/task.service';
 import { ProjectService } from '../../core/services/project.service';
 import { WorkflowService } from '../../core/services/workflow.service';
@@ -32,14 +32,14 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
         <div class="workflow-restriction-banner font-mono">
           <i class="fi fi-rr-lock text-amber"></i>
           <span>{{ restrictedToastMessage() }}</span>
-          <button type="button" class="btn-close-toast" (click)="restrictedToastMessage.set('')">&times;</button>
+          <button type="button" class="btn-close-toast" (click)="clearRestrictedToast()">&times;</button>
         </div>
       }
 
       <!-- 1. Standalone Top Header Bar -->
       <div class="view-header-strip paper-panel">
         <div class="view-header-left">
-          <span class="badge-mono">03 BOARD</span>
+          <span class="badge-mono">03 BOARD • {{ activeColumns().length }} COLUMNS</span>
           <h2 class="view-header-title">Kanban Board</h2>
         </div>
 
@@ -183,9 +183,59 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
           </button>
         </div>
       } @else {
-        <div class="kanban-board" cdkDropListGroup>
-          @for (col of activeColumns(); track col.id) {
-            <div class="kanban-column paper-panel">
+        @if (activeColumns().length > 3) {
+          <div class="column-quick-nav font-mono paper-panel">
+            <span class="quick-nav-label"><i class="fi fi-rr-list text-cyan"></i> WORKFLOW COLUMNS ({{ activeColumns().length }}):</span>
+            <div class="quick-nav-chips">
+              @for (col of activeColumns(); track col.id) {
+                <button
+                  type="button"
+                  class="col-nav-chip"
+                  (click)="scrollToColumn(col.id)"
+                  [title]="'Jump to column ' + col.name"
+                >
+                  <span class="status-dot-sm" [style.background-color]="col.color || '#0284c7'"></span>
+                  <span class="col-chip-name">{{ col.name }}</span>
+                  <span class="col-chip-count">{{ getColumnTasks(col.name).length }}</span>
+                </button>
+              }
+            </div>
+          </div>
+        }
+
+        <div class="kanban-board-wrapper">
+          @if (canScrollLeft()) {
+            <button
+              type="button"
+              class="board-scroll-indicator left font-mono"
+              (click)="scrollBoard('left')"
+              title="Scroll left to view off-screen columns"
+            >
+              <i class="fi fi-rr-angle-left"></i>
+              <span>{{ offScreenLeftCount() }} OFF-SCREEN</span>
+            </button>
+          }
+
+          @if (canScrollRight()) {
+            <button
+              type="button"
+              class="board-scroll-indicator right font-mono"
+              (click)="scrollBoard('right')"
+              title="Scroll right to view off-screen columns"
+            >
+              <span>{{ offScreenRightCount() }} OFF-SCREEN</span>
+              <i class="fi fi-rr-angle-right"></i>
+            </button>
+          }
+
+          <div
+            #kanbanBoardContainer
+            class="kanban-board"
+            cdkDropListGroup
+            (scroll)="onBoardScroll($event)"
+          >
+            @for (col of activeColumns(); track col.id) {
+              <div class="kanban-column paper-panel" [id]="'col-' + col.id">
               <!-- Column Header -->
               <div class="column-header">
                 <div class="column-title">
@@ -207,6 +257,8 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                     class="task-card paper-panel"
                     cdkDrag
                     [cdkDragData]="t"
+                    (cdkDragStarted)="onDragStarted($event)"
+                    (cdkDragEnded)="onDragEnded()"
                     (click)="openDetailModal(t)"
                   >
                     <!-- Card Top Row: Issue Type, Key, Priority, Drag Handle -->
@@ -256,7 +308,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                     <!-- Card Labels -->
                     @if (t.labels && t.labels.length > 0) {
                       <div class="card-labels font-mono">
-                        @for (lbl of t.labels; track lbl) {
+                        @for (lbl of t.labels.slice(0, 3); track lbl) {
                           <span
                             class="label-chip"
                             [class.active-label]="selectedLabel() === lbl"
@@ -264,6 +316,15 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                             title="Filter by #{{ lbl }}"
                           >
                             #{{ lbl }}
+                          </span>
+                        }
+                        @if (t.labels.length > 3) {
+                          <span
+                            class="label-chip label-chip-more"
+                            (click)="$event.stopPropagation(); openDetailModal(t)"
+                            [title]="'All labels (' + t.labels.length + '): ' + t.labels.join(', ')"
+                          >
+                            +{{ t.labels.length - 3 }} more
                           </span>
                         }
                       </div>
@@ -287,6 +348,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
             </div>
           }
         </div>
+      </div>
       }
 
       <!-- Quick Create Modal -->
@@ -404,11 +466,83 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       font-size: 0.825rem;
       max-width: 400px;
     }
+    .kanban-board-wrapper {
+      position: relative;
+      width: 100%;
+      overflow: hidden;
+      border-radius: var(--radius-xs);
+    }
+    .column-quick-nav {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.5rem 0.85rem;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xs);
+      margin-bottom: 0.75rem;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+    .quick-nav-label {
+      font-size: 0.675rem;
+      color: var(--text-muted);
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-shrink: 0;
+    }
+    .quick-nav-chips {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      overflow-x: auto;
+      scrollbar-width: thin;
+    }
+    .col-nav-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.2rem 0.55rem;
+      font-size: 0.725rem;
+      font-weight: 600;
+      border-radius: var(--radius-xs);
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-main);
+      cursor: pointer;
+      transition: var(--transition-fast);
+      flex-shrink: 0;
+    }
+    .col-nav-chip:hover {
+      background: var(--bg-surface-hover);
+      border-color: var(--accent-cyan);
+      color: var(--accent-cyan);
+    }
+    .status-dot-sm {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+    .col-chip-count {
+      font-size: 0.65rem;
+      padding: 0.05rem 0.3rem;
+      background: var(--bg-surface-subtle);
+      border-radius: 4px;
+      color: var(--text-muted);
+    }
     .kanban-board {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      display: flex;
       gap: 1rem;
-      align-items: start;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 0.25rem 0.25rem 0.85rem 0.25rem;
+      scroll-behavior: smooth;
+      scrollbar-width: auto;
+      -webkit-overflow-scrolling: touch;
     }
     .kanban-column {
       display: flex;
@@ -416,7 +550,42 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       gap: 0.75rem;
       padding: 0.85rem;
       min-height: 520px;
+      width: 310px;
+      min-width: 310px;
+      max-width: 310px;
+      flex-shrink: 0;
       background: var(--bg-surface);
+    }
+    .board-scroll-indicator {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.45rem 0.75rem;
+      font-size: 0.725rem;
+      font-weight: 700;
+      border-radius: 20px;
+      background: var(--bg-surface);
+      color: var(--accent-cyan);
+      border: 1px solid var(--accent-cyan);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      backdrop-filter: blur(8px);
+    }
+    .board-scroll-indicator:hover {
+      background: var(--accent-cyan);
+      color: #ffffff;
+      box-shadow: 0 6px 18px rgba(6, 182, 212, 0.4);
+    }
+    .board-scroll-indicator.left {
+      left: 0.75rem;
+    }
+    .board-scroll-indicator.right {
+      right: 0.75rem;
     }
     .column-header {
       display: flex;
@@ -563,7 +732,8 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       display: flex;
       gap: 0.3rem;
       flex-wrap: wrap;
-      max-height: 4.5rem;
+      align-items: center;
+      max-height: 2.3rem;
       overflow: hidden;
     }
     .label-chip {
@@ -574,13 +744,24 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       padding: 0.08rem 0.35rem;
       border-radius: var(--radius-xs);
       cursor: pointer;
-      max-width: 140px;
+      max-width: 120px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
     .label-chip:hover,
     .label-chip.active-label {
+      background: var(--accent-cyan);
+      color: #ffffff;
+      border-color: var(--accent-cyan);
+    }
+    .label-chip-more {
+      font-weight: 700;
+      color: var(--accent-cyan);
+      background: rgba(6, 182, 212, 0.12);
+      border-color: rgba(6, 182, 212, 0.35);
+    }
+    .label-chip-more:hover {
       background: var(--accent-cyan);
       color: #ffffff;
       border-color: var(--accent-cyan);
@@ -649,7 +830,14 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
     }
   `]
 })
-export class TasksComponent implements OnInit, OnDestroy {
+export class TasksComponent implements OnInit, OnDestroy, AfterViewInit {
+  canScrollLeft = signal<boolean>(false);
+  canScrollRight = signal<boolean>(false);
+  offScreenLeftCount = signal<number>(0);
+  offScreenRightCount = signal<number>(0);
+
+  @ViewChild('kanbanBoardContainer') kanbanBoardContainer?: ElementRef<HTMLDivElement>;
+
   selectedProjectId = signal<string>('all');
   selectedType = signal<string>('all');
   selectedPriority = signal<string>('all');
@@ -685,6 +873,7 @@ export class TasksComponent implements OnInit, OnDestroy {
     if (this.searchDebounceTimer) {
       clearTimeout(this.searchDebounceTimer);
     }
+    this.clearRestrictedToast();
   }
 
   projectFilterOptions = computed<SelectOption[]>(() => [
@@ -831,6 +1020,12 @@ export class TasksComponent implements OnInit, OnDestroy {
         }
       }
     }, { allowSignalWrites: true });
+
+    effect(() => {
+      this.activeColumns();
+      this.filteredTasks();
+      setTimeout(() => this.updateScrollState(), 100);
+    });
   }
 
   onProjectChange(projId: string) {
@@ -1045,13 +1240,76 @@ export class TasksComponent implements OnInit, OnDestroy {
     return dueDate < todayStr;
   }
 
+  private activeDragItem: CdkDrag<Task> | null = null;
+
+  onDragStarted(event: CdkDragStart<Task>): void {
+    this.activeDragItem = event.source;
+  }
+
+  onDragEnded(): void {
+    this.activeDragItem = null;
+    this.cleanupStrayDragElements();
+  }
+
+  @HostListener('window:blur')
+  @HostListener('document:visibilitychange')
+  onWindowBlurOrHide(): void {
+    if (this.activeDragItem) {
+      try {
+        this.activeDragItem.reset();
+      } catch (e) {}
+      this.activeDragItem = null;
+    }
+    this.cancelActiveDrag();
+  }
+
+  cancelActiveDrag(): void {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true }));
+      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+    }
+    this.cleanupStrayDragElements();
+  }
+
+  cleanupStrayDragElements(): void {
+    if (typeof document !== 'undefined') {
+      const previews = document.querySelectorAll('.cdk-drag-preview');
+      previews.forEach(el => el.remove());
+      const placeholders = document.querySelectorAll('.cdk-drag-placeholder');
+      placeholders.forEach(el => el.remove());
+    }
+  }
+
+  private restrictedToastTimer: any = null;
+
+  showRestrictedToast(message: string, durationMs: number = 4000): void {
+    if (this.restrictedToastTimer) {
+      clearTimeout(this.restrictedToastTimer);
+      this.restrictedToastTimer = null;
+    }
+    this.restrictedToastMessage.set(message);
+    this.restrictedToastTimer = setTimeout(() => {
+      this.restrictedToastMessage.set('');
+      this.restrictedToastTimer = null;
+    }, durationMs);
+  }
+
+  clearRestrictedToast(): void {
+    if (this.restrictedToastTimer) {
+      clearTimeout(this.restrictedToastTimer);
+      this.restrictedToastTimer = null;
+    }
+    this.restrictedToastMessage.set('');
+  }
+
   async drop(event: CdkDragDrop<Task[]>, targetColumn: Workflow) {
+    this.activeDragItem = null;
     const task: Task = event.item.data;
     if (task && task.status !== targetColumn.name) {
       const allowed = this.workflowService.canTransition(task.status, targetColumn.id, task.project_id);
       if (!allowed) {
-        this.restrictedToastMessage.set(`Workflow Rule: Transitioning from "${task.status}" to "${targetColumn.name}" is restricted.`);
-        setTimeout(() => this.restrictedToastMessage.set(''), 4500);
+        this.showRestrictedToast(`Workflow Rule: Transitioning from "${task.status}" to "${targetColumn.name}" is restricted.`);
+        this.cleanupStrayDragElements();
         return;
       }
 
@@ -1060,6 +1318,7 @@ export class TasksComponent implements OnInit, OnDestroy {
         workflow_id: targetColumn.id
       });
     }
+    this.cleanupStrayDragElements();
   }
 
   resetFilters() {
@@ -1095,6 +1354,54 @@ export class TasksComponent implements OnInit, OnDestroy {
 
   openDetailModal(task: Task) {
     this.activeDetailTask.set(task);
+  }
+
+  ngAfterViewInit(): void {
+    setTimeout(() => this.updateScrollState(), 100);
+  }
+
+  @HostListener('window:resize')
+  onWindowResize(): void {
+    this.updateScrollState();
+  }
+
+  updateScrollState(el?: HTMLElement): void {
+    const container = el || this.kanbanBoardContainer?.nativeElement;
+    if (!container) return;
+
+    const scrollLeft = container.scrollLeft;
+    const scrollWidth = container.scrollWidth;
+    const clientWidth = container.clientWidth;
+
+    this.canScrollLeft.set(scrollLeft > 10);
+    this.canScrollRight.set(scrollLeft + clientWidth < scrollWidth - 10);
+
+    const colWidth = 326;
+    const leftCount = Math.max(0, Math.floor(scrollLeft / colWidth));
+    const rightCount = Math.max(0, Math.ceil((scrollWidth - scrollLeft - clientWidth) / colWidth));
+
+    this.offScreenLeftCount.set(leftCount);
+    this.offScreenRightCount.set(rightCount);
+  }
+
+  onBoardScroll(event: Event): void {
+    this.updateScrollState(event.target as HTMLElement);
+  }
+
+  scrollBoard(direction: 'left' | 'right'): void {
+    const container = this.kanbanBoardContainer?.nativeElement;
+    if (container) {
+      container.scrollBy({ left: direction === 'left' ? -340 : 340, behavior: 'smooth' });
+    }
+  }
+
+  scrollToColumn(columnId: string): void {
+    if (typeof document !== 'undefined') {
+      const el = document.getElementById(`col-${columnId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      }
+    }
   }
 
   closeDetailModal() {
