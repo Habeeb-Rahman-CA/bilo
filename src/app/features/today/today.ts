@@ -915,10 +915,14 @@ export class TodayComponent {
     const maxCount = Math.max(...rawItems.map(i => i.count), 0);
     const withPercentages = this.calculateIntegerPercentages(rawItems, total);
 
-    return withPercentages.map(item => ({
-      ...item,
-      barHeight: maxCount === 0 ? 0 : Math.round((item.count / maxCount) * 100)
-    }));
+    return withPercentages.map(item => {
+      const rawBarHeight = maxCount > 0 ? (item.count / maxCount) * 100 : 0;
+      const barHeight = Number.isFinite(rawBarHeight) ? Math.round(rawBarHeight) : 0;
+      return {
+        ...item,
+        barHeight
+      };
+    });
   });
 
   // Types of Work
@@ -941,32 +945,38 @@ export class TodayComponent {
     const maxCount = Math.max(...rawItems.map(i => i.count), 0);
     const withPercentages = this.calculateIntegerPercentages(rawItems, total);
 
-    return withPercentages.map(item => ({
-      ...item,
-      barWidth: maxCount === 0 ? 0 : Math.round((item.count / maxCount) * 100)
-    }));
+    return withPercentages.map(item => {
+      const rawBarWidth = maxCount > 0 ? (item.count / maxCount) * 100 : 0;
+      const barWidth = Number.isFinite(rawBarWidth) ? Math.round(rawBarWidth) : 0;
+      return {
+        ...item,
+        barWidth
+      };
+    });
   });
 
   // Hamilton-Appell Largest Remainder Method for 100% total integer percentage calculation
   private calculateIntegerPercentages<T extends { count: number }>(items: T[], total: number): (T & { percent: number })[] {
     const sumCounts = items.reduce((acc, curr) => acc + curr.count, 0);
-    if (total === 0 || sumCounts === 0) {
+    if (!total || total <= 0 || sumCounts === 0 || !Number.isFinite(total)) {
       return items.map(item => ({ ...item, percent: 0 }));
     }
 
+    const safeTotal = Math.max(total, 1);
     const calcItems = items.map(item => {
-      const exactPct = (item.count / total) * 100;
+      const exactPct = (item.count / safeTotal) * 100;
       const floorPct = Math.floor(exactPct);
       const remainder = exactPct - floorPct;
       return {
         ...item,
-        percent: floorPct,
-        remainder
+        percent: Number.isFinite(floorPct) ? floorPct : 0,
+        remainder: Number.isFinite(remainder) ? remainder : 0
       };
     });
 
     const sumFloors = calcItems.reduce((acc, curr) => acc + curr.percent, 0);
-    let diff = (sumCounts === total ? 100 : Math.round((sumCounts / total) * 100)) - sumFloors;
+    const targetSum = sumCounts === safeTotal ? 100 : Math.round((sumCounts / safeTotal) * 100);
+    let diff = targetSum - sumFloors;
 
     if (diff > 0) {
       const sortedByRemainder = [...calcItems].sort((a, b) => b.remainder - a.remainder);
