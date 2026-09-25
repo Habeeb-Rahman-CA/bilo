@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ProjectService } from '../../core/services/project.service';
 import { AuthService } from '../../core/services/auth.service';
 import { Project } from '../../core/models/project.model';
+import { registerOpenPopover, unregisterOpenPopover } from './select';
 
 @Component({
   selector: 'app-workspace-switcher',
@@ -427,21 +428,35 @@ export class WorkspaceSwitcherComponent {
     private authService: AuthService
   ) {}
 
+  openPopover() {
+    registerOpenPopover(this);
+    this.isOpen.set(true);
+  }
+
+  closePopover() {
+    unregisterOpenPopover(this);
+    this.isOpen.set(false);
+  }
+
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent) {
     if (this.isOpen() && this.containerEl && !this.containerEl.nativeElement.contains(event.target)) {
-      this.isOpen.set(false);
+      this.closePopover();
     }
   }
 
   toggleOpen(event: MouseEvent) {
     event.stopPropagation();
-    this.isOpen.update(v => !v);
+    if (!this.isOpen()) {
+      this.openPopover();
+    } else {
+      this.closePopover();
+    }
   }
 
   selectWorkspace(project: Project) {
     this.projectService.setActiveProject(project);
-    this.isOpen.set(false);
+    this.closePopover();
   }
 
   getTaskStats(projectId: string) {
@@ -449,12 +464,12 @@ export class WorkspaceSwitcherComponent {
   }
 
   handleCreateWorkspace() {
-    this.isOpen.set(false);
+    this.closePopover();
     this.createWorkspace.emit();
   }
 
   handleAccessModal() {
-    this.isOpen.set(false);
+    this.closePopover();
     this.openAccessModal.emit();
   }
 }

@@ -12,7 +12,10 @@ import { WorkspaceService } from './workspace.service';
 export class TaskShareService {
   toastMessage = signal<string | null>(null);
   activeSharedTask = signal<Task | null>(null);
+  lastCopiedTaskId = signal<string | null>(null);
+  lastCopiedTaskKey = signal<string | null>(null);
   private hasProcessedInitialUrl = false;
+  private copyTimer: any = null;
 
   constructor(
     private taskService: TaskService,
@@ -49,6 +52,18 @@ export class TaskShareService {
     const shareUrl = `${baseUrl}?task=${key}`;
 
     const success = await copyToClipboard(shareUrl);
+
+    this.lastCopiedTaskId.set(task.id);
+    this.lastCopiedTaskKey.set(key);
+
+    if (this.copyTimer) {
+      clearTimeout(this.copyTimer);
+    }
+    this.copyTimer = setTimeout(() => {
+      this.lastCopiedTaskId.set(null);
+      this.lastCopiedTaskKey.set(null);
+    }, 2000);
+
     if (success) {
       this.showToast(`Link copied for ${key}!`);
     } else {

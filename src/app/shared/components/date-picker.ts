@@ -2,6 +2,7 @@ import { Component, ElementRef, EventEmitter, HostListener, Input, OnChanges, Ou
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { getLocalDateString, getOffsetDateString } from '../../core/utils/date.util';
+import { registerOpenPopover, unregisterOpenPopover } from './select';
 
 export interface DatePickerDay {
   dayNumber: number;
@@ -399,10 +400,21 @@ export class DatePickerComponent implements OnChanges {
     }
   }
 
+  closePopover() {
+    unregisterOpenPopover(this);
+    this.isOpen.set(false);
+  }
+
+  openPopover() {
+    registerOpenPopover(this);
+    this.updateRect();
+    this.isOpen.set(true);
+  }
+
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent) {
     if (!this.elementRef.nativeElement.contains(event.target)) {
-      this.isOpen.set(false);
+      this.closePopover();
     }
   }
 
@@ -410,17 +422,16 @@ export class DatePickerComponent implements OnChanges {
   @HostListener('window:resize')
   onWindowChange() {
     if (this.isOpen()) {
-      this.isOpen.set(false);
+      this.closePopover();
     }
   }
 
   toggleOpen(event?: Event) {
     if (event) event.stopPropagation();
     if (!this.isOpen()) {
-      this.updateRect();
-      this.isOpen.set(true);
+      this.openPopover();
     } else {
-      this.isOpen.set(false);
+      this.closePopover();
     }
   }
 

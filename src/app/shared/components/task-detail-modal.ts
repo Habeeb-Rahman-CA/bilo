@@ -30,10 +30,15 @@ import { RichEditorComponent } from './rich-editor';
               </span>
               <span
                 class="task-key-badge font-mono clickable-key"
+                [class.copied]="taskShareService.lastCopiedTaskId() === task.id"
                 (click)="taskShareService.copyTaskShareLink(task, $event)"
-                title="Click to copy share link"
+                [title]="taskShareService.lastCopiedTaskId() === task.id ? 'Copied link for ' + getTaskKeyStr(task) : 'Click to copy share link'"
               >
-                <i class="fi fi-rr-link link-icon"></i> {{ getTaskKeyStr(task) }}
+                @if (taskShareService.lastCopiedTaskId() === task.id) {
+                  <i class="fi fi-rr-check text-emerald"></i> COPIED!
+                } @else {
+                  <i class="fi fi-rr-link link-icon"></i> {{ getTaskKeyStr(task) }}
+                }
               </span>
               <span class="priority-badge" [class]="(task.priority || 'medium').toLowerCase()">
                 {{ task.priority || 'medium' }}
@@ -611,8 +616,16 @@ import { RichEditorComponent } from './rich-editor';
               </div>
 
               <div class="meta-actions">
-                <button class="btn btn-secondary btn-sm full-width" (click)="taskShareService.copyTaskShareLink(task, $event)">
-                  <i class="fi fi-rr-share"></i> Copy Share Link
+                <button
+                  class="btn btn-secondary btn-sm full-width"
+                  [class.btn-copied]="taskShareService.lastCopiedTaskId() === task.id"
+                  (click)="taskShareService.copyTaskShareLink(task, $event)"
+                >
+                  @if (taskShareService.lastCopiedTaskId() === task.id) {
+                    <i class="fi fi-rr-check text-emerald"></i> Copied to Clipboard!
+                  } @else {
+                    <i class="fi fi-rr-share"></i> Copy Share Link
+                  }
                 </button>
               </div>
 

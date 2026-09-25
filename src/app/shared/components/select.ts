@@ -11,6 +11,27 @@ export interface SelectOption {
   disabled?: boolean;
 }
 
+export interface ClosablePopover {
+  closePopover(): void;
+}
+
+let activePopoverInstance: ClosablePopover | null = null;
+
+export function registerOpenPopover(instance: ClosablePopover) {
+  if (activePopoverInstance && activePopoverInstance !== instance) {
+    try {
+      activePopoverInstance.closePopover();
+    } catch (e) {}
+  }
+  activePopoverInstance = instance;
+}
+
+export function unregisterOpenPopover(instance: ClosablePopover) {
+  if (activePopoverInstance === instance) {
+    activePopoverInstance = null;
+  }
+}
+
 @Component({
   selector: 'app-select',
   standalone: true,
@@ -517,6 +538,7 @@ export class SelectComponent implements OnChanges, OnDestroy {
   }
 
   openPopover() {
+    registerOpenPopover(this);
     this.updateRect();
     this.searchQuery.set('');
     this.isOpen.set(true);
@@ -537,6 +559,7 @@ export class SelectComponent implements OnChanges, OnDestroy {
   }
 
   closePopover() {
+    unregisterOpenPopover(this);
     if (typeof document !== 'undefined') {
       document.removeEventListener('scroll', this.onScrollCapture, true);
       if (this.popoverEl?.nativeElement && document.body && this.popoverEl.nativeElement.parentNode === document.body) {

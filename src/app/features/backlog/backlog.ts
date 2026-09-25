@@ -260,10 +260,15 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
                 <!-- Task Key / Identifier -->
                 <div
                   class="cell-key font-mono clickable-key"
+                  [class.copied]="taskShareService.lastCopiedTaskId() === t.id"
                   (click)="taskShareService.copyTaskShareLink(t, $event)"
-                  title="Click to copy share link"
+                  [title]="taskShareService.lastCopiedTaskId() === t.id ? 'Copied link for ' + getTaskKeyStr(t) : 'Click to copy share link'"
                 >
-                  <span>{{ getTaskKeyStr(t) }} <i class="fi fi-rr-link link-icon"></i></span>
+                  @if (taskShareService.lastCopiedTaskId() === t.id) {
+                    <span class="copied-pill text-emerald"><i class="fi fi-rr-check"></i> COPIED!</span>
+                  } @else {
+                    <span>{{ getTaskKeyStr(t) }} <i class="fi fi-rr-link link-icon"></i></span>
+                  }
                 </div>
 
                 <!-- Title / Summary -->
@@ -751,6 +756,20 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
       font-weight: 700;
       color: var(--text-muted);
       width: 85px;
+    }
+    .cell-key.copied {
+      color: #10b981 !important;
+      animation: pulse-copy 0.3s ease-out;
+    }
+    .copied-pill {
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+    }
+    @keyframes pulse-copy {
+      0% { transform: scale(0.92); }
+      50% { transform: scale(1.08); }
+      100% { transform: scale(1); }
     }
     .cell-summary {
       flex: 1;

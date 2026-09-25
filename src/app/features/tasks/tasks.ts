@@ -217,10 +217,15 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                         </span>
                         <span
                           class="task-key font-mono clickable-key"
+                          [class.copied]="taskShareService.lastCopiedTaskId() === t.id"
                           (click)="taskShareService.copyTaskShareLink(t, $event)"
-                          title="Click to copy share link"
+                          [title]="taskShareService.lastCopiedTaskId() === t.id ? 'Copied link for ' + getTaskKeyStr(t) : 'Click to copy share link'"
                         >
-                          {{ getTaskKeyStr(t) }} <i class="fi fi-rr-link link-icon"></i>
+                          @if (taskShareService.lastCopiedTaskId() === t.id) {
+                            <span class="copied-pill text-emerald"><i class="fi fi-rr-check"></i> COPIED!</span>
+                          } @else {
+                            {{ getTaskKeyStr(t) }} <i class="fi fi-rr-link link-icon"></i>
+                          }
                         </span>
                         <span class="priority-badge" [class]="(t.priority || 'medium').toLowerCase()">
                           {{ t.priority || 'medium' }}
@@ -478,6 +483,15 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       font-size: 0.725rem;
       font-weight: 700;
       color: var(--text-subtle);
+    }
+    .task-key.copied {
+      color: #10b981 !important;
+      animation: pulse-copy 0.3s ease-out;
+    }
+    @keyframes pulse-copy {
+      0% { transform: scale(0.92); }
+      50% { transform: scale(1.08); }
+      100% { transform: scale(1); }
     }
     .priority-badge {
       font-size: 0.65rem;
