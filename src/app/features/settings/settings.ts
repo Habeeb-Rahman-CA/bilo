@@ -10,13 +10,14 @@ import { Project, Workflow } from '../../core/models/project.model';
 import { ProjectAccessModalComponent } from '../../shared/components/project-access-modal';
 import { ProjectModalComponent } from '../../shared/components/project-modal';
 import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
+import { ColorPickerComponent } from '../../shared/components/color-picker';
 
 export type SettingsSection = 'overview' | 'workflow' | 'notifications';
 
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [CommonModule, FormsModule, ProjectAccessModalComponent, ProjectModalComponent, ConfirmModalComponent],
+  imports: [CommonModule, FormsModule, ProjectAccessModalComponent, ProjectModalComponent, ConfirmModalComponent, ColorPickerComponent],
   template: `
     <div class="settings-workspace font-mono">
       <!-- Top Banner Bar -->
@@ -276,12 +277,10 @@ export type SettingsSection = 'overview' | 'workflow' | 'notifications';
                             <div class="column-item-top">
                               <span class="drag-handle"><i class="fi fi-rr-menu-dots-vertical"></i></span>
 
-                              <input
-                                type="color"
-                                class="color-picker-inline"
-                                [(ngModel)]="col.color"
+                              <app-color-picker
+                                [(color)]="col.color"
                                 title="Column accent color"
-                              />
+                              ></app-color-picker>
 
                               <input
                                 type="text"

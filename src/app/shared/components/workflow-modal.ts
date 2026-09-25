@@ -4,11 +4,12 @@ import { FormsModule } from '@angular/forms';
 import { WorkflowService } from '../../core/services/workflow.service';
 import { TaskService } from '../../core/services/task.service';
 import { Project, Workflow } from '../../core/models/project.model';
+import { ColorPickerComponent } from './color-picker';
 
 @Component({
   selector: 'app-workflow-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ColorPickerComponent],
   template: `
     <div class="modal-overlay" (click)="close.emit()">
       <div class="modal-card" (click)="$event.stopPropagation()">
@@ -37,11 +38,10 @@ import { Project, Workflow } from '../../core/models/project.model';
               <div class="column-item">
                 <span class="drag-handle"><i class="fi fi-rr-menu-dots-vertical"></i></span>
 
-                <input
-                  type="color"
-                  class="color-picker-inline"
-                  [(ngModel)]="col.color"
-                />
+                <app-color-picker
+                  [(color)]="col.color"
+                  title="Column status color"
+                ></app-color-picker>
 
                 <input
                   type="text"
