@@ -26,6 +26,28 @@ export class TaskService {
   taskStatusHistory = signal<Record<string, TaskStatusHistory[]>>({});
   loading = signal<boolean>(false);
   batchProgress = signal<BatchOperationProgress | null>(null);
+  concurrentConflictMessage = signal<string>('');
+  private conflictToastTimer: any = null;
+
+  triggerConflictNotification(message: string): void {
+    if (this.conflictToastTimer) {
+      clearTimeout(this.conflictToastTimer);
+      this.conflictToastTimer = null;
+    }
+    this.concurrentConflictMessage.set(message);
+    this.conflictToastTimer = setTimeout(() => {
+      this.concurrentConflictMessage.set('');
+      this.conflictToastTimer = null;
+    }, 6000);
+  }
+
+  clearConflictNotification(): void {
+    if (this.conflictToastTimer) {
+      clearTimeout(this.conflictToastTimer);
+      this.conflictToastTimer = null;
+    }
+    this.concurrentConflictMessage.set('');
+  }
 
   constructor(
     private supabaseService: SupabaseService,
@@ -243,6 +265,14 @@ export class TaskService {
             const rt = mergedMap.get(lt.id)!;
             const ltTime = lt.updated_at ? new Date(lt.updated_at).getTime() : 0;
             const rtTime = rt.updated_at ? new Date(rt.updated_at).getTime() : 0;
+
+            if (rtTime > ltTime && rt.status.toLowerCase() !== lt.status.toLowerCase()) {
+              console.warn(`[ConcurrentEdit] Task "${lt.title}" status changed concurrently on remote (${lt.status} -> ${rt.status}).`);
+              this.triggerConflictNotification(
+                `Concurrent Edit Conflict: Task "${lt.title}" was updated to "${rt.status}" by another user. Board refreshed.`
+              );
+            }
+
             if (ltTime > rtTime) {
               mergedMap.set(lt.id, lt);
             }
@@ -424,9 +454,17 @@ export class TaskService {
     return newTask;
   }
 
-  async updateTask(id: string, updates: Partial<Task>): Promise<Task | null> {
+  async updateTask(id: string, updates: Partial<Task>, expectedUpdatedAt?: string): Promise<Task | null> {
     const existingTask = this.tasks().find(t => t.id === id);
     if (!existingTask) return null;
+
+    if (expectedUpdatedAt && existingTask.updated_at && expectedUpdatedAt !== existingTask.updated_at) {
+      console.warn(`[ConcurrentEdit] Base timestamp mismatch for task "${existingTask.title}". Expected: ${expectedUpdatedAt}, Actual: ${existingTask.updated_at}`);
+      this.triggerConflictNotification(
+        `Concurrent Edit Conflict: Task "${existingTask.title}" was modified by another user. Board refreshed.`
+      );
+      return existingTask;
+    }
 
     const newStatus = updates.status !== undefined ? updates.status : existingTask.status;
     const targetCompleted = updates.status !== undefined

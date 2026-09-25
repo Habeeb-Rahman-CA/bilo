@@ -19,6 +19,13 @@ export interface CalendarDayCell {
   dueTasks: Task[];
 }
 
+export interface CalendarCellEvent {
+  id: string;
+  title: string;
+  eventType: 'created' | 'closed' | 'due';
+  task: Task;
+}
+
 @Component({
   selector: 'app-calendar',
   standalone: true,
@@ -106,6 +113,7 @@ export interface CalendarDayCell {
             @for (cell of calendarCells(); track cell.dateStr) {
               <div
                 class="day-cell"
+                [attr.data-date]="cell.dateStr"
                 [class.other-month]="!cell.isCurrentMonth"
                 [class.today]="cell.isToday"
                 [class.has-events]="hasAnyEvents(cell)"
@@ -126,59 +134,35 @@ export interface CalendarDayCell {
                   }
                 </div>
 
-                <!-- Cell Content: Draggable Event Badges -->
+                <!-- Cell Content: Truncated Draggable Event Badges -->
                 <div class="cell-events">
-                  <!-- Created Tasks -->
-                  @if (showCreated()) {
-                    @for (t of cell.createdTasks.slice(0, maxVisibleEventsPerType); track t.id) {
-                      <div
-                        class="event-pill pill-created"
-                        draggable="true"
-                        (dragstart)="onDragStartTask($event, t)"
-                        (click)="$event.stopPropagation(); openDetail(t)"
-                        [title]="'Drag to reschedule: ' + t.title"
-                      >
-                        <i class="fi fi-rr-plus-circle"></i>
-                        <span class="event-text">Created: {{ t.title }}</span>
-                      </div>
-                    }
+                  @for (evt of getVisibleEvents(cell); track evt.id) {
+                    <div
+                      class="event-pill"
+                      [class.pill-created]="evt.eventType === 'created'"
+                      [class.pill-closed]="evt.eventType === 'closed'"
+                      [class.pill-due]="evt.eventType === 'due'"
+                      draggable="true"
+                      (dragstart)="onDragStartTask($event, evt.task)"
+                      (touchstart)="onTouchStartTask($event, evt.task)"
+                      (touchmove)="onTouchMoveTask($event)"
+                      (touchend)="onTouchEndTask($event)"
+                      (touchcancel)="onTouchCancelTask()"
+                      (click)="$event.stopPropagation(); openDetail(evt.task)"
+                      [title]="'Drag to reschedule: ' + evt.task.title"
+                    >
+                      <i [class]="evt.eventType === 'created' ? 'fi fi-rr-plus-circle' : (evt.eventType === 'closed' ? 'fi fi-rr-check-circle' : 'fi fi-rr-clock')"></i>
+                      <span class="event-text">{{ evt.eventType === 'created' ? 'Created' : (evt.eventType === 'closed' ? 'Closed' : 'Due') }}: {{ evt.title }}</span>
+                    </div>
                   }
 
-                  <!-- Closed / Completed Tasks -->
-                  @if (showClosed()) {
-                    @for (t of cell.closedTasks.slice(0, maxVisibleEventsPerType); track t.id) {
-                      <div
-                        class="event-pill pill-closed"
-                        draggable="true"
-                        (dragstart)="onDragStartTask($event, t)"
-                        (click)="$event.stopPropagation(); openDetail(t)"
-                        [title]="'Drag to reschedule: ' + t.title"
-                      >
-                        <i class="fi fi-rr-check-circle"></i>
-                        <span class="event-text">Closed: {{ t.title }}</span>
-                      </div>
-                    }
-                  }
-
-                  <!-- Due Tasks -->
-                  @if (showDue()) {
-                    @for (t of cell.dueTasks.slice(0, maxVisibleEventsPerType); track t.id) {
-                      <div
-                        class="event-pill pill-due"
-                        draggable="true"
-                        (dragstart)="onDragStartTask($event, t)"
-                        (click)="$event.stopPropagation(); openDetail(t)"
-                        [title]="'Drag to reschedule due date: ' + t.title"
-                      >
-                        <i class="fi fi-rr-clock"></i>
-                        <span class="event-text">Due: {{ t.title }}</span>
-                      </div>
-                    }
-                  }
-
-                  <!-- Overflow counter if more events exist -->
+                  <!-- Overflow counter if total events exceed cell capacity -->
                   @if (getOverflowCount(cell) > 0) {
-                    <div class="event-overflow font-mono" (click)="$event.stopPropagation(); selectDayCell(cell)">
+                    <div
+                      class="event-overflow font-mono"
+                      (click)="$event.stopPropagation(); selectDayCell(cell)"
+                      [title]="'View all ' + getAllCellEvents(cell).length + ' events for this day'"
+                    >
                       +{{ getOverflowCount(cell) }} more
                     </div>
                   }
@@ -215,6 +199,10 @@ export interface CalendarDayCell {
                     class="unscheduled-card"
                     draggable="true"
                     (dragstart)="onDragStartTask($event, t)"
+                    (touchstart)="onTouchStartTask($event, t)"
+                    (touchmove)="onTouchMoveTask($event)"
+                    (touchend)="onTouchEndTask($event)"
+                    (touchcancel)="onTouchCancelTask()"
                     (click)="openDetail(t)"
                   >
                     <div class="card-top-row">
@@ -466,17 +454,20 @@ export interface CalendarDayCell {
     .days-grid {
       display: grid;
       grid-template-columns: repeat(7, 1fr);
-      grid-auto-rows: minmax(115px, 1fr);
+      grid-auto-rows: 125px;
     }
 
     .day-cell {
-      padding: 0.4rem;
+      height: 125px;
+      max-height: 125px;
+      box-sizing: border-box;
+      padding: 0.35rem 0.4rem;
       border-right: 1px solid var(--border-subtle);
       border-bottom: 1px solid var(--border-subtle);
       background: var(--bg-surface);
       display: flex;
       flex-direction: column;
-      gap: 0.35rem;
+      gap: 0.25rem;
       cursor: pointer;
       transition: var(--transition-fast);
       min-width: 0;
@@ -524,23 +515,25 @@ export interface CalendarDayCell {
     .cell-events {
       display: flex;
       flex-direction: column;
-      gap: 0.25rem;
+      gap: 0.2rem;
       flex: 1;
+      max-height: 86px;
       overflow: hidden;
     }
 
     .event-pill {
-      font-size: 0.675rem;
-      padding: 0.2rem 0.45rem;
+      font-size: 0.65rem;
+      padding: 0.15rem 0.4rem;
       border-radius: var(--radius-xs);
       display: flex;
       align-items: center;
-      gap: 0.3rem;
+      gap: 0.25rem;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
       cursor: grab;
       font-family: var(--font-mono);
+      line-height: 1.2;
     }
     .event-pill:active { cursor: grabbing; }
     .event-text {
@@ -555,10 +548,20 @@ export interface CalendarDayCell {
 
     .event-overflow {
       font-size: 0.65rem;
-      color: var(--text-muted);
+      color: var(--accent-cyan);
+      background: rgba(6, 182, 212, 0.1);
+      border: 1px dashed rgba(6, 182, 212, 0.3);
+      border-radius: var(--radius-xs);
       font-weight: 700;
-      padding: 0.1rem 0.3rem;
+      padding: 0.1rem 0.35rem;
       cursor: pointer;
+      text-align: center;
+      transition: all 0.2s ease;
+      margin-top: 0.1rem;
+    }
+    .event-overflow:hover {
+      background: var(--accent-cyan);
+      color: #ffffff;
     }
 
     /* Unscheduled Drawer Panel */
@@ -901,31 +904,33 @@ export class CalendarComponent implements OnInit {
     this.currentDate.set(new Date());
   }
 
+  readonly maxVisibleCellEvents = 3;
+
+  getAllCellEvents(cell: CalendarDayCell): CalendarCellEvent[] {
+    const events: CalendarCellEvent[] = [];
+    if (this.showCreated() && cell.createdTasks) {
+      cell.createdTasks.forEach((t: Task) => events.push({ id: `c-${t.id}`, title: t.title, eventType: 'created', task: t }));
+    }
+    if (this.showClosed() && cell.closedTasks) {
+      cell.closedTasks.forEach((t: Task) => events.push({ id: `x-${t.id}`, title: t.title, eventType: 'closed', task: t }));
+    }
+    if (this.showDue() && cell.dueTasks) {
+      cell.dueTasks.forEach((t: Task) => events.push({ id: `d-${t.id}`, title: t.title, eventType: 'due', task: t }));
+    }
+    return events;
+  }
+
   hasAnyEvents(cell: CalendarDayCell): boolean {
-    const created = this.showCreated() ? cell.createdTasks.length : 0;
-    const closed = this.showClosed() ? cell.closedTasks.length : 0;
-    const due = this.showDue() ? cell.dueTasks.length : 0;
-    return (created + closed + due) > 0;
+    return this.getAllCellEvents(cell).length > 0;
+  }
+
+  getVisibleEvents(cell: CalendarDayCell): CalendarCellEvent[] {
+    return this.getAllCellEvents(cell).slice(0, this.maxVisibleCellEvents);
   }
 
   getOverflowCount(cell: CalendarDayCell): number {
-    let visibleCount = 0;
-    let totalCount = 0;
-
-    if (this.showCreated()) {
-      totalCount += cell.createdTasks.length;
-      visibleCount += Math.min(cell.createdTasks.length, this.maxVisibleEventsPerType);
-    }
-    if (this.showClosed()) {
-      totalCount += cell.closedTasks.length;
-      visibleCount += Math.min(cell.closedTasks.length, this.maxVisibleEventsPerType);
-    }
-    if (this.showDue()) {
-      totalCount += cell.dueTasks.length;
-      visibleCount += Math.min(cell.dueTasks.length, this.maxVisibleEventsPerType);
-    }
-
-    return Math.max(0, totalCount - visibleCount);
+    const total = this.getAllCellEvents(cell).length;
+    return Math.max(0, total - this.maxVisibleCellEvents);
   }
 
   // --- Drag and Drop Scheduling Methods ---
@@ -962,6 +967,88 @@ export class CalendarComponent implements OnInit {
     if (taskId) {
       await this.taskService.updateTask(taskId, { due_date: dateStr });
       this.draggedTaskId.set(null);
+    }
+  }
+
+  // --- Mobile Touch Drag Scheduling ---
+  private touchGhostEl: HTMLElement | null = null;
+
+  onTouchStartTask(e: TouchEvent, task: Task) {
+    if (!e.touches || e.touches.length === 0) return;
+    const touch = e.touches[0];
+    this.draggedTaskId.set(task.id);
+
+    // Create a floating visual ghost for touch feedback
+    this.cleanupTouchGhost();
+    const ghost = document.createElement('div');
+    ghost.className = 'touch-drag-ghost font-mono';
+    ghost.innerText = `📅 ${task.title}`;
+    ghost.style.position = 'fixed';
+    ghost.style.left = `${touch.clientX - 40}px`;
+    ghost.style.top = `${touch.clientY - 20}px`;
+    ghost.style.zIndex = '99999';
+    ghost.style.pointerEvents = 'none';
+    ghost.style.padding = '0.4rem 0.75rem';
+    ghost.style.background = 'var(--accent-purple)';
+    ghost.style.color = '#ffffff';
+    ghost.style.borderRadius = 'var(--radius-xs)';
+    ghost.style.boxShadow = '0 8px 24px rgba(0,0,0,0.35)';
+    ghost.style.fontSize = '0.75rem';
+    ghost.style.fontWeight = '700';
+    ghost.style.border = '1px solid rgba(255,255,255,0.3)';
+
+    document.body.appendChild(ghost);
+    this.touchGhostEl = ghost;
+  }
+
+  onTouchMoveTask(e: TouchEvent) {
+    if (!this.touchGhostEl || !e.touches || e.touches.length === 0) return;
+    const touch = e.touches[0];
+    this.touchGhostEl.style.left = `${touch.clientX - 40}px`;
+    this.touchGhostEl.style.top = `${touch.clientY - 20}px`;
+
+    // Identify target day cell under touch pointer
+    if (typeof document !== 'undefined') {
+      const targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
+      if (targetEl) {
+        const dayCell = targetEl.closest('.day-cell') as HTMLElement;
+        if (dayCell && dayCell.dataset['date']) {
+          const dateStr = dayCell.dataset['date'];
+          if (this.dragOverDate() !== dateStr) {
+            this.dragOverDate.set(dateStr);
+          }
+          return;
+        }
+      }
+    }
+    if (this.dragOverDate() !== null) {
+      this.dragOverDate.set(null);
+    }
+  }
+
+  async onTouchEndTask(e: TouchEvent) {
+    const taskId = this.draggedTaskId();
+    const dateStr = this.dragOverDate();
+
+    this.cleanupTouchGhost();
+    this.dragOverDate.set(null);
+    this.draggedTaskId.set(null);
+
+    if (taskId && dateStr) {
+      await this.taskService.updateTask(taskId, { due_date: dateStr });
+    }
+  }
+
+  onTouchCancelTask() {
+    this.cleanupTouchGhost();
+    this.dragOverDate.set(null);
+    this.draggedTaskId.set(null);
+  }
+
+  private cleanupTouchGhost() {
+    if (this.touchGhostEl) {
+      this.touchGhostEl.remove();
+      this.touchGhostEl = null;
     }
   }
 

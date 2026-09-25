@@ -29,6 +29,15 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
         </div>
       }
 
+      <!-- Concurrent Edit Conflict Notification -->
+      @if (taskService.concurrentConflictMessage()) {
+        <div class="concurrent-conflict-banner font-mono">
+          <i class="fi fi-rr-interrogation text-cyan"></i>
+          <span>{{ taskService.concurrentConflictMessage() }}</span>
+          <button type="button" class="btn-close-toast" (click)="taskService.clearConflictNotification()">&times;</button>
+        </div>
+      }
+
       <!-- Top Banner Bar -->
       <div class="view-header-strip paper-panel">
         <div class="view-header-left">
@@ -1580,7 +1589,11 @@ export class BacklogComponent implements OnInit, OnDestroy {
         }
       }
     }
-    await this.taskService.updateTask(id, { status: statusVal, completed: statusVal.toLowerCase() === 'done' });
+    await this.taskService.updateTask(
+      id,
+      { status: statusVal, completed: statusVal.toLowerCase() === 'done' },
+      task?.updated_at
+    );
   }
 
   deleteTask(t: Task) {

@@ -30,6 +30,15 @@ import { RichEditorComponent } from './rich-editor';
           </div>
         }
 
+        <!-- Concurrent Edit Conflict Notification -->
+        @if (taskService.concurrentConflictMessage()) {
+          <div class="concurrent-conflict-banner font-mono">
+            <i class="fi fi-rr-interrogation text-cyan"></i>
+            <span>{{ taskService.concurrentConflictMessage() }}</span>
+            <button type="button" class="btn-close-toast" (click)="taskService.clearConflictNotification()">&times;</button>
+          </div>
+        }
+
         <!-- Top Navigation Header Bar -->
         <div class="detail-nav-bar paper-panel">
           <div class="nav-left">
@@ -1888,9 +1897,9 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
   assigneeOptions: SelectOption[] = [];
 
   constructor(
-    private taskService: TaskService,
-    private projectService: ProjectService,
-    private workflowService: WorkflowService,
+    public taskService: TaskService,
+    public projectService: ProjectService,
+    public workflowService: WorkflowService,
     public taskShareService: TaskShareService,
     public authService: AuthService
   ) { }
@@ -2149,10 +2158,14 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
     const available = this.getAvailableStatuses();
     const wf = available.find(w => w.name === newStatus);
 
-    const updated = await this.taskService.updateTask(this.task.id, {
-      status: newStatus,
-      workflow_id: wf?.id
-    });
+    const updated = await this.taskService.updateTask(
+      this.task.id,
+      {
+        status: newStatus,
+        workflow_id: wf?.id
+      },
+      this.task.updated_at
+    );
     if (updated) {
       this.task = updated;
       const historyList = await this.taskService.loadStatusHistoryForTask(this.task.id);

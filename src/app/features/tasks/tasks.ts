@@ -1,7 +1,7 @@
 import { Component, signal, computed, effect, OnInit, OnDestroy, AfterViewInit, HostListener, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { DragDropModule, CdkDragDrop, CdkDragStart, CdkDrag } from '@angular/cdk/drag-drop';
+import { DragDropModule, CdkDragDrop, CdkDragStart, CdkDragEnd, CdkDragMove, CdkDrag, CdkDragHandle } from '@angular/cdk/drag-drop';
 import { TaskService } from '../../core/services/task.service';
 import { ProjectService } from '../../core/services/project.service';
 import { WorkflowService } from '../../core/services/workflow.service';
@@ -33,6 +33,15 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
           <i class="fi fi-rr-lock text-amber"></i>
           <span>{{ restrictedToastMessage() }}</span>
           <button type="button" class="btn-close-toast" (click)="clearRestrictedToast()">&times;</button>
+        </div>
+      }
+
+      <!-- Concurrent Edit Conflict Notification -->
+      @if (taskService.concurrentConflictMessage()) {
+        <div class="concurrent-conflict-banner font-mono">
+          <i class="fi fi-rr-interrogation text-cyan"></i>
+          <span>{{ taskService.concurrentConflictMessage() }}</span>
+          <button type="button" class="btn-close-toast" (click)="taskService.clearConflictNotification()">&times;</button>
         </div>
       }
 
@@ -258,6 +267,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                     cdkDrag
                     [cdkDragData]="t"
                     (cdkDragStarted)="onDragStarted($event)"
+                    (cdkDragMoved)="onDragMoved($event)"
                     (cdkDragEnded)="onDragEnded()"
                     (click)="openDetailModal(t)"
                   >
@@ -283,7 +293,9 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                           {{ t.priority || 'medium' }}
                         </span>
                       </div>
-                      <i class="fi fi-rr-grip-dots-vertical drag-grip" title="Drag to move"></i>
+                      <div class="drag-grip-wrap" cdkDragHandle (click)="$event.stopPropagation()" title="Drag to move task card">
+                        <i class="fi fi-rr-grip-dots-vertical drag-grip"></i>
+                      </div>
                     </div>
 
                     <!-- Project Pill -->
@@ -341,6 +353,22 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                           <i class="fi fi-rr-calendar"></i> {{ t.due_date }}
                         </span>
                       }
+                    </div>
+
+                    <!-- Mobile / Touch Quick-Move Status Selector -->
+                    <div class="card-mobile-actions font-mono" (click)="$event.stopPropagation()">
+                      <span class="mobile-move-label"><i class="fi fi-rr-exchange-alt"></i> Move:</span>
+                      <select
+                        class="mobile-status-select font-mono"
+                        [ngModel]="t.status"
+                        (ngModelChange)="moveTaskStatus(t, $event)"
+                      >
+                        @for (col of activeColumns(); track col.id) {
+                          <option [value]="col.name">
+                            {{ col.name }}
+                          </option>
+                        }
+                      </select>
                     </div>
                   </div>
                 }
@@ -674,14 +702,37 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
     .priority-badge.high { background: #fef3c7; color: #d97706; border-color: #fcd34d; }
     .priority-badge.medium { background: #e0f2fe; color: #0284c7; border-color: #7dd3fc; }
     .priority-badge.low { background: #f3f4f6; color: #4b5563; border-color: #d1d5db; }
+    .drag-grip-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      margin: -4px -4px -4px 0;
+      cursor: grab;
+      touch-action: none;
+      border-radius: var(--radius-xs);
+      transition: background-color 0.2s ease, color 0.2s ease;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+      flex-shrink: 0;
+    }
+    .drag-grip-wrap:hover, .drag-grip-wrap:active {
+      background: var(--bg-surface-hover);
+      color: var(--accent-cyan);
+    }
+    .drag-grip-wrap:active {
+      cursor: grabbing;
+    }
     .drag-grip {
       font-size: 0.85rem;
       color: var(--text-subtle);
-      cursor: grab;
-      opacity: 0.5;
+      opacity: 0.7;
     }
-    .drag-grip:hover {
+    .drag-grip-wrap:hover .drag-grip {
       opacity: 1;
+      color: var(--accent-cyan);
     }
     .card-project-row {
       display: flex;
@@ -783,6 +834,42 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       color: var(--accent-rose);
       font-weight: 700;
     }
+    .task-card {
+      touch-action: pan-y;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .card-mobile-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.4rem;
+      margin-top: 0.35rem;
+      padding-top: 0.35rem;
+      border-top: 1px dashed var(--border-subtle);
+    }
+    .mobile-move-label {
+      font-size: 0.675rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-weight: 700;
+    }
+    .mobile-status-select {
+      background: var(--bg-surface-subtle);
+      color: var(--text-main);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xs);
+      padding: 0.15rem 0.4rem;
+      font-size: 0.725rem;
+      font-weight: 600;
+      cursor: pointer;
+      outline: none;
+    }
+    .mobile-status-select:focus {
+      border-color: var(--accent-cyan);
+    }
 
     .cdk-drag-preview {
       box-sizing: border-box;
@@ -809,6 +896,21 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       background: rgba(245, 158, 11, 0.12);
       border: 1px solid rgba(245, 158, 11, 0.35);
       color: #f59e0b;
+      padding: 0.65rem 1rem;
+      border-radius: var(--radius-xs);
+      font-size: 0.775rem;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+      animation: fadeIn 0.2s ease-out;
+    }
+    .concurrent-conflict-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.65rem;
+      background: rgba(6, 182, 212, 0.12);
+      border: 1px solid rgba(6, 182, 212, 0.35);
+      color: var(--accent-cyan);
       padding: 0.65rem 1rem;
       border-radius: var(--radius-xs);
       font-size: 0.775rem;
@@ -1241,13 +1343,70 @@ export class TasksComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   private activeDragItem: CdkDrag<Task> | null = null;
+  private autoScrollFrameId: number | null = null;
+  private autoScrollSpeed: number = 0;
 
   onDragStarted(event: CdkDragStart<Task>): void {
     this.activeDragItem = event.source;
   }
 
+  onDragMoved(event: CdkDragMove<Task>): void {
+    const container = this.kanbanBoardContainer?.nativeElement;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    const pointerX = event.pointerPosition.x;
+    const threshold = 100; // Edge threshold in px
+
+    const distLeft = pointerX - rect.left;
+    const distRight = rect.right - pointerX;
+
+    let speed = 0;
+
+    if (distLeft < threshold && container.scrollLeft > 0) {
+      const ratio = Math.max(0, (threshold - distLeft) / threshold);
+      speed = -Math.round(8 + ratio * 22);
+    } else if (distRight < threshold && (container.scrollLeft + container.clientWidth < container.scrollWidth - 5)) {
+      const ratio = Math.max(0, (threshold - distRight) / threshold);
+      speed = Math.round(8 + ratio * 22);
+    }
+
+    this.autoScrollSpeed = speed;
+
+    if (speed !== 0) {
+      if (!this.autoScrollFrameId) {
+        this.startAutoScrollLoop();
+      }
+    } else {
+      this.stopAutoScrollLoop();
+    }
+  }
+
+  private startAutoScrollLoop(): void {
+    const loop = () => {
+      const container = this.kanbanBoardContainer?.nativeElement;
+      if (container && this.autoScrollSpeed !== 0) {
+        container.scrollLeft += this.autoScrollSpeed;
+        this.updateScrollState(container);
+        this.autoScrollFrameId = requestAnimationFrame(loop);
+      } else {
+        this.stopAutoScrollLoop();
+      }
+    };
+    this.autoScrollFrameId = requestAnimationFrame(loop);
+  }
+
+  private stopAutoScrollLoop(): void {
+    if (this.autoScrollFrameId) {
+      cancelAnimationFrame(this.autoScrollFrameId);
+      this.autoScrollFrameId = null;
+    }
+    this.autoScrollSpeed = 0;
+  }
+
   onDragEnded(): void {
     this.activeDragItem = null;
+    this.stopAutoScrollLoop();
     this.cleanupStrayDragElements();
   }
 
@@ -1264,6 +1423,7 @@ export class TasksComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   cancelActiveDrag(): void {
+    this.stopAutoScrollLoop();
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true }));
       window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
@@ -1302,8 +1462,30 @@ export class TasksComponent implements OnInit, OnDestroy, AfterViewInit {
     this.restrictedToastMessage.set('');
   }
 
+  async moveTaskStatus(task: Task, newStatus: string): Promise<void> {
+    if (!task || task.status === newStatus) return;
+    const targetColumn = this.activeColumns().find(c => c.name === newStatus);
+    if (!targetColumn) return;
+
+    const allowed = this.workflowService.canTransition(task.status, targetColumn.id, task.project_id);
+    if (!allowed) {
+      this.showRestrictedToast(`Workflow Rule: Transitioning from "${task.status}" to "${newStatus}" is restricted.`);
+      return;
+    }
+
+    await this.taskService.updateTask(
+      task.id,
+      {
+        status: targetColumn.name,
+        workflow_id: targetColumn.id
+      },
+      task.updated_at
+    );
+  }
+
   async drop(event: CdkDragDrop<Task[]>, targetColumn: Workflow) {
     this.activeDragItem = null;
+    this.stopAutoScrollLoop();
     const task: Task = event.item.data;
     if (task && task.status !== targetColumn.name) {
       const allowed = this.workflowService.canTransition(task.status, targetColumn.id, task.project_id);
@@ -1313,10 +1495,14 @@ export class TasksComponent implements OnInit, OnDestroy, AfterViewInit {
         return;
       }
 
-      await this.taskService.updateTask(task.id, {
-        status: targetColumn.name,
-        workflow_id: targetColumn.id
-      });
+      await this.taskService.updateTask(
+        task.id,
+        {
+          status: targetColumn.name,
+          workflow_id: targetColumn.id
+        },
+        task.updated_at
+      );
     }
     this.cleanupStrayDragElements();
   }
