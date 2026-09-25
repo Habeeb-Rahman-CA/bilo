@@ -356,7 +356,10 @@ export class AuthService implements OnDestroy {
       const workflowService = this.injector.get(WorkflowService);
       const syncService = this.injector.get(SyncService);
 
-      await syncService.loadQueueFromStorage(this.user()?.id);
+      await Promise.all([
+        syncService.loadQueueFromStorage(this.user()?.id),
+        syncService.loadDlqFromStorage(this.user()?.id)
+      ]);
       projectService.loadFromStorage();
       taskService.loadFromStorage();
       workflowService.loadFromStorage();

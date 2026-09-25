@@ -188,7 +188,7 @@ export class SyncService {
         if (Array.isArray(queue)) {
           const validQueue = queue.map((op: any) => ({
             ...op,
-            user_id: op.user_id || uid || 'guest'
+            user_id: op.user_id === 'guest' || !op.user_id ? (uid || 'guest') : op.user_id
           }));
           this.pendingSyncQueue.set(this.compactQueue(validQueue));
           return;
