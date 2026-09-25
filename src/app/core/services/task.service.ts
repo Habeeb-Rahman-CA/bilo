@@ -588,7 +588,26 @@ export class TaskService {
     this.syncService.enqueue('ADD_STATUS_HISTORY', updatedEntry);
   }
 
-  async loadStatusHistoryForTask(taskId: string): Promise<TaskStatusHistory[]> {
+  async loadStatusHistoryForTask(taskId: string, forceFetch: boolean = false): Promise<TaskStatusHistory[]> {
+    const cachedHistory = this.taskStatusHistory()[taskId];
+
+    if (!forceFetch && cachedHistory !== undefined) {
+      if (this.syncService.isOnline()) {
+        this.fetchStatusHistoryFromRemote(taskId).catch(err =>
+          console.warn('[TaskService] Background status history refresh failed:', err)
+        );
+      }
+      return cachedHistory;
+    }
+
+    if (this.syncService.isOnline()) {
+      return await this.fetchStatusHistoryFromRemote(taskId);
+    }
+
+    return cachedHistory || [];
+  }
+
+  private async fetchStatusHistoryFromRemote(taskId: string): Promise<TaskStatusHistory[]> {
     const localList = this.taskStatusHistory()[taskId] || [];
 
     if (this.syncService.isOnline()) {
@@ -848,50 +867,67 @@ export class TaskService {
 
   // --- Task Comments / Notes ---
 
-  async loadCommentsForTask(taskId: string): Promise<TaskComment[]> {
-    const localComments = this.taskComments()[taskId] || [];
+  async loadCommentsForTask(taskId: string, forceFetch: boolean = false): Promise<TaskComment[]> {
+    const cachedComments = this.taskComments()[taskId];
+
+    if (!forceFetch && cachedComments !== undefined) {
+      if (this.syncService.isOnline()) {
+        this.fetchCommentsFromRemote(taskId).catch(err =>
+          console.warn('[TaskService] Background comment refresh failed:', err)
+        );
+      }
+      return cachedComments;
+    }
 
     if (this.syncService.isOnline()) {
-      try {
-        const { data, error } = await this.supabaseService.supabase
-          .from('task_comments')
-          .select('*')
-          .eq('task_id', taskId)
-          .order('created_at', { ascending: true });
+      return await this.fetchCommentsFromRemote(taskId);
+    }
 
-        if (!error && data) {
-          const remoteComments = data as TaskComment[];
-          const pendingQueue = this.syncService.pendingSyncQueue();
+    return cachedComments || [];
+  }
 
-          const pendingOps = pendingQueue.filter(op =>
-            (op.type === 'ADD_COMMENT' || op.type === 'UPDATE_COMMENT' || op.type === 'DELETE_COMMENT') &&
-            (op.payload.task_id === taskId || op.payload.id)
-          );
-          const pendingCommentIds = new Set(pendingOps.map(op => op.payload.id).filter(Boolean));
-          const deletedCommentIds = new Set(pendingQueue.filter(op => op.type === 'DELETE_COMMENT').map(op => op.payload.id).filter(Boolean));
+  private async fetchCommentsFromRemote(taskId: string): Promise<TaskComment[]> {
+    const localComments = this.taskComments()[taskId] || [];
 
-          const mergedMap = new Map<string, TaskComment>();
-          remoteComments.forEach(c => mergedMap.set(c.id, c));
-          localComments.forEach(c => {
-            if (pendingCommentIds.has(c.id) || !mergedMap.has(c.id)) {
-              mergedMap.set(c.id, c);
-            }
-          });
+    try {
+      const { data, error } = await this.supabaseService.supabase
+        .from('task_comments')
+        .select('*')
+        .eq('task_id', taskId)
+        .order('created_at', { ascending: true });
 
-          const finalComments = Array.from(mergedMap.values())
-            .filter(c => !deletedCommentIds.has(c.id))
-            .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      if (!error && data) {
+        const remoteComments = data as TaskComment[];
+        const pendingQueue = this.syncService.pendingSyncQueue();
 
-          this.taskComments.update(map => ({
-            ...map,
-            [taskId]: finalComments
-          }));
-          this.saveToStorage();
-          return finalComments;
-        }
-      } catch (e) {
-        console.warn('Could not load comments from Supabase', e);
+        const pendingOps = pendingQueue.filter(op =>
+          (op.type === 'ADD_COMMENT' || op.type === 'UPDATE_COMMENT' || op.type === 'DELETE_COMMENT') &&
+          (op.payload.task_id === taskId || op.payload.id)
+        );
+        const pendingCommentIds = new Set(pendingOps.map(op => op.payload.id).filter(Boolean));
+        const deletedCommentIds = new Set(pendingQueue.filter(op => op.type === 'DELETE_COMMENT').map(op => op.payload.id).filter(Boolean));
+
+        const mergedMap = new Map<string, TaskComment>();
+        remoteComments.forEach(c => mergedMap.set(c.id, c));
+        localComments.forEach(c => {
+          if (pendingCommentIds.has(c.id) || !mergedMap.has(c.id)) {
+            mergedMap.set(c.id, c);
+          }
+        });
+
+        const finalComments = Array.from(mergedMap.values())
+          .filter(c => !deletedCommentIds.has(c.id))
+          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+        this.taskComments.update(map => ({
+          ...map,
+          [taskId]: finalComments
+        }));
+        this.saveToStorage();
+        return finalComments;
       }
+    } catch (e) {
+      console.warn('Could not load comments from Supabase', e);
     }
 
     return localComments;
