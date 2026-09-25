@@ -54,6 +54,11 @@ export class SyncService {
         this.isOnline.set(false);
         this.connectionStatus.set('offline');
       });
+
+      window.addEventListener('beforeunload', () => {
+        this.saveQueueToStorage();
+        this.saveDlqToStorage();
+      });
     }
 
     this.startHealthCheckLoop();

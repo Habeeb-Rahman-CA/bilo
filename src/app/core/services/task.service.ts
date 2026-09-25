@@ -200,39 +200,50 @@ export class TaskService {
         const localTasks = this.tasks();
         const pendingQueue = this.syncService.pendingSyncQueue();
 
-        const pendingTaskIds = new Set(
+        const pendingDeleteTaskIds = new Set(
           pendingQueue
-            .filter(op => op.type === 'CREATE_TASK' || op.type === 'UPDATE_TASK' || op.type === 'DELETE_TASK')
+            .filter(op => op.type === 'DELETE_TASK')
             .map(op => op.payload.id || op.payload.task_id)
             .filter(Boolean)
         );
 
-        const mergedMap = new Map<string, Task>();
+        const pendingCreateTaskIds = new Set(
+          pendingQueue
+            .filter(op => op.type === 'CREATE_TASK')
+            .map(op => op.payload.id || op.payload.task_id)
+            .filter(Boolean)
+        );
 
+        const remoteTaskMap = new Map<string, Task>();
         remoteTasks.forEach(rt => {
-          mergedMap.set(rt.id, rt);
+          if (!pendingDeleteTaskIds.has(rt.id)) {
+            remoteTaskMap.set(rt.id, rt);
+          }
         });
 
+        const mergedMap = new Map<string, Task>(remoteTaskMap);
+
         localTasks.forEach(lt => {
-          if (pendingTaskIds.has(lt.id)) {
-            mergedMap.set(lt.id, lt);
-          } else if (mergedMap.has(lt.id)) {
+          if (pendingDeleteTaskIds.has(lt.id)) {
+            return;
+          }
+
+          if (mergedMap.has(lt.id)) {
             const rt = mergedMap.get(lt.id)!;
             const ltTime = lt.updated_at ? new Date(lt.updated_at).getTime() : 0;
             const rtTime = rt.updated_at ? new Date(rt.updated_at).getTime() : 0;
             if (ltTime > rtTime) {
               mergedMap.set(lt.id, lt);
             }
-          } else {
+          } else if (pendingCreateTaskIds.has(lt.id)) {
+            // Task was created locally offline and is waiting to be synced to server
             mergedMap.set(lt.id, lt);
           }
+          // Note: If lt is NOT in remoteTasks and NOT in pendingCreateTaskIds,
+          // it was deleted on the server or synced and deleted elsewhere, so it is omitted to prevent zombie tasks.
         });
 
-        const deletedTaskIds = new Set(
-          pendingQueue.filter(op => op.type === 'DELETE_TASK').map(op => op.payload.id).filter(Boolean)
-        );
-        const finalTasksList = Array.from(mergedMap.values()).filter(t => !deletedTaskIds.has(t.id));
-
+        const finalTasksList = Array.from(mergedMap.values());
         const { normalized } = this.normalizeTaskStatuses(finalTasksList);
         this.tasks.set(normalized);
         this.saveToStorage();
