@@ -177,10 +177,27 @@ export interface CalendarCellEvent {
         @if (showUnscheduledDrawer()) {
           <div class="unscheduled-drawer paper-panel font-mono">
             <div class="drawer-header">
-              <h3><i class="fi fi-rr-time-fast text-amber"></i> Unscheduled Tasks</h3>
+              <h3><i class="fi fi-rr-time-fast text-amber"></i> Unscheduled Tasks ({{ filteredUnscheduledTasks().length }})</h3>
               <button class="btn btn-ghost btn-xs" (click)="showUnscheduledDrawer.set(false)">
                 <i class="fi fi-rr-cross"></i>
               </button>
+            </div>
+
+            <!-- Drawer Search Bar -->
+            <div class="drawer-search-box">
+              <i class="fi fi-rr-search search-icon"></i>
+              <input
+                type="text"
+                class="form-input drawer-search-input font-mono"
+                placeholder="Search unscheduled tasks..."
+                [ngModel]="unscheduledSearchQuery()"
+                (ngModelChange)="onUnscheduledSearch($event)"
+              />
+              @if (unscheduledSearchQuery()) {
+                <button class="btn-clear-search" (click)="onUnscheduledSearch('')">
+                  <i class="fi fi-rr-cross"></i>
+                </button>
+              }
             </div>
 
             <div class="drawer-hint">
@@ -189,13 +206,18 @@ export interface CalendarCellEvent {
             </div>
 
             <div class="unscheduled-list">
-              @if (unscheduledTasks().length === 0) {
+              @if (filteredUnscheduledTasks().length === 0) {
                 <div class="empty-drawer font-mono">
-                  <i class="fi fi-rr-check-circle text-emerald"></i>
-                  <span>All tasks have scheduled due dates!</span>
+                  @if (unscheduledSearchQuery()) {
+                    <i class="fi fi-rr-search text-muted"></i>
+                    <span>No tasks match "{{ unscheduledSearchQuery() }}"</span>
+                  } @else {
+                    <i class="fi fi-rr-check-circle text-emerald"></i>
+                    <span>All tasks have scheduled due dates!</span>
+                  }
                 </div>
               } @else {
-                @for (t of unscheduledTasks(); track t.id) {
+                @for (t of paginatedUnscheduledTasks(); track t.id) {
                   <div
                     class="unscheduled-card"
                     draggable="true"
@@ -228,6 +250,33 @@ export interface CalendarCellEvent {
                 }
               }
             </div>
+
+            <!-- Drawer Pagination Footer -->
+            @if (filteredUnscheduledTasks().length > unscheduledPageSize) {
+              <div class="drawer-pagination font-mono">
+                <span class="page-info">
+                  Page {{ unscheduledPage() }} of {{ totalUnscheduledPages() }}
+                </span>
+                <div class="page-btns">
+                  <button
+                    class="btn btn-secondary btn-xs"
+                    [disabled]="unscheduledPage() <= 1"
+                    (click)="prevUnscheduledPage()"
+                    title="Previous Page"
+                  >
+                    <i class="fi fi-rr-angle-left"></i>
+                  </button>
+                  <button
+                    class="btn btn-secondary btn-xs"
+                    [disabled]="unscheduledPage() >= totalUnscheduledPages()"
+                    (click)="nextUnscheduledPage()"
+                    title="Next Page"
+                  >
+                    <i class="fi fi-rr-angle-right"></i>
+                  </button>
+                </div>
+              </div>
+            }
           </div>
         }
       </div>
@@ -591,6 +640,49 @@ export interface CalendarCellEvent {
       align-items: center;
       gap: 0.45rem;
     }
+    .drawer-search-box {
+      position: relative;
+      width: 100%;
+    }
+    .drawer-search-input {
+      width: 100%;
+      padding-left: 1.8rem;
+      padding-right: 1.8rem;
+      font-size: 0.725rem;
+      box-sizing: border-box;
+    }
+    .drawer-search-box .search-icon {
+      position: absolute;
+      left: 0.55rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      font-size: 0.75rem;
+    }
+    .btn-clear-search {
+      position: absolute;
+      right: 0.4rem;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 0.7rem;
+    }
+    .drawer-pagination {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 0.5rem;
+      border-top: 1px solid var(--border-subtle);
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+    .page-btns {
+      display: flex;
+      gap: 0.25rem;
+    }
     .drawer-hint {
       display: flex;
       align-items: flex-start;
@@ -809,6 +901,51 @@ export class CalendarComponent implements OnInit, OnDestroy {
   unscheduledTasks = computed(() => {
     return this.tasks().filter(t => !t.due_date);
   });
+
+  unscheduledSearchQuery = signal<string>('');
+  unscheduledPage = signal<number>(1);
+  readonly unscheduledPageSize = 10;
+
+  filteredUnscheduledTasks = computed(() => {
+    const all = this.unscheduledTasks();
+    const q = this.unscheduledSearchQuery().toLowerCase().trim();
+    if (!q) return all;
+    return all.filter(t =>
+      t.title.toLowerCase().includes(q) ||
+      (t.description && t.description.toLowerCase().includes(q)) ||
+      (t.status && t.status.toLowerCase().includes(q)) ||
+      (t.priority && t.priority.toLowerCase().includes(q))
+    );
+  });
+
+  totalUnscheduledPages = computed(() => {
+    const total = this.filteredUnscheduledTasks().length;
+    return Math.max(1, Math.ceil(total / this.unscheduledPageSize));
+  });
+
+  paginatedUnscheduledTasks = computed(() => {
+    const list = this.filteredUnscheduledTasks();
+    const page = Math.min(this.unscheduledPage(), this.totalUnscheduledPages());
+    const start = (page - 1) * this.unscheduledPageSize;
+    return list.slice(start, start + this.unscheduledPageSize);
+  });
+
+  onUnscheduledSearch(q: string) {
+    this.unscheduledSearchQuery.set(q);
+    this.unscheduledPage.set(1);
+  }
+
+  prevUnscheduledPage() {
+    if (this.unscheduledPage() > 1) {
+      this.unscheduledPage.update(p => p - 1);
+    }
+  }
+
+  nextUnscheduledPage() {
+    if (this.unscheduledPage() < this.totalUnscheduledPages()) {
+      this.unscheduledPage.update(p => p + 1);
+    }
+  }
 
   // Generate Month Grid Days
   calendarCells = computed<CalendarDayCell[]>(() => {
