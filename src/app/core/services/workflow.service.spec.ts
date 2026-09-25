@@ -112,6 +112,17 @@ describe('WorkflowService', () => {
     expect(workflows.every(w => w.allow_all_transitions === true)).toBe(true);
   });
 
+  it('should scrub deleted workflow ID from allowed_transitions and avoid dead ends', async () => {
+    await service.resetToSequentialPipeline('proj-deadend');
+    const workflows = service.getWorkflowsForProject('proj-deadend');
+
+    expect(service.canTransition(workflows[3].id, workflows[1].id, 'proj-deadend')).toBe(false);
+
+    await service.deleteWorkflow(workflows[0].id, 'proj-deadend');
+
+    expect(service.canTransition(workflows[3].id, workflows[1].id, 'proj-deadend')).toBe(true);
+  });
+
   it('should reassign tasks to a fallback workflow column when a workflow is deleted', async () => {
     const mockTaskService = {
       tasks: vi.fn().mockReturnValue([

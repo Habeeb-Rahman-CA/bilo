@@ -289,12 +289,24 @@ export class WorkflowService {
       }
     }
 
-    // 2) Remove column from signal state & local storage after task reassignment
+    // 2) Remove column from signal state & local storage after task reassignment, and scrub deleted ID from allowed_transitions
     this.workflowsByProject.update(map => {
       const result: Record<string, Workflow[]> = { ...map };
       for (const p in result) {
         if (!projectId || p === targetProjectId) {
-          result[p] = result[p].filter(w => w.id !== id);
+          const filtered = result[p].filter(w => w.id !== id);
+          result[p] = filtered.map(w => {
+            if (w.allowed_transitions && w.allowed_transitions.includes(id)) {
+              const newAllowed = w.allowed_transitions.filter(targetId => targetId !== id);
+              const newAllowAll = newAllowed.length === 0 ? true : (w.allow_all_transitions !== false);
+              return {
+                ...w,
+                allowed_transitions: newAllowed,
+                allow_all_transitions: newAllowAll
+              };
+            }
+            return w;
+          });
         }
       }
       return result;
@@ -445,13 +457,18 @@ export class WorkflowService {
     if (!targetWf) return true; // If target status is unknown, allow by default
     if (targetWf.allow_all_transitions !== false) return true; // Allow all by default unless explicitly disabled
 
+    const activeWfIds = new Set(workflows.map(w => w.id));
+    const validAllowed = (targetWf.allowed_transitions || []).filter(id => activeWfIds.has(id));
+
+    // If all configured allowed transitions were deleted or invalid, fall back to allowing transitions
+    if (validAllowed.length === 0) return true;
+
     const fromWf = workflows.find(
       w => w.id === fromStatusNameOrId || w.name.trim().toLowerCase() === fromStatusNameOrId.trim().toLowerCase()
     );
 
-    const allowed = targetWf.allowed_transitions || [];
-    if (fromWf && allowed.includes(fromWf.id)) return true;
-    if (allowed.includes(fromStatusNameOrId)) return true;
+    if (fromWf && validAllowed.includes(fromWf.id)) return true;
+    if (validAllowed.includes(fromStatusNameOrId)) return true;
 
     return false;
   }
