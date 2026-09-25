@@ -41,7 +41,11 @@ export function formatDueDate(dateInput?: string | null): string {
 export function normalizeDueDate(dueDateInput?: string | null): string | null {
   if (!dueDateInput || typeof dueDateInput !== 'string') return null;
   const clean = dueDateInput.split('T')[0].trim();
-  return clean.length >= 10 ? clean.slice(0, 10) : null;
+  const match = clean.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (!match) return null;
+  const dateStr = match[1];
+  const parsed = parseYMDDate(dateStr);
+  return parsed ? dateStr : null;
 }
 
 export function isOverdue(dueDateInput?: string | null, isCompleted: boolean = false): boolean {

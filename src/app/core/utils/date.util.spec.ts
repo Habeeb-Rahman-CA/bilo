@@ -35,9 +35,14 @@ describe('Date Utilities', () => {
     expect(isOverdue(tomorrowStr, false)).toBe(false);
   });
 
-  it('should normalize ISO timestamp due dates to local YYYY-MM-DD', () => {
+  it('should normalize ISO timestamp due dates to local YYYY-MM-DD and treat string placeholders as null', () => {
     expect(normalizeDueDate('2026-09-25T18:30:00Z')).toBe('2026-09-25');
     expect(normalizeDueDate('2026-09-25')).toBe('2026-09-25');
+    expect(normalizeDueDate('No due date')).toBeNull();
+    expect(normalizeDueDate('No Date')).toBeNull();
+    expect(normalizeDueDate('None')).toBeNull();
+    expect(normalizeDueDate('N/A')).toBeNull();
+    expect(normalizeDueDate('null')).toBeNull();
     expect(normalizeDueDate(null)).toBeNull();
   });
 
@@ -73,11 +78,16 @@ describe('Date Utilities', () => {
     // Null vs Scheduled DESC (null should STILL come AFTER scheduled task!)
     expect(compareDueDates(null, d1, -1)).toBeGreaterThan(0);
 
+    // String placeholder vs Scheduled
+    expect(compareDueDates('No due date', d1, 1)).toBeGreaterThan(0);
+    expect(compareDueDates('No due date', d1, -1)).toBeGreaterThan(0);
+
     // Null vs Null (tie breaking by created_at)
     const t1 = '2026-01-01T00:00:00Z';
     const t2 = '2026-01-02T00:00:00Z';
     expect(compareDueDates(null, null, 1, t1, t2)).toBeLessThan(0);
     expect(compareDueDates(null, null, -1, t1, t2)).toBeGreaterThan(0);
+    expect(compareDueDates('No due date', 'None', 1, t1, t2)).toBeLessThan(0);
   });
 });
 
