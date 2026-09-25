@@ -1,4 +1,4 @@
-import { Component, signal, computed } from '@angular/core';
+import { Component, signal, computed, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TaskService } from '../../core/services/task.service';
@@ -915,11 +915,13 @@ import { TaskModalComponent } from '../../shared/components/task-modal';
     }
   `]
 })
-export class TodayComponent {
+export class TodayComponent implements OnInit, OnDestroy {
   showNewTaskModal = signal<boolean>(false);
   activeDetailTask = signal<Task | null>(null);
 
   isLoading = computed(() => this.taskService.loading());
+  currentDate = signal<Date>(new Date());
+  private dateTimer: any = null;
 
   openCreateModal() {
     this.showNewTaskModal.set(true);
@@ -932,8 +934,30 @@ export class TodayComponent {
     public workflowService: WorkflowService
   ) { }
 
+  ngOnInit(): void {
+    // Periodically update currentDate so header date stays fresh if left open overnight across midnight
+    this.dateTimer = setInterval(() => {
+      const now = new Date();
+      const curr = this.currentDate();
+      if (
+        now.getDate() !== curr.getDate() ||
+        now.getMonth() !== curr.getMonth() ||
+        now.getFullYear() !== curr.getFullYear()
+      ) {
+        this.currentDate.set(now);
+      }
+    }, 60000);
+  }
+
+  ngOnDestroy(): void {
+    if (this.dateTimer) {
+      clearInterval(this.dateTimer);
+      this.dateTimer = null;
+    }
+  }
+
   todayDateFormatted = computed(() => {
-    const d = new Date();
+    const d = this.currentDate();
     return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase();
   });
 
