@@ -420,6 +420,39 @@ describe('AuthService cross-tab sign-out and state isolation', () => {
     expect(resetWorkflowSpy).toHaveBeenCalled();
     expect(resetSyncSpy).toHaveBeenCalled();
   });
+
+  it('should purge remote Supabase data and local storage when purgeAllUserDataFromRemoteAndLocal is invoked', async () => {
+    const deleteEqMock = vi.fn().mockResolvedValue({ error: null });
+    const fromMock = vi.fn().mockReturnValue({ delete: () => ({ eq: deleteEqMock }) });
+
+    const mockSupabaseService: any = {
+      isConfigured: true,
+      supabase: {
+        from: fromMock,
+        auth: {
+          getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+          onAuthStateChange: vi.fn().mockReturnValue({ data: { subscription: { unsubscribe: () => {} } } })
+        }
+      }
+    };
+
+    const mockInjector: any = {
+      get: vi.fn(() => ({ resetState: vi.fn() }))
+    };
+
+    const authService = new AuthService(mockSupabaseService, mockInjector);
+    authService.user.set({ id: 'user-purge-999', email: 'purge@example.com' } as any);
+    localStorage.setItem('bilo_projects_data_user-purge-999', '{"projects":[]}');
+
+    await authService.purgeAllUserDataFromRemoteAndLocal();
+
+    expect(fromMock).toHaveBeenCalledWith('tasks');
+    expect(fromMock).toHaveBeenCalledWith('projects');
+    expect(fromMock).toHaveBeenCalledWith('workflows');
+    expect(deleteEqMock).toHaveBeenCalledWith('user_id', 'user-purge-999');
+    expect(localStorage.getItem('bilo_projects_data_user-purge-999')).toBeNull();
+    expect(authService.user()).toBeNull();
+  });
 });
 
 

@@ -82,6 +82,16 @@ export class WorkflowService {
       return updated;
     });
     this.saveToStorage();
+
+    if (this.supabaseService.isConfigured && this.supabaseService.supabase) {
+      this.supabaseService.supabase
+        .from('workflows')
+        .delete()
+        .eq('project_id', projectId)
+        .then(({ error }) => {
+          if (error) console.warn('[WorkflowService] Remote workflows deletion warning:', error.message);
+        });
+    }
   }
 
   async loadAllWorkflows() {
@@ -599,6 +609,7 @@ export class WorkflowService {
   }
 
   resetState() {
+    localStorage.removeItem('bilo_workflows_by_project');
     this.workflowsByProject.set({ global: [...DEFAULT_GLOBAL_WORKFLOWS] });
     this.loading.set(false);
   }

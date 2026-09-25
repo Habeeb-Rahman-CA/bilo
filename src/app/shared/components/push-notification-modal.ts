@@ -83,43 +83,61 @@ import { PushNotificationService } from '../../core/services/push-notification.s
 
             <div class="toggle-list">
               <!-- Master Push Toggle -->
-              <div class="toggle-item master-toggle">
+              <div class="toggle-item master-toggle" [class.item-disabled]="!pushService.isSupported()">
                 <div class="toggle-info">
                   <span class="toggle-title">
                     <i class="fi fi-rr-signal-alt text-amber"></i> Master Push Notification Switch
                   </span>
                   <span class="toggle-desc">Enable or pause all Web Push alerts from Bilo PWA</span>
                 </div>
-                <button class="toggle-switch-btn" [class.active]="pushService.notificationsEnabled()" (click)="pushService.toggleNotifications()">
+                <button
+                  class="toggle-switch-btn"
+                  [class.active]="pushService.isSupported() && pushService.notificationsEnabled()"
+                  [disabled]="!pushService.isSupported()"
+                  (click)="pushService.toggleNotifications()"
+                  [title]="!pushService.isSupported() ? 'Push notifications not supported in this browser' : ''"
+                >
                   <span class="switch-handle font-mono">
-                    {{ pushService.notificationsEnabled() ? 'ON' : 'OFF' }}
+                    {{ !pushService.isSupported() ? 'N/A' : pushService.notificationsEnabled() ? 'ON' : 'OFF' }}
                   </span>
                 </button>
               </div>
 
               <!-- Trigger 1: Task Creation -->
-              <div class="toggle-item">
+              <div class="toggle-item" [class.item-disabled]="!pushService.isSupported()">
                 <div class="toggle-info">
                   <span class="toggle-title">
                     <i class="fi fi-rr-add text-emerald"></i> New Task Creation Alerts
                   </span>
                   <span class="toggle-desc">Receive notification whenever a new task is created</span>
                 </div>
-                <button class="toggle-checkbox" [class.checked]="pushService.notifyOnTaskCreate()" (click)="pushService.toggleSetting('create')">
-                  <i [class]="pushService.notifyOnTaskCreate() ? 'fi fi-rr-check' : ''"></i>
+                <button
+                  class="toggle-checkbox"
+                  [class.checked]="pushService.isSupported() && pushService.notifyOnTaskCreate()"
+                  [disabled]="!pushService.isSupported()"
+                  (click)="pushService.toggleSetting('create')"
+                  [title]="!pushService.isSupported() ? 'Push notifications not supported in this browser' : ''"
+                >
+                  <i [class]="pushService.isSupported() && pushService.notifyOnTaskCreate() ? 'fi fi-rr-check' : ''"></i>
                 </button>
               </div>
 
               <!-- Trigger 2: Task Status Change -->
-              <div class="toggle-item">
+              <div class="toggle-item" [class.item-disabled]="!pushService.isSupported()">
                 <div class="toggle-info">
                   <span class="toggle-title">
                     <i class="fi fi-rr-refresh text-cyan"></i> Task Status Change Alerts
                   </span>
                   <span class="toggle-desc">Receive notification when any task's status changes</span>
                 </div>
-                <button class="toggle-checkbox" [class.checked]="pushService.notifyOnStatusChange()" (click)="pushService.toggleSetting('status_change')">
-                  <i [class]="pushService.notifyOnStatusChange() ? 'fi fi-rr-check' : ''"></i>
+                <button
+                  class="toggle-checkbox"
+                  [class.checked]="pushService.isSupported() && pushService.notifyOnStatusChange()"
+                  [disabled]="!pushService.isSupported()"
+                  (click)="pushService.toggleSetting('status_change')"
+                  [title]="!pushService.isSupported() ? 'Push notifications not supported in this browser' : ''"
+                >
+                  <i [class]="pushService.isSupported() && pushService.notifyOnStatusChange() ? 'fi fi-rr-check' : ''"></i>
                 </button>
               </div>
             </div>

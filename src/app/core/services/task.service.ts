@@ -1086,6 +1086,16 @@ export class TaskService {
     });
 
     this.saveToStorage();
+
+    if (this.supabaseService.isConfigured && this.supabaseService.supabase) {
+      this.supabaseService.supabase
+        .from('tasks')
+        .delete()
+        .eq('project_id', projectId)
+        .then(({ error }) => {
+          if (error) console.warn('[TaskService] Remote tasks deletion warning:', error.message);
+        });
+    }
   }
 
   // --- Task Comments / Notes ---

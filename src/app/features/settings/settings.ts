@@ -450,37 +450,51 @@ export type SettingsSection = 'overview' | 'workflow' | 'notifications';
                   </div>
                   <button
                     class="btn btn-xs font-mono"
-                    [class.btn-primary]="pushService.notificationsEnabled()"
-                    [class.btn-secondary]="!pushService.notificationsEnabled()"
+                    [class.btn-primary]="pushService.isSupported() && pushService.notificationsEnabled()"
+                    [class.btn-secondary]="!pushService.isSupported() || !pushService.notificationsEnabled()"
+                    [disabled]="!pushService.isSupported()"
                     (click)="pushService.toggleNotifications()"
+                    [title]="!pushService.isSupported() ? 'Push notifications not supported in this browser' : ''"
                   >
-                    {{ pushService.notificationsEnabled() ? 'ENABLED' : 'DISABLED' }}
+                    {{ !pushService.isSupported() ? 'UNSUPPORTED' : pushService.notificationsEnabled() ? 'ENABLED' : 'DISABLED' }}
                   </button>
                 </div>
 
                 <!-- Trigger 1: Task Creation -->
-                <div class="toggle-item">
+                <div class="toggle-item" [class.item-disabled]="!pushService.isSupported()">
                   <div class="toggle-info">
                     <span class="toggle-title">
                       <i class="fi fi-rr-add text-emerald"></i> New Task Creation Alerts
                     </span>
                     <span class="toggle-desc">Receive notification whenever a new task is created</span>
                   </div>
-                  <button class="toggle-checkbox" [class.checked]="pushService.notifyOnTaskCreate()" (click)="pushService.toggleSetting('create')">
-                    <i [class]="pushService.notifyOnTaskCreate() ? 'fi fi-rr-check' : ''"></i>
+                  <button
+                    class="toggle-checkbox"
+                    [class.checked]="pushService.isSupported() && pushService.notifyOnTaskCreate()"
+                    [disabled]="!pushService.isSupported()"
+                    (click)="pushService.toggleSetting('create')"
+                    [title]="!pushService.isSupported() ? 'Push notifications not supported in this browser' : ''"
+                  >
+                    <i [class]="pushService.isSupported() && pushService.notifyOnTaskCreate() ? 'fi fi-rr-check' : ''"></i>
                   </button>
                 </div>
 
                 <!-- Trigger 2: Task Status Change -->
-                <div class="toggle-item">
+                <div class="toggle-item" [class.item-disabled]="!pushService.isSupported()">
                   <div class="toggle-info">
                     <span class="toggle-title">
                       <i class="fi fi-rr-refresh text-cyan"></i> Task Status Change Alerts
                     </span>
                     <span class="toggle-desc">Receive notification when any task's status changes</span>
                   </div>
-                  <button class="toggle-checkbox" [class.checked]="pushService.notifyOnStatusChange()" (click)="pushService.toggleSetting('status_change')">
-                    <i [class]="pushService.notifyOnStatusChange() ? 'fi fi-rr-check' : ''"></i>
+                  <button
+                    class="toggle-checkbox"
+                    [class.checked]="pushService.isSupported() && pushService.notifyOnStatusChange()"
+                    [disabled]="!pushService.isSupported()"
+                    (click)="pushService.toggleSetting('status_change')"
+                    [title]="!pushService.isSupported() ? 'Push notifications not supported in this browser' : ''"
+                  >
+                    <i [class]="pushService.isSupported() && pushService.notifyOnStatusChange() ? 'fi fi-rr-check' : ''"></i>
                   </button>
                 </div>
               </div>

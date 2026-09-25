@@ -351,6 +351,43 @@ export class AuthService implements OnDestroy {
     localStorage.removeItem('bilo_notification_history');
     localStorage.removeItem('bilo_backlog_filters');
     localStorage.removeItem('bilo_board_filters');
+    localStorage.removeItem('bilo_workflows_by_project');
+    localStorage.removeItem('bilo_active_project_id');
+  }
+
+  async purgeAllUserDataFromRemoteAndLocal(): Promise<void> {
+    const currentUser = this.user();
+    if (!currentUser?.id) {
+      this.resetServicesState();
+      return;
+    }
+
+    const uid = currentUser.id;
+    if (this.supabaseService.isConfigured && this.supabaseService.supabase) {
+      const sb = this.supabaseService.supabase;
+      try {
+        await Promise.allSettled([
+          sb.from('tasks').delete().eq('user_id', uid),
+          sb.from('task_comments').delete().eq('user_id', uid),
+          sb.from('task_status_history').delete().eq('user_id', uid),
+          sb.from('project_activities').delete().eq('user_id', uid),
+          sb.from('workflows').delete().eq('user_id', uid),
+          sb.from('projects').delete().eq('user_id', uid)
+        ]);
+      } catch (e) {
+        console.warn('[AuthService] Supabase user data purge warning:', e);
+      }
+    }
+
+    localStorage.removeItem(`bilo_projects_data_${uid}`);
+    localStorage.removeItem(`bilo_tasks_data_${uid}`);
+    localStorage.removeItem(`bilo_workflows_by_project_${uid}`);
+    localStorage.removeItem(`bilo_sync_queue_${uid}`);
+    localStorage.removeItem(`bilo_dlq_${uid}`);
+    localStorage.removeItem(`bilo_user_profile_${uid}`);
+    localStorage.removeItem(`bilo_notification_history_${uid}`);
+
+    this.resetServicesState();
   }
 
   async reloadServicesData() {

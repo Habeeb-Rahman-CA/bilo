@@ -1,4 +1,4 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, computed } from '@angular/core';
 
 export interface PushNotificationLog {
   id: string;
@@ -13,6 +13,7 @@ export interface PushNotificationLog {
 })
 export class PushNotificationService {
   permissionStatus = signal<'default' | 'granted' | 'denied' | 'unsupported'>('default');
+  isSupported = computed(() => this.permissionStatus() !== 'unsupported');
   isSubscribed = signal<boolean>(false);
   notificationsEnabled = signal<boolean>(false);
   
@@ -156,6 +157,11 @@ export class PushNotificationService {
   }
 
   toggleNotifications(enable?: boolean) {
+    if (this.permissionStatus() === 'unsupported') {
+      this.showToast('Push Notifications are not supported in this browser');
+      return;
+    }
+
     const targetState = enable !== undefined ? enable : !this.notificationsEnabled();
 
     if (targetState && this.permissionStatus() !== 'granted') {
@@ -174,6 +180,10 @@ export class PushNotificationService {
   }
 
   toggleSetting(key: 'create' | 'status_change') {
+    if (this.permissionStatus() === 'unsupported') {
+      return;
+    }
+
     if (key === 'create') {
       const val = !this.notifyOnTaskCreate();
       this.notifyOnTaskCreate.set(val);
