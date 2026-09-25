@@ -804,6 +804,19 @@ export class TasksComponent implements OnInit, OnDestroy {
         this.selectedProjectId.set('all');
       }
     }
+
+    // Deleted Project Safeguard:
+    // If selectedProjectId points to a project that was deleted, auto-fallback to 'all'
+    effect(() => {
+      const projId = this.selectedProjectId();
+      if (projId && projId !== 'all') {
+        const projects = this.projectService.projects();
+        if (projects.length > 0 && !projects.some(p => p.id === projId)) {
+          console.warn(`[TasksBoard] Selected project "${projId}" no longer exists. Falling back to "all".`);
+          this.selectedProjectId.set('all');
+        }
+      }
+    }, { allowSignalWrites: true });
   }
 
   onProjectChange(projId: string) {

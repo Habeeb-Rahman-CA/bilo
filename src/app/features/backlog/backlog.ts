@@ -222,7 +222,17 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
               <i class="fi fi-rr-search text-muted"></i>
               <span>No tasks found matching current filters.</span>
               @if (hasActiveFilters()) {
-                <button class="btn btn-secondary btn-xs margin-top" (click)="resetFilters()">Clear Filters</button>
+                <div class="active-filter-summary font-mono">
+                  <span class="active-filter-title">ACTIVE FILTERS:</span>
+                  @if (selectedStatus() !== 'ALL') { <span class="filter-chip">Status: {{ selectedStatus() }}</span> }
+                  @if (selectedPriority() !== 'ALL') { <span class="filter-chip">Priority: {{ selectedPriority() }}</span> }
+                  @if (selectedType() !== 'ALL') { <span class="filter-chip">Type: {{ selectedType() }}</span> }
+                  @if (selectedDueDateFilter() !== 'ALL') { <span class="filter-chip">Due: {{ selectedDueDateFilter() }}</span> }
+                  @if (searchQuery()) { <span class="filter-chip">Search: "{{ searchQuery() }}"</span> }
+                </div>
+                <button class="btn btn-secondary btn-xs margin-top" (click)="resetFilters()">
+                  <i class="fi fi-rr-cross-small"></i> Clear Active / Stale Filters
+                </button>
               }
             </div>
           } @else {
@@ -514,6 +524,29 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
     }
     .reset-btn {
       color: var(--accent-rose);
+    }
+    .active-filter-summary {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+      margin-top: 0.5rem;
+      margin-bottom: 0.25rem;
+      font-size: 0.75rem;
+    }
+    .active-filter-title {
+      font-weight: 700;
+      color: var(--text-muted, #a1a1aa);
+      margin-right: 0.25rem;
+    }
+    .filter-chip {
+      background: var(--bg-tertiary, rgba(255, 255, 255, 0.08));
+      border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+      padding: 0.15rem 0.45rem;
+      border-radius: var(--radius-xs, 4px);
+      color: var(--text-main, #f4f4f5);
+      font-weight: 600;
     }
 
     /* Batch Selection Bar */
@@ -1189,6 +1222,23 @@ export class BacklogComponent implements OnInit, OnDestroy {
       const maxPages = this.totalPages();
       if (this.currentPage() > maxPages) {
         this.currentPage.set(maxPages);
+      }
+    }, { allowSignalWrites: true });
+
+    // Stale Status Filter Safeguard:
+    // If selectedStatus refers to a deleted workflow status that no longer exists
+    // in active workflows AND has zero matching tasks, automatically reset selectedStatus to 'ALL'
+    effect(() => {
+      const currentStatus = this.selectedStatus();
+      if (!currentStatus || currentStatus === 'ALL') return;
+
+      const activeWorkflows = this.workflowService.globalWorkflows();
+      const validWorkflowNames = new Set(activeWorkflows.map(w => w.name.toLowerCase()));
+      const matchingTaskExists = this.taskService.tasks().some(t => (t.status || '').toLowerCase() === currentStatus.toLowerCase());
+
+      if (!validWorkflowNames.has(currentStatus.toLowerCase()) && !matchingTaskExists) {
+        console.warn(`[BacklogFilter] Stale status filter "${currentStatus}" detected. Auto-resetting to "ALL".`);
+        this.selectedStatus.set('ALL');
       }
     }, { allowSignalWrites: true });
 
