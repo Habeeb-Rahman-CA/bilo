@@ -89,6 +89,8 @@ export interface Task {
   position: number;
   is_next: boolean;
   completed: boolean;
+  estimated_hours?: number;
+  logged_hours?: number;
   created_at: string;
   updated_at: string;
 }

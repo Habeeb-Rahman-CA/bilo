@@ -7,6 +7,7 @@ import { AuthService } from './auth.service';
 import { WorkflowService } from './workflow.service';
 import { Task, TaskComment, TaskStatusHistory, Workflow } from '../models/project.model';
 import { sanitizeLabels } from '../utils/label.util';
+import { validateAndSanitizeTask } from '../utils/data-validator.util';
 
 export interface BatchOperationProgress {
   active: boolean;
@@ -149,8 +150,10 @@ export class TaskService {
       try {
         const data = JSON.parse(cached);
         if (data.tasks && Array.isArray(data.tasks)) {
-          const cleanTasks = data.tasks.filter((t: Task) => !t.id.startsWith('task-demo-'));
-          const { normalized } = this.normalizeTaskStatuses(cleanTasks);
+          const sanitizedTasks = data.tasks
+            .map((t: any) => validateAndSanitizeTask(t))
+            .filter((t: Task | null): t is Task => t !== null && !t.id.startsWith('task-demo-'));
+          const { normalized } = this.normalizeTaskStatuses(sanitizedTasks);
           this.tasks.set(normalized);
           if (data.comments) {
             this.taskComments.set(data.comments);

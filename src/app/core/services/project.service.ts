@@ -7,6 +7,7 @@ import { WorkflowService } from './workflow.service';
 import { Project, ProjectActivity, Task, ProjectMember, ProjectRole } from '../models/project.model';
 import { compressImageFile, MAX_ATTACHMENT_FILE_SIZE_BYTES } from '../utils/image-compressor.util';
 import { createSecureInviteToken } from '../utils/invite-token.util';
+import { validateAndSanitizeProject } from '../utils/data-validator.util';
 
 @Injectable({
   providedIn: 'root'
@@ -51,16 +52,20 @@ export class ProjectService {
       try {
         const data = JSON.parse(cached);
         if (data.projects && Array.isArray(data.projects) && data.projects.length > 0) {
-          const cleanProjects = data.projects.filter((p: Project) => p.id !== 'proj-default-1');
+          const cleanProjects = data.projects
+            .map((p: any) => validateAndSanitizeProject(p))
+            .filter((p: Project | null): p is Project => p !== null && p.id !== 'proj-default-1');
           this.projects.set(cleanProjects);
           const found = savedActiveId ? cleanProjects.find((p: Project) => p.id === savedActiveId) : null;
           this.activeProject.set(found || cleanProjects[0] || null);
           if (data.activities && Array.isArray(data.activities)) {
-            const sanitized = data.activities.map((a: ProjectActivity) => ({
-              ...a,
-              action: this.sanitizeActivityText(a.action),
-              description: this.sanitizeActivityText(a.description)
-            }));
+            const sanitized = data.activities
+              .filter((a: any) => a && typeof a === 'object' && typeof a.action === 'string')
+              .map((a: ProjectActivity) => ({
+                ...a,
+                action: this.sanitizeActivityText(a.action),
+                description: this.sanitizeActivityText(a.description || '')
+              }));
             this.activities.set(sanitized);
           }
           return;

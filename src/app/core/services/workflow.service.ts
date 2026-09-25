@@ -2,6 +2,7 @@ import { Injectable, signal, computed, Injector } from '@angular/core';
 import { SupabaseService } from './supabase.service';
 import { TaskService } from './task.service';
 import { Workflow } from '../models/project.model';
+import { validateAndSanitizeWorkflow } from '../utils/data-validator.util';
 
 export const DEFAULT_GLOBAL_WORKFLOWS: Workflow[] = [
   { id: 'wf-backlog', project_id: 'global', name: 'Backlog', color: '#64748b', position: 0, created_at: '' },
@@ -52,7 +53,15 @@ export class WorkflowService {
       try {
         const data = JSON.parse(cached);
         if (data && typeof data === 'object') {
-          this.workflowsByProject.set(data);
+          const sanitizedMap: Record<string, Workflow[]> = {};
+          for (const [projId, list] of Object.entries(data)) {
+            if (Array.isArray(list)) {
+              sanitizedMap[projId] = list
+                .map(w => validateAndSanitizeWorkflow(w))
+                .filter((w): w is Workflow => w !== null);
+            }
+          }
+          this.workflowsByProject.set(sanitizedMap);
           return;
         }
       } catch (e) {
