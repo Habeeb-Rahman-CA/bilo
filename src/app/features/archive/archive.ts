@@ -438,7 +438,7 @@ export class ArchiveComponent {
   }
 
   getTaskKeyStr(t: Task): string {
-    return getTaskKey(t, this.projectService.projects());
+    return getTaskKey(t, this.projectService.projects(), this.taskService.tasks());
   }
 
   getProjectName(id: string): string {

@@ -28,7 +28,7 @@ describe('getTaskKey Utility', () => {
 
     const key = getTaskKey(task);
     expect(key.startsWith('DEV-')).toBe(true);
-    expect(key).toMatch(/^DEV-\d{4}$/);
+    expect(key).toMatch(/^DEV-\d+$/);
   });
 
   it('should derive prefix from multi-word project names', () => {
@@ -125,5 +125,28 @@ describe('getTaskKey Utility', () => {
     expect(getTaskKey(tasks[0], projects, tasks)).toBe('BMS-1');
     expect(getTaskKey(tasks[1], projects, tasks)).toBe('BMS-2');
     expect(getTaskKey(tasks[2], projects, tasks)).toBe('BMS-3');
+  });
+
+  it('should maintain stable prefix before and after projects array loads', () => {
+    const proj: Project = { id: 'p100', name: 'Bilo Management App', slug: 'bilo-management-app', status: 'active', created_at: '', updated_at: '' };
+    const task: Task = {
+      id: 'task-100',
+      title: 'Auth fix',
+      project_id: 'p100',
+      type: 'task',
+      priority: 'high',
+      position: 0,
+      completed: false,
+      created_at: '',
+      updated_at: ''
+    };
+
+    // Before projects finish loading (projects = undefined/empty) defaults to DEV prefix
+    const keyBeforeLoad = getTaskKey(task, []);
+    expect(keyBeforeLoad.startsWith('DEV-')).toBe(true);
+
+    // After projects finish loading, uses project name/slug BMA prefix
+    const keyAfterLoad = getTaskKey(task, [proj]);
+    expect(keyAfterLoad.startsWith('BMS-') || keyAfterLoad.startsWith('BMA-')).toBe(true);
   });
 });

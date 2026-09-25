@@ -1960,7 +1960,7 @@ export class TaskDetailModalComponent implements OnInit {
   }
 
   getTaskKeyStr(task?: Task): string {
-    return getTaskKey(task, this.projectService.projects());
+    return getTaskKey(task, this.projectService.projects(), this.taskService.tasks());
   }
 
   getProjectName(projectId?: string): string | null {
