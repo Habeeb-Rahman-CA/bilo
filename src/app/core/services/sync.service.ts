@@ -27,6 +27,7 @@ export interface PendingSyncOp {
 })
 export class SyncService {
   readonly MAX_RETRIES = 3;
+  readonly MAX_QUEUE_SIZE = 500;
 
   isOnline = signal<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
   connectionStatus = signal<'online' | 'degraded' | 'offline'>(
@@ -189,7 +190,7 @@ export class SyncService {
             ...op,
             user_id: op.user_id || uid || 'guest'
           }));
-          this.pendingSyncQueue.set(validQueue);
+          this.pendingSyncQueue.set(this.compactQueue(validQueue));
           return;
         }
       } catch (e) {
@@ -235,6 +236,108 @@ export class SyncService {
     this.syncing.set(false);
   }
 
+  compactQueue(queue: PendingSyncOp[]): PendingSyncOp[] {
+    if (!queue || queue.length === 0) return [];
+
+    const result: PendingSyncOp[] = [];
+    const deletedTaskIds = new Set<string>();
+    const deletedProjectIds = new Set<string>();
+    const deletedCommentIds = new Set<string>();
+
+    for (let i = queue.length - 1; i >= 0; i--) {
+      const op = queue[i];
+
+      // Handle Task operations
+      if (op.type === 'DELETE_TASK') {
+        const taskId = op.payload?.id;
+        if (taskId) deletedTaskIds.add(taskId);
+        result.unshift(op);
+        continue;
+      }
+
+      if (op.type === 'CREATE_TASK') {
+        const taskId = op.payload?.id;
+        if (taskId && deletedTaskIds.has(taskId)) {
+          const delIdx = result.findIndex(r => r.type === 'DELETE_TASK' && r.payload?.id === taskId);
+          if (delIdx !== -1) result.splice(delIdx, 1);
+          continue;
+        }
+      }
+
+      if (op.type === 'UPDATE_TASK') {
+        const taskId = op.payload?.id;
+        if (taskId && deletedTaskIds.has(taskId)) continue;
+
+        const existingCreate = result.find(r => r.type === 'CREATE_TASK' && r.payload?.id === taskId);
+        if (existingCreate) {
+          existingCreate.payload = { ...op.payload, ...existingCreate.payload };
+          continue;
+        }
+
+        const existingUpdate = result.find(r => r.type === 'UPDATE_TASK' && r.payload?.id === taskId);
+        if (existingUpdate) {
+          existingUpdate.payload = { ...op.payload, ...existingUpdate.payload };
+          continue;
+        }
+      }
+
+      // Handle Project operations
+      if (op.type === 'DELETE_PROJECT') {
+        const projId = op.payload?.id;
+        if (projId) deletedProjectIds.add(projId);
+        result.unshift(op);
+        continue;
+      }
+
+      if (op.type === 'CREATE_PROJECT') {
+        const projId = op.payload?.id;
+        if (projId && deletedProjectIds.has(projId)) {
+          const delIdx = result.findIndex(r => r.type === 'DELETE_PROJECT' && r.payload?.id === projId);
+          if (delIdx !== -1) result.splice(delIdx, 1);
+          continue;
+        }
+      }
+
+      if (op.type === 'UPDATE_PROJECT') {
+        const projId = op.payload?.id;
+        if (projId && deletedProjectIds.has(projId)) continue;
+
+        const existingUpdate = result.find(r => r.type === 'UPDATE_PROJECT' && r.payload?.id === projId);
+        if (existingUpdate) {
+          existingUpdate.payload = { ...op.payload, ...existingUpdate.payload };
+          continue;
+        }
+      }
+
+      // Handle Comment operations
+      if (op.type === 'DELETE_COMMENT') {
+        const commId = op.payload?.id;
+        if (commId) deletedCommentIds.add(commId);
+        result.unshift(op);
+        continue;
+      }
+
+      if (op.type === 'ADD_COMMENT') {
+        const commId = op.payload?.id;
+        if (commId && deletedCommentIds.has(commId)) {
+          const delIdx = result.findIndex(r => r.type === 'DELETE_COMMENT' && r.payload?.id === commId);
+          if (delIdx !== -1) result.splice(delIdx, 1);
+          continue;
+        }
+      }
+
+      result.unshift(op);
+    }
+
+    if (result.length > this.MAX_QUEUE_SIZE) {
+      const overflowCount = result.length - this.MAX_QUEUE_SIZE;
+      console.warn(`[bilo Sync] Queue size exceeded MAX_QUEUE_SIZE (${this.MAX_QUEUE_SIZE}). Trimming ${overflowCount} oldest operations.`);
+      return result.slice(overflowCount);
+    }
+
+    return result;
+  }
+
   async enqueue(opType: PendingSyncOp['type'], payload: any) {
     const currentUserId = await this.getCurrentUserId();
     const op: PendingSyncOp = {
@@ -246,7 +349,7 @@ export class SyncService {
       retryCount: 0
     };
 
-    this.pendingSyncQueue.update(q => [...q, op]);
+    this.pendingSyncQueue.update(q => this.compactQueue([...q, op]));
     await this.saveQueueToStorage(currentUserId);
 
     if (this.isOnline()) {
@@ -284,6 +387,13 @@ export class SyncService {
       return true;
     }
     return false;
+  }
+
+  private isRateLimitError(error: any): boolean {
+    if (!error) return false;
+    const code = String(error.code || error.status || '');
+    const message = String(error.message || '').toLowerCase();
+    return code === '429' || code === '503' || message.includes('rate limit') || message.includes('too many requests');
   }
 
   private async moveToDlq(op: PendingSyncOp, reason: string, currentUserId: string) {
@@ -346,6 +456,10 @@ export class SyncService {
         if (result.success) {
           this.pendingSyncQueue.update(q => q.filter(o => o.id !== op.id));
           await this.saveQueueToStorage(currentUserId);
+        } else if (result.rateLimited) {
+          console.warn(`[bilo Sync] Rate limit (HTTP 429) hit on op ${op.type} (${op.id}). Backing off for 3 seconds.`);
+          await new Promise(res => setTimeout(res, 3000));
+          break; // Pause loop to allow rate limit bucket to refill
         } else if (result.fatal || (op.retryCount || 0) + 1 >= this.MAX_RETRIES) {
           const reason = result.error || (result.fatal ? 'Fatal database error' : 'Exceeded max retries');
           console.warn(`[bilo Sync] Escalating unresolvable sync op ${op.type} (${op.id}) to Dead-Letter Queue. Reason: ${reason}`);
@@ -390,7 +504,7 @@ export class SyncService {
     return clean;
   }
 
-  private async executeOpResult(op: PendingSyncOp, currentUserId: string): Promise<{ success: boolean; fatal?: boolean; error?: string }> {
+  private async executeOpResult(op: PendingSyncOp, currentUserId: string): Promise<{ success: boolean; fatal?: boolean; rateLimited?: boolean; error?: string }> {
     const sb = this.supabaseService.supabase;
     const { type, payload } = op;
 
@@ -406,12 +520,12 @@ export class SyncService {
             delete cleanPayload.attachments;
             const retry = await sb.from('tasks').upsert([cleanPayload]);
             if (retry.error) {
-              return { success: false, fatal: this.isFatalError(retry.error), error: retry.error.message };
+              return { success: false, fatal: this.isFatalError(retry.error), rateLimited: this.isRateLimitError(retry.error), error: retry.error.message };
             }
             return { success: true };
           }
           if (error) {
-            return { success: false, fatal: this.isFatalError(error), error: error.message };
+            return { success: false, fatal: this.isFatalError(error), rateLimited: this.isRateLimitError(error), error: error.message };
           }
           return { success: true };
         }
@@ -423,19 +537,19 @@ export class SyncService {
             delete cleanUpdates.attachments;
             const retry = await sb.from('tasks').upsert([cleanUpdates]);
             if (retry.error) {
-              return { success: false, fatal: this.isFatalError(retry.error), error: retry.error.message };
+              return { success: false, fatal: this.isFatalError(retry.error), rateLimited: this.isRateLimitError(retry.error), error: retry.error.message };
             }
             return { success: true };
           }
           if (error) {
-            return { success: false, fatal: this.isFatalError(error), error: error.message };
+            return { success: false, fatal: this.isFatalError(error), rateLimited: this.isRateLimitError(error), error: error.message };
           }
           return { success: true };
         }
         case 'DELETE_TASK': {
           const { error } = await sb.from('tasks').delete().eq('id', payload.id);
           if (error) {
-            return { success: false, fatal: this.isFatalError(error), error: error.message };
+            return { success: false, fatal: this.isFatalError(error), rateLimited: this.isRateLimitError(error), error: error.message };
           }
           return { success: true };
         }
@@ -447,7 +561,7 @@ export class SyncService {
             delete cleanPayload.icon;
             const retry = await sb.from('projects').upsert([cleanPayload]);
             if (retry.error) {
-              return { success: false, fatal: this.isFatalError(retry.error), error: retry.error.message };
+              return { success: false, fatal: this.isFatalError(retry.error), rateLimited: this.isRateLimitError(retry.error), error: retry.error.message };
             }
             if (currentUserId) {
               await sb.from('project_members').upsert([{
@@ -459,7 +573,7 @@ export class SyncService {
             return { success: true };
           }
           if (error) {
-            return { success: false, fatal: this.isFatalError(error), error: error.message };
+            return { success: false, fatal: this.isFatalError(error), rateLimited: this.isRateLimitError(error), error: error.message };
           }
           if (currentUserId) {
             await sb.from('project_members').upsert([{
@@ -479,12 +593,12 @@ export class SyncService {
             delete cleanUpdates.icon;
             const retry = await sb.from('projects').update(cleanUpdates).eq('id', id);
             if (retry.error) {
-              return { success: false, fatal: this.isFatalError(retry.error), error: retry.error.message };
+              return { success: false, fatal: this.isFatalError(retry.error), rateLimited: this.isRateLimitError(retry.error), error: retry.error.message };
             }
             return { success: true };
           }
           if (error) {
-            return { success: false, fatal: this.isFatalError(error), error: error.message };
+            return { success: false, fatal: this.isFatalError(error), rateLimited: this.isRateLimitError(error), error: error.message };
           }
           return { success: true };
         }
@@ -507,7 +621,7 @@ export class SyncService {
 
           const { error } = await sb.from('projects').delete().eq('id', projId);
           if (error) {
-            return { success: false, fatal: this.isFatalError(error), error: error.message };
+            return { success: false, fatal: this.isFatalError(error), rateLimited: this.isRateLimitError(error), error: error.message };
           }
           return { success: true };
         }
@@ -522,7 +636,7 @@ export class SyncService {
               console.warn('[bilo Sync] task_comments FK missing, resolved gracefully:', cleanPayload);
               return { success: true };
             }
-            return { success: false, fatal: this.isFatalError(error), error: error.message };
+            return { success: false, fatal: this.isFatalError(error), rateLimited: this.isRateLimitError(error), error: error.message };
           }
           return { success: true };
         }
@@ -530,14 +644,14 @@ export class SyncService {
           const { id, content, updated_at } = payload;
           const { error } = await sb.from('task_comments').update({ content, updated_at }).eq('id', id);
           if (error) {
-            return { success: false, fatal: this.isFatalError(error), error: error.message };
+            return { success: false, fatal: this.isFatalError(error), rateLimited: this.isRateLimitError(error), error: error.message };
           }
           return { success: true };
         }
         case 'DELETE_COMMENT': {
           const { error } = await sb.from('task_comments').delete().eq('id', payload.id);
           if (error) {
-            return { success: false, fatal: this.isFatalError(error), error: error.message };
+            return { success: false, fatal: this.isFatalError(error), rateLimited: this.isRateLimitError(error), error: error.message };
           }
           return { success: true };
         }
@@ -552,7 +666,7 @@ export class SyncService {
               console.warn('[bilo Sync] task_status_history FK missing, resolved gracefully:', cleanPayload);
               return { success: true };
             }
-            return { success: false, fatal: this.isFatalError(error), error: error.message };
+            return { success: false, fatal: this.isFatalError(error), rateLimited: this.isRateLimitError(error), error: error.message };
           }
           return { success: true };
         }
@@ -560,7 +674,7 @@ export class SyncService {
           const cleanPayload = { ...payload, user_id: currentUserId };
           const { error } = await sb.from('project_activities').upsert([cleanPayload]);
           if (error) {
-            return { success: false, fatal: this.isFatalError(error), error: error.message };
+            return { success: false, fatal: this.isFatalError(error), rateLimited: this.isRateLimitError(error), error: error.message };
           }
           return { success: true };
         }
@@ -568,7 +682,7 @@ export class SyncService {
           return { success: true };
       }
     } catch (e: any) {
-      return { success: false, fatal: false, error: e?.message || 'Execution exception' };
+      return { success: false, fatal: false, rateLimited: this.isRateLimitError(e), error: e?.message || 'Execution exception' };
     }
   }
 }

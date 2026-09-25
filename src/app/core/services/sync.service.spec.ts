@@ -224,4 +224,62 @@ describe('SyncService User Data Isolation & DLQ Escalation', () => {
     expect(syncService.isOnline()).toBe(false);
     expect(syncService.connectionStatus()).toBe('degraded');
   });
+
+  it('should compact queue by canceling CREATE + DELETE operations for the same entity', () => {
+    const queue: any[] = [
+      { id: '1', user_id: 'user-111', type: 'CREATE_TASK', payload: { id: 'task-999', title: 'Temp Task' }, timestamp: '1' },
+      { id: '2', user_id: 'user-111', type: 'UPDATE_TASK', payload: { id: 'task-999', title: 'Updated Temp Task' }, timestamp: '2' },
+      { id: '3', user_id: 'user-111', type: 'DELETE_TASK', payload: { id: 'task-999' }, timestamp: '3' }
+    ];
+
+    const compacted = syncService.compactQueue(queue);
+    expect(compacted.length).toBe(0);
+  });
+
+  it('should compact queue by coalescing multiple UPDATE_TASK operations for the same task', () => {
+    const queue: any[] = [
+      { id: '1', user_id: 'user-111', type: 'UPDATE_TASK', payload: { id: 'task-1', title: 'Title V1', priority: 'low' }, timestamp: '1' },
+      { id: '2', user_id: 'user-111', type: 'UPDATE_TASK', payload: { id: 'task-1', title: 'Title V2', status: 'done' }, timestamp: '2' }
+    ];
+
+    const compacted = syncService.compactQueue(queue);
+    expect(compacted.length).toBe(1);
+    expect(compacted[0].payload).toEqual({ id: 'task-1', title: 'Title V2', priority: 'low', status: 'done' });
+  });
+
+  it('should trim operations when exceeding MAX_QUEUE_SIZE (500)', () => {
+    const largeQueue: any[] = Array.from({ length: 550 }, (_, i) => ({
+      id: `op-${i}`,
+      user_id: 'user-111',
+      type: 'CREATE_TASK',
+      payload: { id: `task-${i}`, title: `Task ${i}` },
+      timestamp: String(i)
+    }));
+
+    const compacted = syncService.compactQueue(largeQueue);
+    expect(compacted.length).toBe(500);
+    expect(compacted[0].id).toBe('op-50');
+  });
+
+  it('should pause loop on rate limit error (HTTP 429) without escalating retryCount', async () => {
+    syncService.pendingSyncQueue.set([
+      {
+        id: 'op-ratelimited',
+        user_id: 'user-111',
+        type: 'CREATE_TASK',
+        payload: { id: 't-rl', title: 'Rate Limited Task' },
+        timestamp: new Date().toISOString(),
+        retryCount: 0
+      }
+    ]);
+
+    mockUpsertError = { code: '429', message: 'Too Many Requests - Rate limit exceeded' };
+
+    await syncService.processQueue();
+
+    expect(syncService.pendingSyncQueue().length).toBe(1);
+    expect(syncService.pendingSyncQueue()[0].retryCount).toBe(0);
+    expect(syncService.deadLetterQueue().length).toBe(0);
+  });
 });
+
