@@ -165,13 +165,30 @@ export class PushNotificationService {
     }
   }
 
+  syncPermissionState(): 'default' | 'granted' | 'denied' | 'unsupported' {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      this.permissionStatus.set('unsupported');
+      return 'unsupported';
+    }
+
+    const current = Notification.permission;
+    this.permissionStatus.set(current);
+    if (current !== 'granted') {
+      this.notificationsEnabled.set(false);
+      localStorage.setItem('bilo_push_enabled', 'false');
+    }
+    return current;
+  }
+
   async sendNotification(
     title: string,
     body: string,
     type: 'test' | 'reminder' | 'created' | 'completed' | 'status_change' | 'system' = 'system',
     data: any = {}
   ): Promise<boolean> {
-    if (!this.notificationsEnabled() || this.permissionStatus() !== 'granted') {
+    const livePermission = this.syncPermissionState();
+
+    if (!this.notificationsEnabled() || livePermission !== 'granted') {
       console.log('[bilo Push] Notification skipped: Permission not granted or notifications disabled.');
       return false;
     }
@@ -192,8 +209,12 @@ export class PushNotificationService {
       try {
         await this.swRegistration.showNotification(title, options);
         sent = true;
-      } catch (err) {
+      } catch (err: any) {
         console.warn('[bilo Push] SW showNotification failed, falling back to window Notification:', err);
+        if (err?.name === 'NotAllowedError' || String(err?.message).includes('denied') || String(err?.message).includes('permission')) {
+          this.syncPermissionState();
+          return false;
+        }
       }
     }
 
@@ -206,8 +227,12 @@ export class PushNotificationService {
           notif.close();
         };
         sent = true;
-      } catch (err) {
+      } catch (err: any) {
         console.error('[bilo Push] Notification creation failed:', err);
+        if (err?.name === 'NotAllowedError' || String(err?.message).includes('denied') || String(err?.message).includes('permission')) {
+          this.syncPermissionState();
+          return false;
+        }
       }
     }
 
