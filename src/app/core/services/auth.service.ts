@@ -5,6 +5,7 @@ import { ProjectService } from './project.service';
 import { TaskService } from './task.service';
 import { WorkflowService } from './workflow.service';
 import { SyncService } from './sync.service';
+import { PushNotificationService } from './push-notification.service';
 import { UserProfile } from '../models/user-profile.model';
 
 @Injectable({
@@ -335,16 +336,19 @@ export class AuthService implements OnDestroy {
       const taskService = this.injector.get(TaskService);
       const workflowService = this.injector.get(WorkflowService);
       const syncService = this.injector.get(SyncService);
+      const pushNotificationService = this.injector.get(PushNotificationService);
       projectService.resetState();
       taskService.resetState();
       workflowService.resetState();
       syncService.resetState();
+      pushNotificationService.resetState();
     } catch (e) {
       console.warn('[AuthService] Error resetting state:', e);
     }
     localStorage.removeItem('bilo_projects_data');
     localStorage.removeItem('bilo_tasks_data');
     localStorage.removeItem('bilo_sync_queue');
+    localStorage.removeItem('bilo_notification_history');
     localStorage.removeItem('bilo_backlog_filters');
     localStorage.removeItem('bilo_board_filters');
   }
@@ -355,11 +359,13 @@ export class AuthService implements OnDestroy {
       const taskService = this.injector.get(TaskService);
       const workflowService = this.injector.get(WorkflowService);
       const syncService = this.injector.get(SyncService);
+      const pushNotificationService = this.injector.get(PushNotificationService);
 
       await Promise.all([
         syncService.loadQueueFromStorage(this.user()?.id),
         syncService.loadDlqFromStorage(this.user()?.id)
       ]);
+      pushNotificationService.loadHistoryFromStorage(this.user()?.id);
       projectService.loadFromStorage();
       taskService.loadFromStorage();
       workflowService.loadFromStorage();
@@ -447,7 +453,9 @@ export class AuthService implements OnDestroy {
     if (activeUserId) {
       localStorage.removeItem(`bilo_user_profile_${activeUserId}`);
       localStorage.removeItem(`bilo_sync_queue_${activeUserId}`);
+      localStorage.removeItem(`bilo_notification_history_${activeUserId}`);
     }
+    localStorage.removeItem('bilo_notification_history');
     return res;
   }
 

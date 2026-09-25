@@ -25,8 +25,35 @@ export class PushNotificationService {
 
   private swRegistration: ServiceWorkerRegistration | null = null;
 
+  private currentUserId: string | null = null;
+
   constructor() {
     this.init();
+  }
+
+  getHistoryStorageKey(userId?: string | null): string {
+    const uid = userId !== undefined ? userId : this.currentUserId;
+    return uid ? `bilo_notification_history_${uid}` : 'bilo_notification_history';
+  }
+
+  loadHistoryFromStorage(userId?: string | null) {
+    this.currentUserId = userId || null;
+    const key = this.getHistoryStorageKey(userId);
+    const storedHistory = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+    if (storedHistory) {
+      try {
+        this.notificationHistory.set(JSON.parse(storedHistory));
+        return;
+      } catch (e) {
+        console.error('[bilo Push] Error reading notification history:', e);
+      }
+    }
+    this.notificationHistory.set([]);
+  }
+
+  resetState() {
+    this.currentUserId = null;
+    this.notificationHistory.set([]);
   }
 
   async init() {
@@ -54,14 +81,7 @@ export class PushNotificationService {
     if (storedStatus !== null) this.notifyOnStatusChange.set(storedStatus === 'true');
 
     // 3. Load stored notification history
-    const storedHistory = localStorage.getItem('bilo_notification_history');
-    if (storedHistory) {
-      try {
-        this.notificationHistory.set(JSON.parse(storedHistory));
-      } catch (e) {
-        console.error('[bilo Push] Error reading notification history:', e);
-      }
-    }
+    this.loadHistoryFromStorage();
 
     // 4. Attach Service Worker registration if active
     if ('serviceWorker' in navigator) {
@@ -246,7 +266,9 @@ export class PushNotificationService {
       };
 
       this.notificationHistory.update(list => [logEntry, ...list.slice(0, 19)]);
-      localStorage.setItem('bilo_notification_history', JSON.stringify(this.notificationHistory()));
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(this.getHistoryStorageKey(), JSON.stringify(this.notificationHistory()));
+      }
     }
 
     return sent;
@@ -291,7 +313,10 @@ export class PushNotificationService {
 
   clearHistory() {
     this.notificationHistory.set([]);
-    localStorage.removeItem('bilo_notification_history');
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(this.getHistoryStorageKey());
+      localStorage.removeItem('bilo_notification_history');
+    }
     this.showToast('Notification log cleared');
   }
 
