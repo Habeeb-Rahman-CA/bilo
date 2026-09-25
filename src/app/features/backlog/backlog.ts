@@ -226,7 +226,7 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
               }
             </div>
           } @else {
-            @for (t of filteredTasks(); track t.id) {
+            @for (t of paginatedTasks(); track t.id) {
               <div
                 class="task-table-row"
                 [class.selected]="isTaskSelected(t.id)"
@@ -321,6 +321,67 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
           }
         </div>
       </div>
+
+      <!-- Pagination Controls Bar -->
+      @if (filteredTasks().length > 0) {
+        <div class="pagination-bar paper-panel font-mono">
+          <div class="pagination-info">
+            <span>
+              Showing <strong>{{ pageStartItem() }}</strong> – <strong>{{ pageEndItem() }}</strong> of <strong>{{ filteredTasks().length }}</strong> task{{ filteredTasks().length !== 1 ? 's' : '' }}
+            </span>
+            @if (filteredTasks().length !== taskService.tasks().length) {
+              <span class="filtered-total-text">(filtered from {{ taskService.tasks().length }} total)</span>
+            }
+          </div>
+
+          <div class="pagination-controls">
+            <div class="page-size-selector">
+              <span class="selector-label">ROWS PER PAGE:</span>
+              <app-select
+                [options]="pageSizeOptions"
+                [value]="pageSize().toString()"
+                (valueChange)="setPageSize($event)"
+              ></app-select>
+            </div>
+
+            <div class="page-nav-btns">
+              <button
+                class="btn btn-secondary btn-xs nav-btn"
+                [disabled]="currentPage() === 1"
+                (click)="goToPage(1)"
+                title="First Page"
+              >
+                <i class="fi fi-rr-angle-double-left"></i>
+              </button>
+              <button
+                class="btn btn-secondary btn-xs nav-btn"
+                [disabled]="currentPage() === 1"
+                (click)="goToPage(currentPage() - 1)"
+                title="Previous Page"
+              >
+                <i class="fi fi-rr-angle-left"></i> PREV
+              </button>
+              <span class="page-indicator font-mono">PAGE {{ currentPage() }} / {{ totalPages() }}</span>
+              <button
+                class="btn btn-secondary btn-xs nav-btn"
+                [disabled]="currentPage() >= totalPages()"
+                (click)="goToPage(currentPage() + 1)"
+                title="Next Page"
+              >
+                NEXT <i class="fi fi-rr-angle-right"></i>
+              </button>
+              <button
+                class="btn btn-secondary btn-xs nav-btn"
+                [disabled]="currentPage() >= totalPages()"
+                (click)="goToPage(totalPages())"
+                title="Last Page"
+              >
+                <i class="fi fi-rr-angle-double-right"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      }
 
       <!-- Task Modals -->
       @if (showCreateModal()) {
@@ -519,6 +580,63 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
       display: flex;
       align-items: center;
       gap: 0.5rem;
+    }
+
+    /* Pagination Controls Bar */
+    .pagination-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.75rem 1rem;
+      background: var(--bg-surface, #18181b);
+      border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+      border-radius: var(--radius-xs, 4px);
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .pagination-info {
+      font-size: 0.8rem;
+      color: var(--text-muted, #a1a1aa);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .pagination-info strong {
+      color: var(--text-main, #f4f4f5);
+    }
+    .filtered-total-text {
+      font-size: 0.75rem;
+      opacity: 0.8;
+    }
+    .pagination-controls {
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+      flex-wrap: wrap;
+    }
+    .page-size-selector {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .selector-label {
+      font-size: 0.75rem;
+      color: var(--text-muted, #a1a1aa);
+      font-weight: 600;
+    }
+    .page-nav-btns {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .nav-btn {
+      padding: 0.2rem 0.5rem;
+    }
+    .page-indicator {
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0 0.5rem;
+      color: var(--text-main, #f4f4f5);
     }
 
     /* Unified Backlog Table */
@@ -1066,6 +1184,14 @@ export class BacklogComponent implements OnInit, OnDestroy {
       }
     }, { allowSignalWrites: true });
 
+    // Auto-adjust page if filters shrink total items
+    effect(() => {
+      const maxPages = this.totalPages();
+      if (this.currentPage() > maxPages) {
+        this.currentPage.set(maxPages);
+      }
+    }, { allowSignalWrites: true });
+
     effect(() => {
       const filters = {
         searchQuery: this.searchQuery(),
@@ -1081,6 +1207,62 @@ export class BacklogComponent implements OnInit, OnDestroy {
       };
       localStorage.setItem('bilo_backlog_filters', JSON.stringify(filters));
     });
+  }
+
+  pageSize = signal<number>(50);
+  currentPage = signal<number>(1);
+
+  pageSizeOptions: SelectOption[] = [
+    { value: '25', label: '25 / page' },
+    { value: '50', label: '50 / page' },
+    { value: '100', label: '100 / page' },
+    { value: '250', label: '250 / page' },
+    { value: '500', label: '500 / page' },
+    { value: '1000', label: '1000 / page' }
+  ];
+
+  totalPages = computed<number>(() => {
+    const total = this.filteredTasks().length;
+    const size = this.pageSize();
+    return Math.max(1, Math.ceil(total / size));
+  });
+
+  paginatedTasks = computed<Task[]>(() => {
+    const tasks = this.filteredTasks();
+    const size = this.pageSize();
+    const maxPages = Math.max(1, Math.ceil(tasks.length / size));
+    const page = Math.min(Math.max(1, this.currentPage()), maxPages);
+    const start = (page - 1) * size;
+    return tasks.slice(start, start + size);
+  });
+
+  pageStartItem = computed<number>(() => {
+    const total = this.filteredTasks().length;
+    if (total === 0) return 0;
+    const size = this.pageSize();
+    const page = Math.min(Math.max(1, this.currentPage()), this.totalPages());
+    return (page - 1) * size + 1;
+  });
+
+  pageEndItem = computed<number>(() => {
+    const total = this.filteredTasks().length;
+    if (total === 0) return 0;
+    const size = this.pageSize();
+    const page = Math.min(Math.max(1, this.currentPage()), this.totalPages());
+    return Math.min(total, page * size);
+  });
+
+  setPageSize(val: string) {
+    const size = parseInt(val, 10);
+    if (!isNaN(size) && size > 0) {
+      this.pageSize.set(size);
+      this.currentPage.set(1);
+    }
+  }
+
+  goToPage(page: number) {
+    const target = Math.min(Math.max(1, page), this.totalPages());
+    this.currentPage.set(target);
   }
 
   toggleSortOrder() {
