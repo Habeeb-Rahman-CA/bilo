@@ -8,6 +8,15 @@ import { WorkflowService } from './workflow.service';
 import { Task, TaskComment, TaskStatusHistory } from '../models/project.model';
 import { sanitizeLabels } from '../utils/label.util';
 
+export interface BatchOperationProgress {
+  active: boolean;
+  current: number;
+  total: number;
+  percentage: number;
+  operation: 'delete' | 'update';
+  label: string;
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -16,6 +25,7 @@ export class TaskService {
   taskComments = signal<Record<string, TaskComment[]>>({});
   taskStatusHistory = signal<Record<string, TaskStatusHistory[]>>({});
   loading = signal<boolean>(false);
+  batchProgress = signal<BatchOperationProgress | null>(null);
 
   constructor(
     private supabaseService: SupabaseService,
@@ -708,50 +718,87 @@ export class TaskService {
     const existingTasks = this.tasks().filter(t => idSet.has(t.id));
     if (existingTasks.length === 0) return;
 
-    // Log batch activity
-    const firstProjId = existingTasks[0].project_id;
-    this.projectService.logActivity(
-      firstProjId,
-      'Batch Delete',
-      `Permanently deleted ${existingTasks.length} task${existingTasks.length > 1 ? 's' : ''}`
-    );
+    const total = existingTasks.length;
+    this.batchProgress.set({
+      active: true,
+      current: 0,
+      total,
+      percentage: 0,
+      operation: 'delete',
+      label: `Deleting ${total} task${total > 1 ? 's' : ''}...`
+    });
 
-    // 1) Batch filter tasks
-    this.tasks.update(list => list.filter(t => !idSet.has(t.id)));
+    try {
+      // Log batch activity
+      const firstProjId = existingTasks[0].project_id;
+      this.projectService.logActivity(
+        firstProjId,
+        'Batch Delete',
+        `Permanently deleted ${existingTasks.length} task${existingTasks.length > 1 ? 's' : ''}`
+      );
 
-    // 2) Batch filter task comments
-    this.taskComments.update(map => {
-      const updated = { ...map };
-      let changed = false;
-      idSet.forEach(id => {
-        if (id in updated) {
-          delete updated[id];
-          changed = true;
+      const chunkSize = 50;
+      const idArray = Array.from(idSet);
+
+      for (let i = 0; i < idArray.length; i += chunkSize) {
+        const chunk = idArray.slice(i, i + chunkSize);
+        const chunkSet = new Set(chunk);
+
+        // 1) Filter tasks for chunk
+        this.tasks.update(list => list.filter(t => !chunkSet.has(t.id)));
+
+        // 2) Filter task comments
+        this.taskComments.update(map => {
+          const updated = { ...map };
+          let changed = false;
+          chunk.forEach(id => {
+            if (id in updated) {
+              delete updated[id];
+              changed = true;
+            }
+          });
+          return changed ? updated : map;
+        });
+
+        // 3) Filter status history
+        this.taskStatusHistory.update(map => {
+          const updated = { ...map };
+          let changed = false;
+          chunk.forEach(id => {
+            if (id in updated) {
+              delete updated[id];
+              changed = true;
+            }
+          });
+          return changed ? updated : map;
+        });
+
+        // 4) Queue sync delete operations for chunk
+        chunk.forEach(id => {
+          this.syncService.enqueue('DELETE_TASK', { id });
+        });
+
+        const current = Math.min(i + chunkSize, total);
+        const percentage = Math.round((current / total) * 100);
+        this.batchProgress.set({
+          active: true,
+          current,
+          total,
+          percentage,
+          operation: 'delete',
+          label: `Deleting selected tasks...`
+        });
+
+        if (i + chunkSize < idArray.length) {
+          await new Promise(resolve => setTimeout(resolve, 0));
         }
-      });
-      return changed ? updated : map;
-    });
+      }
 
-    // 3) Batch filter status history
-    this.taskStatusHistory.update(map => {
-      const updated = { ...map };
-      let changed = false;
-      idSet.forEach(id => {
-        if (id in updated) {
-          delete updated[id];
-          changed = true;
-        }
-      });
-      return changed ? updated : map;
-    });
-
-    // 4) Single localStorage serialization for the entire batch
-    this.saveToStorage();
-
-    // 5) Queue sync delete operations
-    idSet.forEach(id => {
-      this.syncService.enqueue('DELETE_TASK', { id });
-    });
+      // 5) Save to localStorage after batch delete completes
+      this.saveToStorage();
+    } finally {
+      this.batchProgress.set(null);
+    }
   }
 
   async batchUpdateTasks(ids: string[], updates: Partial<Task>): Promise<void> {
@@ -761,87 +808,124 @@ export class TaskService {
     const existingTasks = this.tasks().filter(t => idSet.has(t.id));
     if (existingTasks.length === 0) return;
 
-    const currentUser = this.authService.user();
-    const userId = currentUser?.id;
-    const updaterName = userId || (currentUser?.email ? currentUser.email.split('@')[0] : 'User');
-    const now = new Date().toISOString();
-
-    // 1) Update matching tasks in a single signal update
-    this.tasks.update(list => list.map(t => {
-      if (idSet.has(t.id)) {
-        const newStatus = updates.status !== undefined ? updates.status : t.status;
-        const targetCompleted = updates.status !== undefined
-          ? (newStatus.toLowerCase() === 'done' || newStatus.toLowerCase() === 'completed')
-          : (updates.completed !== undefined ? updates.completed : t.completed);
-
-        const updated: any = {
-          ...t,
-          ...updates,
-          status: newStatus,
-          completed: targetCompleted,
-          updated_at: now
-        };
-
-        if (updates.title !== undefined) {
-          const cleanTitle = updates.title.trim();
-          updated.title = cleanTitle.length > 0 ? cleanTitle : (t.title || 'Untitled Task');
-        }
-
-        if (updates.workflow_id !== undefined) {
-          updated.workflow_id = this.validateWorkflowId(t.project_id, updates.workflow_id, newStatus);
-        }
-
-        return updated as Task;
-      }
-      return t;
-    }));
-
-    // 2) Record history entries for batch update
-    existingTasks.forEach(existingTask => {
-      if (updates.status && existingTask && updates.status.trim().toLowerCase() !== existingTask.status.trim().toLowerCase()) {
-        this.recordStatusHistory({
-          id: crypto.randomUUID(),
-          task_id: existingTask.id,
-          user_id: userId,
-          from_status: existingTask.status,
-          to_status: updates.status,
-          action_type: 'status',
-          details: `Moved status from "${existingTask.status}" to "${updates.status}"`,
-          changed_by: updaterName,
-          created_at: now
-        });
-      }
-
-      if (updates.priority !== undefined && updates.priority !== existingTask.priority) {
-        this.recordStatusHistory({
-          id: crypto.randomUUID(),
-          task_id: existingTask.id,
-          user_id: userId,
-          from_status: existingTask.status,
-          to_status: existingTask.status,
-          action_type: 'priority',
-          details: `Changed priority to "${updates.priority.toUpperCase()}"`,
-          changed_by: updaterName,
-          created_at: now
-        });
-      }
+    const total = existingTasks.length;
+    this.batchProgress.set({
+      active: true,
+      current: 0,
+      total,
+      percentage: 0,
+      operation: 'update',
+      label: `Updating ${total} task${total > 1 ? 's' : ''}...`
     });
 
-    // 3) Single localStorage serialization for the entire batch update
-    this.saveToStorage();
+    try {
+      const currentUser = this.authService.user();
+      const userId = currentUser?.id;
+      const updaterName = userId || (currentUser?.email ? currentUser.email.split('@')[0] : 'User');
+      const now = new Date().toISOString();
 
-    // 4) Enqueue sync update for each task
-    idSet.forEach(id => {
-      const updatedTask = this.tasks().find(t => t.id === id);
-      if (updatedTask) {
-        const payloadFields: any = { ...updatedTask };
-        if (!payloadFields.due_date) payloadFields.due_date = null;
-        if (!payloadFields.workflow_id || !this.syncService.isValidUuid(payloadFields.workflow_id)) {
-          payloadFields.workflow_id = null;
+      const chunkSize = 50;
+      const idArray = Array.from(idSet);
+
+      for (let i = 0; i < idArray.length; i += chunkSize) {
+        const chunk = idArray.slice(i, i + chunkSize);
+        const chunkSet = new Set(chunk);
+
+        // 1) Update matching tasks chunk
+        this.tasks.update(list => list.map(t => {
+          if (chunkSet.has(t.id)) {
+            const newStatus = updates.status !== undefined ? updates.status : t.status;
+            const targetCompleted = updates.status !== undefined
+              ? (newStatus.toLowerCase() === 'done' || newStatus.toLowerCase() === 'completed')
+              : (updates.completed !== undefined ? updates.completed : t.completed);
+
+            const updated: any = {
+              ...t,
+              ...updates,
+              status: newStatus,
+              completed: targetCompleted,
+              updated_at: now
+            };
+
+            if (updates.title !== undefined) {
+              const cleanTitle = updates.title.trim();
+              updated.title = cleanTitle.length > 0 ? cleanTitle : (t.title || 'Untitled Task');
+            }
+
+            if (updates.workflow_id !== undefined) {
+              updated.workflow_id = this.validateWorkflowId(t.project_id, updates.workflow_id, newStatus);
+            }
+
+            return updated as Task;
+          }
+          return t;
+        }));
+
+        // 2) Record history entries for chunk
+        const chunkTasks = existingTasks.filter(t => chunkSet.has(t.id));
+        chunkTasks.forEach(existingTask => {
+          if (updates.status && existingTask && updates.status.trim().toLowerCase() !== existingTask.status.trim().toLowerCase()) {
+            this.recordStatusHistory({
+              id: crypto.randomUUID(),
+              task_id: existingTask.id,
+              user_id: userId,
+              from_status: existingTask.status,
+              to_status: updates.status,
+              action_type: 'status',
+              details: `Moved status from "${existingTask.status}" to "${updates.status}"`,
+              changed_by: updaterName,
+              created_at: now
+            });
+          }
+
+          if (updates.priority !== undefined && updates.priority !== existingTask.priority) {
+            this.recordStatusHistory({
+              id: crypto.randomUUID(),
+              task_id: existingTask.id,
+              user_id: userId,
+              from_status: existingTask.status,
+              to_status: existingTask.status,
+              action_type: 'priority',
+              details: `Changed priority to "${updates.priority.toUpperCase()}"`,
+              changed_by: updaterName,
+              created_at: now
+            });
+          }
+        });
+
+        // 3) Enqueue sync update for chunk
+        chunk.forEach(id => {
+          const updatedTask = this.tasks().find(t => t.id === id);
+          if (updatedTask) {
+            const payloadFields: any = { ...updatedTask };
+            if (!payloadFields.due_date) payloadFields.due_date = null;
+            if (!payloadFields.workflow_id || !this.syncService.isValidUuid(payloadFields.workflow_id)) {
+              payloadFields.workflow_id = null;
+            }
+            this.syncService.enqueue('UPDATE_TASK', { id, ...payloadFields });
+          }
+        });
+
+        const current = Math.min(i + chunkSize, total);
+        const percentage = Math.round((current / total) * 100);
+        this.batchProgress.set({
+          active: true,
+          current,
+          total,
+          percentage,
+          operation: 'update',
+          label: `Updating selected tasks...`
+        });
+
+        if (i + chunkSize < idArray.length) {
+          await new Promise(resolve => setTimeout(resolve, 0));
         }
-        this.syncService.enqueue('UPDATE_TASK', { id, ...payloadFields });
       }
-    });
+
+      this.saveToStorage();
+    } finally {
+      this.batchProgress.set(null);
+    }
   }
 
   deleteTasksForProject(projectId: string) {

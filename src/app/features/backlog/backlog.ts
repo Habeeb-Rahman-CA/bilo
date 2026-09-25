@@ -157,10 +157,26 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
         </div>
       </div>
 
+      <!-- Batch Progress Bar Overlay -->
+      @if (taskService.batchProgress(); as progress) {
+        <div class="batch-progress-bar paper-panel font-mono">
+          <div class="batch-progress-info">
+            <span class="batch-progress-label">
+              <i class="fi fi-rr-spinner spinner-icon text-cyan"></i>
+              {{ progress.label }} ({{ progress.current }}/{{ progress.total }})
+            </span>
+            <span class="batch-progress-pct">{{ progress.percentage }}%</span>
+          </div>
+          <div class="batch-progress-track">
+            <div class="batch-progress-fill" [style.width.%]="progress.percentage"></div>
+          </div>
+        </div>
+      }
+
       <!-- Batch Selection Bar -->
-      @if (selectedTaskIds().length > 0) {
+      @if (visibleSelectedTaskIds().length > 0) {
         <div class="batch-bar paper-panel font-mono">
-          <span class="batch-text">{{ selectedTaskIds().length }} tasks selected</span>
+          <span class="batch-text">{{ visibleSelectedTaskIds().length }} task{{ visibleSelectedTaskIds().length > 1 ? 's' : '' }} selected</span>
           <div class="batch-actions">
             <button class="btn btn-secondary btn-xs" (click)="batchUpdateStatus('done')">
               <i class="fi fi-rr-check text-emerald"></i> Mark Done
@@ -440,6 +456,52 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
     }
 
     /* Batch Selection Bar */
+    .batch-progress-bar {
+      margin-bottom: 0.75rem;
+      padding: 0.75rem 1rem;
+      background: var(--bg-surface, #18181b);
+      border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+      border-radius: var(--radius-xs, 4px);
+    }
+    .batch-progress-info {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+      font-size: 0.8rem;
+    }
+    .batch-progress-label {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-weight: 600;
+      color: var(--text-main, #f4f4f5);
+    }
+    .batch-progress-pct {
+      font-weight: 700;
+      color: #38bdf8;
+    }
+    .batch-progress-track {
+      height: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .batch-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #0284c7 0%, #38bdf8 100%);
+      transition: width 0.15s ease-out;
+      border-radius: 3px;
+    }
+    .spinner-icon {
+      animation: spin 1s linear infinite;
+      display: inline-block;
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
     .batch-bar {
       display: flex;
       justify-content: space-between;
@@ -960,6 +1022,11 @@ export class BacklogComponent implements OnInit, OnDestroy {
 
   selectedTaskIds = signal<string[]>([]);
 
+  visibleSelectedTaskIds = computed<string[]>(() => {
+    const visibleIds = new Set(this.filteredTasks().map(t => t.id));
+    return this.selectedTaskIds().filter(id => visibleIds.has(id));
+  });
+
   constructor(
     public taskService: TaskService,
     public projectService: ProjectService,
@@ -986,6 +1053,18 @@ export class BacklogComponent implements OnInit, OnDestroy {
         if (parsed.sortOrder !== undefined) this.sortOrder.set(parsed.sortOrder);
       } catch (e) {}
     }
+
+    // Auto-prune selection when filters change so hidden/invisible items are deselected
+    effect(() => {
+      const visibleSet = new Set(this.filteredTasks().map(t => t.id));
+      const current = this.selectedTaskIds();
+      if (current.length > 0) {
+        const pruned = current.filter(id => visibleSet.has(id));
+        if (pruned.length !== current.length) {
+          this.selectedTaskIds.set(pruned);
+        }
+      }
+    }, { allowSignalWrites: true });
 
     effect(() => {
       const filters = {
@@ -1144,7 +1223,8 @@ export class BacklogComponent implements OnInit, OnDestroy {
   isAllSelected(): boolean {
     const list = this.filteredTasks();
     if (list.length === 0) return false;
-    return list.every(t => this.selectedTaskIds().includes(t.id));
+    const selected = this.visibleSelectedTaskIds();
+    return list.every(t => selected.includes(t.id));
   }
 
   toggleSelectAll() {
@@ -1156,7 +1236,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
   }
 
   isTaskSelected(id: string): boolean {
-    return this.selectedTaskIds().includes(id);
+    return this.visibleSelectedTaskIds().includes(id);
   }
 
   toggleSelectTask(id: string) {
@@ -1174,13 +1254,15 @@ export class BacklogComponent implements OnInit, OnDestroy {
   }
 
   async batchUpdateStatus(status: string) {
-    const ids = this.selectedTaskIds();
+    const ids = this.visibleSelectedTaskIds();
+    if (ids.length === 0) return;
     await this.taskService.batchUpdateTasks(ids, { status, completed: status.toLowerCase() === 'done' });
     this.clearSelection();
   }
 
   async batchUpdatePriority(priority: 'urgent' | 'high' | 'medium' | 'low') {
-    const ids = this.selectedTaskIds();
+    const ids = this.visibleSelectedTaskIds();
+    if (ids.length === 0) return;
     await this.taskService.batchUpdateTasks(ids, { priority });
     this.clearSelection();
   }
@@ -1188,12 +1270,12 @@ export class BacklogComponent implements OnInit, OnDestroy {
   confirmState = signal<{ open: boolean; title: string; message: string; action: () => void } | null>(null);
 
   batchDelete() {
-    const ids = this.selectedTaskIds();
+    const ids = this.visibleSelectedTaskIds();
     if (ids.length === 0) return;
     this.confirmState.set({
       open: true,
       title: 'Delete Selected Tasks',
-      message: `Are you sure you want to permanently delete ${ids.length} selected task${ids.length > 1 ? 's' : ''}?`,
+      message: `Are you sure you want to permanently delete ${ids.length} visible task${ids.length > 1 ? 's' : ''}?`,
       action: async () => {
         await this.taskService.batchDeleteTasks(ids);
         this.clearSelection();
