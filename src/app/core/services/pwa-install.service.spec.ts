@@ -59,4 +59,19 @@ describe('PwaInstallService', () => {
     expect(service.canInstallPwa()).toBe(false);
     expect(service.deferredPrompt()).toBeNull();
   });
+
+  it('should reset state and hide install button when user dismisses prompt', async () => {
+    const mockPrompt = vi.fn();
+    const mockEvent = new Event('beforeinstallprompt');
+    (mockEvent as any).prompt = mockPrompt;
+    (mockEvent as any).userChoice = Promise.resolve({ outcome: 'dismissed' });
+
+    window.dispatchEvent(mockEvent);
+
+    await service.promptInstall();
+
+    expect(mockPrompt).toHaveBeenCalled();
+    expect(service.canInstallPwa()).toBe(false);
+    expect(service.deferredPrompt()).toBeNull();
+  });
 });
