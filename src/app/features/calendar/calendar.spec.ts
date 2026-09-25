@@ -79,4 +79,40 @@ describe('CalendarComponent - Touch Drag & Scheduling', () => {
     const overflow = component.getOverflowCount(mockCell);
     expect(overflow).toBe(12);
   });
+
+  it('should update displayDate immediately and debounce grid currentDate recalculation on prev/next month clicks', async () => {
+    vi.useFakeTimers();
+    let displayVal = new Date(2026, 8, 1); // Sept 2026
+    let currentVal = new Date(2026, 8, 1);
+
+    const mockDisplayDate: any = () => displayVal;
+    mockDisplayDate.set = vi.fn((val: Date) => { displayVal = val; });
+
+    const mockCurrentDate: any = () => currentVal;
+    mockCurrentDate.set = vi.fn((val: Date) => { currentVal = val; });
+
+    component.displayDate = mockDisplayDate;
+    component.currentDate = mockCurrentDate;
+
+    // Rapid navigation clicks (3 next month clicks)
+    component.nextMonth();
+    component.nextMonth();
+    component.nextMonth();
+
+    // Immediate display date update
+    expect(mockDisplayDate.set).toHaveBeenCalledTimes(3);
+    expect(displayVal.getMonth()).toBe(11); // Dec 2026
+
+    // Grid recalculation is debounced (currentDate.set not called yet)
+    expect(mockCurrentDate.set).not.toHaveBeenCalled();
+
+    // Fast forward timer 150ms
+    vi.advanceTimersByTime(150);
+
+    // Grid recalculation fired once at the end
+    expect(mockCurrentDate.set).toHaveBeenCalledTimes(1);
+    expect(currentVal.getMonth()).toBe(11);
+
+    vi.useRealTimers();
+  });
 });

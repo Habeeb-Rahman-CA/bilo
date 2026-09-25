@@ -1,4 +1,4 @@
-import { Component, signal, computed, OnInit } from '@angular/core';
+import { Component, signal, computed, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TaskService } from '../../core/services/task.service';
@@ -758,8 +758,9 @@ export interface CalendarCellEvent {
     }
   `]
 })
-export class CalendarComponent implements OnInit {
+export class CalendarComponent implements OnInit, OnDestroy {
   currentDate = signal<Date>(new Date());
+  displayDate = signal<Date>(new Date());
   showCreated = signal<boolean>(true);
   showClosed = signal<boolean>(true);
   showDue = signal<boolean>(true);
@@ -773,7 +774,7 @@ export class CalendarComponent implements OnInit {
   draggedTaskId = signal<string | null>(null);
   dragOverDate = signal<string | null>(null);
 
-  readonly maxVisibleEventsPerType = 2;
+  private navDebounceTimer: any = null;
 
   constructor(
     public taskService: TaskService,
@@ -785,8 +786,15 @@ export class CalendarComponent implements OnInit {
     this.taskService.loadTasksFromSupabase();
   }
 
+  ngOnDestroy(): void {
+    if (this.navDebounceTimer) {
+      clearTimeout(this.navDebounceTimer);
+      this.navDebounceTimer = null;
+    }
+  }
+
   monthTitle = computed(() => {
-    const d = this.currentDate();
+    const d = this.displayDate();
     return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).toUpperCase();
   });
 
@@ -894,15 +902,34 @@ export class CalendarComponent implements OnInit {
   }
 
   prevMonth() {
-    this.currentDate.update(d => new Date(d.getFullYear(), d.getMonth() - 1, 1));
+    this.stepMonth(-1);
   }
 
   nextMonth() {
-    this.currentDate.update(d => new Date(d.getFullYear(), d.getMonth() + 1, 1));
+    this.stepMonth(1);
   }
 
   todayMonth() {
-    this.currentDate.set(new Date());
+    const now = new Date();
+    this.displayDate.set(now);
+    this.scheduleDateSync(now);
+  }
+
+  private stepMonth(delta: number) {
+    const current = this.displayDate();
+    const next = new Date(current.getFullYear(), current.getMonth() + delta, 1);
+    this.displayDate.set(next);
+    this.scheduleDateSync(next);
+  }
+
+  private scheduleDateSync(targetDate: Date) {
+    if (this.navDebounceTimer) {
+      clearTimeout(this.navDebounceTimer);
+    }
+    this.navDebounceTimer = setTimeout(() => {
+      this.currentDate.set(targetDate);
+      this.navDebounceTimer = null;
+    }, 120);
   }
 
   readonly maxVisibleCellEvents = 3;
