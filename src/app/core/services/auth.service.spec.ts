@@ -120,6 +120,34 @@ describe('AuthService signUpWithEmailPassword validation', () => {
     expect(res.error).toBeNull();
     expect(res.data.user).toEqual({ id: '123' });
   });
+
+  it('should block signInWithEmailPassword after 5 failed login attempts', async () => {
+    const signInSpy = vi.fn().mockResolvedValue({ data: { user: null, session: null }, error: { message: 'Invalid credentials' } });
+    const mockSupabaseService: any = {
+      isConfigured: true,
+      supabase: {
+        auth: {
+          getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+          onAuthStateChange: vi.fn().mockReturnValue({ data: { subscription: { unsubscribe: () => {} } } }),
+          signInWithPassword: signInSpy
+        }
+      }
+    };
+    const mockInjector: any = { get: vi.fn().mockReturnValue(null) };
+    const authService = new AuthService(mockSupabaseService, mockInjector);
+
+    const email = 'ratelimit@example.com';
+    for (let i = 0; i < 5; i++) {
+      await authService.signInWithEmailPassword(email, 'wrongpass');
+    }
+
+    // 6th attempt should be blocked on client side
+    signInSpy.mockClear();
+    const res = await authService.signInWithEmailPassword(email, 'wrongpass');
+
+    expect(signInSpy).not.toHaveBeenCalled();
+    expect(res.error?.message).toContain('Too many failed login attempts');
+  });
 });
 
 describe('AuthService signInWithMagicLink validation and error handling', () => {

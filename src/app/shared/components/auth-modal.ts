@@ -1,7 +1,8 @@
-import { Component, signal, Output, EventEmitter } from '@angular/core';
+import { Component, signal, Output, EventEmitter, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
+import { formatAuthError } from '../../core/utils/auth-error.util';
 
 @Component({
   selector: 'app-auth-modal',
@@ -67,6 +68,7 @@ import { AuthService } from '../../core/services/auth.service';
                 name="email"
                 required
                 autocomplete="email"
+                [disabled]="submitting()"
               />
             </div>
           </div>
@@ -83,12 +85,14 @@ import { AuthService } from '../../core/services/auth.service';
                 name="password"
                 required
                 autocomplete="current-password"
+                [disabled]="submitting()"
               />
               <button
                 type="button"
                 class="toggle-pwd-btn btn btn-ghost btn-xs"
-                (click)="showPassword.set(!showPassword())"
+                (click)="togglePasswordVisibility()"
                 title="Toggle password visibility"
+                [disabled]="submitting()"
               >
                 <i [class]="showPassword() ? 'fi fi-rr-eye-crossed' : 'fi fi-rr-eye'"></i>
               </button>
@@ -243,7 +247,7 @@ import { AuthService } from '../../core/services/auth.service';
     }
   `]
 })
-export class AuthModalComponent {
+export class AuthModalComponent implements OnDestroy {
   @Output() close = new EventEmitter<void>();
 
   mode = signal<'login' | 'signup'>('login');
@@ -253,8 +257,34 @@ export class AuthModalComponent {
   submitting = signal<boolean>(false);
   errorMessage = signal<string>('');
   successMessage = signal<string>('');
+  private pwdVisibilityTimer: any = null;
 
   constructor(public authService: AuthService) {}
+
+  togglePasswordVisibility(): void {
+    const nextState = !this.showPassword();
+    if (this.pwdVisibilityTimer) {
+      clearTimeout(this.pwdVisibilityTimer);
+      this.pwdVisibilityTimer = null;
+    }
+
+    this.showPassword.set(nextState);
+
+    if (nextState) {
+      // Auto-hide visible password after 5 seconds to mitigate shoulder-surfing risk
+      this.pwdVisibilityTimer = setTimeout(() => {
+        this.showPassword.set(false);
+        this.pwdVisibilityTimer = null;
+      }, 5000);
+    }
+  }
+
+  ngOnDestroy(): void {
+    if (this.pwdVisibilityTimer) {
+      clearTimeout(this.pwdVisibilityTimer);
+      this.pwdVisibilityTimer = null;
+    }
+  }
 
   setMode(m: 'login' | 'signup') {
     this.mode.set(m);
@@ -263,6 +293,7 @@ export class AuthModalComponent {
   }
 
   async onSendMagicLink() {
+    if (this.submitting()) return;
     if (!this.email) {
       this.errorMessage.set('Please enter your email address to receive a magic link.');
       return;
@@ -275,12 +306,12 @@ export class AuthModalComponent {
     try {
       const { error } = await this.authService.signInWithMagicLink(this.email);
       if (error) {
-        this.errorMessage.set(error.message || 'Failed to send magic link. Please check your email and try again.');
+        this.errorMessage.set(formatAuthError(error));
       } else {
         this.successMessage.set('Magic link sent successfully! Check your email inbox.');
       }
     } catch (e: any) {
-      this.errorMessage.set(e?.message || 'Failed to send magic link. Please try again.');
+      this.errorMessage.set(formatAuthError(e));
     } finally {
       this.submitting.set(false);
     }
@@ -292,7 +323,13 @@ export class AuthModalComponent {
   }
 
   async onSubmit() {
+    if (this.submitting()) return;
     if (!this.email || !this.password) return;
+
+    if (this.mode() === 'signup' && this.password.length < 6) {
+      this.errorMessage.set('Password must be at least 6 characters long.');
+      return;
+    }
 
     this.submitting.set(true);
     this.errorMessage.set('');
@@ -302,7 +339,7 @@ export class AuthModalComponent {
       if (this.mode() === 'login') {
         const { error } = await this.authService.signInWithEmailPassword(this.email, this.password);
         if (error) {
-          this.errorMessage.set(error.message || 'Failed to sign in. Please check credentials.');
+          this.errorMessage.set(formatAuthError(error));
         } else {
           this.successMessage.set('Signed in successfully!');
           setTimeout(() => this.closeModal(), 600);
@@ -310,7 +347,7 @@ export class AuthModalComponent {
       } else {
         const { data, error } = await this.authService.signUpWithEmailPassword(this.email, this.password);
         if (error) {
-          this.errorMessage.set(error.message || 'Sign up failed.');
+          this.errorMessage.set(formatAuthError(error));
         } else if (data?.user && !data?.session) {
           this.successMessage.set('Account created! Please check your email to confirm registration.');
         } else {
@@ -319,7 +356,7 @@ export class AuthModalComponent {
         }
       }
     } catch (e: any) {
-      this.errorMessage.set(e?.message || 'An unexpected authentication error occurred.');
+      this.errorMessage.set(formatAuthError(e));
     } finally {
       this.submitting.set(false);
     }

@@ -7,6 +7,7 @@ import { WorkflowService } from './workflow.service';
 import { SyncService } from './sync.service';
 import { PushNotificationService } from './push-notification.service';
 import { UserProfile } from '../models/user-profile.model';
+import { globalAuthRateLimiter } from '../utils/rate-limiter.util';
 
 @Injectable({
   providedIn: 'root'
@@ -442,10 +443,26 @@ export class AuthService implements OnDestroy {
   }
 
   async signInWithEmailPassword(email: string, password: string) {
-    return await this.supabaseService.supabase.auth.signInWithPassword({
+    const rateLimit = globalAuthRateLimiter.checkLoginRateLimit(email);
+    if (!rateLimit.allowed) {
+      return {
+        data: { user: null, session: null },
+        error: { message: rateLimit.message || 'Too many failed login attempts. Please wait before trying again.' } as any
+      };
+    }
+
+    const res = await this.supabaseService.supabase.auth.signInWithPassword({
       email,
       password
     });
+
+    if (res?.error) {
+      globalAuthRateLimiter.recordFailedLogin(email);
+    } else {
+      globalAuthRateLimiter.recordSuccessfulLogin(email);
+    }
+
+    return res;
   }
 
   async signInWithMagicLink(email: string) {
@@ -459,6 +476,14 @@ export class AuthService implements OnDestroy {
       };
     }
 
+    const rateLimit = globalAuthRateLimiter.checkMagicLinkRateLimit(trimmedEmail);
+    if (!rateLimit.allowed) {
+      return {
+        data: { user: null, session: null },
+        error: { message: rateLimit.message || 'Magic link request rate limited. Please wait before requesting another email.' } as any
+      };
+    }
+
     try {
       const res = await this.supabaseService.supabase.auth.signInWithOtp({ email: trimmedEmail });
       if (res?.error) {
@@ -467,6 +492,7 @@ export class AuthService implements OnDestroy {
           error: res.error
         };
       }
+      globalAuthRateLimiter.recordMagicLinkSent(trimmedEmail);
       return res;
     } catch (e: any) {
       return {
