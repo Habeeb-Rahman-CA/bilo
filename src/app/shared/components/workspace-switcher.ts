@@ -417,10 +417,14 @@ export class WorkspaceSwitcherComponent {
     const list = this.projectService.projects();
     const q = this.searchQuery().toLowerCase().trim();
     if (!q) return list;
-    return list.filter(p =>
-      p.name.toLowerCase().includes(q) ||
-      p.slug.toLowerCase().includes(q)
-    );
+    return list.filter(p => {
+      const nameMatch = (p.name || '').toLowerCase().includes(q);
+      const descMatch = (p.description || '').toLowerCase().includes(q);
+      const slugMatch = (p.slug || '').toLowerCase().includes(q);
+      const labelMatch = (p.labels || []).some(l => (l || '').toLowerCase().includes(q));
+
+      return nameMatch || descMatch || slugMatch || labelMatch;
+    });
   });
 
   constructor(

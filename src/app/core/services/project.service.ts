@@ -554,11 +554,13 @@ export class ProjectService {
   }
 
   getProjectProgress(projectId: string): { completed: number; total: number; percent: number } {
-    const projTasks = this.tasks().filter(t => t.project_id === projectId);
-    if (projTasks.length === 0) return { completed: 0, total: 0, percent: 0 };
-    const completed = projTasks.filter(t => t.completed).length;
-    const percent = Math.round((completed / projTasks.length) * 100);
-    return { completed, total: projTasks.length, percent };
+    const projTasks = (this.tasks() || []).filter(t => t && t.project_id === projectId);
+    const total = projTasks.length;
+    if (!total || total <= 0) return { completed: 0, total: 0, percent: 0 };
+    const completed = projTasks.filter(t => t && (t.completed || (t.status || '').toLowerCase() === 'done')).length;
+    const rawPercent = Math.round((completed / total) * 100);
+    const percent = Number.isFinite(rawPercent) ? Math.min(100, Math.max(0, rawPercent)) : 0;
+    return { completed, total, percent };
   }
 
   getProjectRecentActivity(projectId: string): ProjectActivity[] {

@@ -4,11 +4,12 @@ import { FormsModule } from '@angular/forms';
 import { ProjectService } from '../../core/services/project.service';
 import { Project } from '../../core/models/project.model';
 import { SelectComponent, SelectOption } from './select';
+import { ConfirmModalComponent } from './confirm-modal';
 
 @Component({
   selector: 'app-project-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectComponent],
+  imports: [CommonModule, FormsModule, SelectComponent, ConfirmModalComponent],
   template: `
     <div class="modal-overlay" (click)="close.emit()">
       <div class="modal-card paper-panel font-mono" (click)="$event.stopPropagation()">
@@ -171,6 +172,11 @@ import { SelectComponent, SelectOption } from './select';
               <span>PROJECT METADATA</span>
             </div>
             <div class="footer-actions">
+              @if (isEditMode) {
+                <button type="button" class="btn btn-ghost btn-sm text-rose" (click)="confirmDeleteProject()">
+                  <i class="fi fi-rr-trash"></i> Delete Project
+                </button>
+              }
               <button type="button" class="btn btn-secondary btn-sm" (click)="close.emit()">
                 Cancel
               </button>
@@ -183,6 +189,17 @@ import { SelectComponent, SelectOption } from './select';
         </form>
       </div>
     </div>
+
+    <app-confirm-modal
+      [isOpen]="showConfirmDelete"
+      title="Delete Project"
+      [message]="'Are you sure you want to delete project &quot;' + name + '&quot;? This will permanently delete the project and all associated tasks, workflows, and activities.'"
+      confirmText="Delete Project"
+      cancelText="Cancel"
+      type="danger"
+      (confirm)="executeDeleteProject()"
+      (cancel)="cancelDeleteProject()"
+    ></app-confirm-modal>
   `,
   styles: [`
     .modal-card {
@@ -512,5 +529,22 @@ export class ProjectModalComponent implements OnInit, AfterViewInit {
     }
 
     this.close.emit(resultProject);
+  }
+
+  showConfirmDelete = false;
+
+  confirmDeleteProject() {
+    this.showConfirmDelete = true;
+  }
+
+  cancelDeleteProject() {
+    this.showConfirmDelete = false;
+  }
+
+  async executeDeleteProject() {
+    if (this.projectToEdit?.id) {
+      await this.projectService.deleteProject(this.projectToEdit.id);
+      this.close.emit();
+    }
   }
 }
