@@ -9,7 +9,7 @@ import { Task, TaskPriority, TaskSeverity, TaskReproducibility, TaskType, Workfl
 import { DatePickerComponent } from './date-picker';
 import { SelectComponent, SelectOption } from './select';
 import { RichEditorComponent } from './rich-editor';
-import { compressImageFile, MAX_ATTACHMENT_FILE_SIZE_BYTES, MAX_ATTACHMENTS_PER_TASK } from '../../core/utils/image-compressor.util';
+import { compressImageFile, canAddAttachment, MAX_ATTACHMENT_FILE_SIZE_BYTES, MAX_ATTACHMENTS_PER_TASK } from '../../core/utils/image-compressor.util';
 import { sanitizeLabels } from '../../core/utils/label.util';
 
 @Component({
@@ -33,29 +33,41 @@ import { sanitizeLabels } from '../../core/utils/label.util';
 
         <form (ngSubmit)="saveTask()" class="modal-form">
           <div class="form-body">
-            @if (submitted && !title.trim()) {
+            @if (conflictError()) {
+              <div class="form-error-banner font-mono text-rose">
+                <i class="fi fi-rr-triangle-warning"></i>
+                <span>{{ conflictError() }}</span>
+              </div>
+            }
+            @if (submitted && titleError) {
               <div class="form-error-banner font-mono">
                 <i class="fi fi-rr-triangle-warning"></i>
-                <span>Please complete all required fields below before saving.</span>
+                <span>Please complete all required fields correctly before saving.</span>
               </div>
             }
 
             <!-- Title -->
             <div class="form-group">
-              <label class="form-label">SUMMARY / TITLE <span class="text-rose">*</span></label>
+              <div class="label-with-hint">
+                <label class="form-label">SUMMARY / TITLE <span class="text-rose">*</span></label>
+                <span class="desc-hint font-mono" [class.text-rose]="title.length > 255">
+                  {{ title.length }}/255
+                </span>
+              </div>
               <input
                 #titleInput
                 type="text"
                 class="form-input"
-                [class.input-error]="submitted && !title.trim()"
+                [class.input-error]="submitted && !!titleError"
                 [(ngModel)]="title"
                 name="title"
                 placeholder="e.g. Implement JWT Auth interceptor or Fix CSS grid layout"
+                maxlength="255"
                 required
               />
-              @if (submitted && !title.trim()) {
+              @if (submitted && titleError) {
                 <span class="field-error-text font-mono">
-                  <i class="fi fi-rr-exclamation"></i> Summary / Title is required
+                  <i class="fi fi-rr-exclamation"></i> {{ titleError }}
                 </span>
               }
             </div>
@@ -104,7 +116,14 @@ import { sanitizeLabels } from '../../core/utils/label.util';
             <!-- Assignee & Due Date Row -->
             <div class="form-row">
               <div class="form-group half">
-                <label class="form-label">ASSIGNEE</label>
+                <div class="label-with-hint">
+                  <label class="form-label">ASSIGNEE</label>
+                  @if (assigneeLoadError()) {
+                    <span class="member-load-error font-mono text-amber" title="Failed to load project members from server. Fallback options active.">
+                      <i class="fi fi-rr-warning"></i> Members load issue
+                    </span>
+                  }
+                </div>
                 <app-select
                   [options]="assigneeOptions"
                   [(value)]="assignee"
@@ -569,6 +588,9 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
   assigneeOptions: SelectOption[] = [];
   dueDate = '';
   labelsInput = '';
+  initialUpdatedAt: string = '';
+  conflictError = signal<string | null>(null);
+  assigneeLoadError = signal<boolean>(false);
 
   attachments = signal<string[]>([]);
   uploadingAttachments = signal<boolean>(false);
@@ -625,6 +647,20 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
     return !!this.taskToEdit;
   }
 
+  get titleError(): string | null {
+    const trimmed = (this.title || '').trim();
+    if (!trimmed) {
+      return 'Summary / Title is required';
+    }
+    if (trimmed.length < 2) {
+      return 'Title must be at least 2 characters long';
+    }
+    if (trimmed.length > 255) {
+      return 'Title cannot exceed 255 characters';
+    }
+    return null;
+  }
+
   constructor(
     private taskService: TaskService,
     public projectService: ProjectService,
@@ -633,7 +669,9 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
   ) { }
 
   async ngOnInit() {
+    this.conflictError.set(null);
     if (this.taskToEdit) {
+      this.initialUpdatedAt = this.taskToEdit.updated_at || '';
       this.title = this.taskToEdit.title;
       this.description = this.taskToEdit.description || '';
       this.projectId = this.taskToEdit.project_id || this.projectService.activeProject()?.id || (this.projectService.projects()[0]?.id || '');
@@ -666,8 +704,18 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
   }
 
   async loadAssigneeOptions() {
-    const opts = await this.projectService.getWorkspaceMemberOptions(this.projectId, this.assignee);
-    this.assigneeOptions = opts as SelectOption[];
+    try {
+      const opts = await this.projectService.getWorkspaceMemberOptions(this.projectId, this.assignee);
+      this.assigneeOptions = opts as SelectOption[];
+      this.assigneeLoadError.set(false);
+    } catch (e) {
+      console.warn('Failed to load workspace assignee options:', e);
+      this.assigneeLoadError.set(true);
+      this.assigneeOptions = [
+        { value: 'Unassigned', label: 'Unassigned', icon: 'fi fi-rr-user-slash' },
+        ...(this.assignee && this.assignee !== 'Unassigned' ? [{ value: this.assignee, label: this.assignee, icon: 'fi fi-rr-user' }] : [])
+      ];
+    }
     if (!this.assignee || this.assignee === 'Self') {
       this.assignee = 'Unassigned';
     }
@@ -715,6 +763,11 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
   }
 
   async processFiles(files: File[]) {
+    if (this.uploadingAttachments()) {
+      this.taskShareService.showToast('Attachment upload in progress. Please wait.');
+      return;
+    }
+
     const imageFiles = files.filter(f => f.type.startsWith('image/'));
     if (imageFiles.length === 0) {
       this.taskShareService.showToast('Please select valid image files.');
@@ -731,22 +784,43 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
 
     try {
       let processedCount = 0;
+      let remainingCount = imageFiles.length;
+
       for (const file of imageFiles) {
+        this.uploadCount.set(remainingCount);
+
         if (file.size > MAX_ATTACHMENT_FILE_SIZE_BYTES) {
           this.taskShareService.showToast(`File "${file.name}" exceeds 10MB limit and was skipped.`);
+          remainingCount--;
           continue;
         }
 
-        const compressed = await compressImageFile(file);
-        if (compressed) {
-          this.attachments.update(curr => [...curr, compressed]);
-          processedCount++;
+        try {
+          const compressed = await compressImageFile(file);
+          if (compressed) {
+            const check = canAddAttachment(this.attachments(), compressed);
+            if (!check.allowed) {
+              this.taskShareService.showToast(check.reason || 'Cumulative task attachment size limit (1.5MB) reached.');
+              break;
+            }
+            this.attachments.update(curr => [...curr, compressed]);
+            processedCount++;
+          }
+        } catch (fileErr: any) {
+          console.warn('[TaskModal] Image processing warning:', fileErr);
+          const msg = fileErr?.message || `Failed to process image "${file.name}".`;
+          this.taskShareService.showToast(msg);
         }
+
+        remainingCount--;
+        // Yield main event loop to allow GC and keep UI responsive between sequential files
+        await new Promise(resolve => setTimeout(resolve, 15));
       }
+
       if (processedCount > 0) {
         this.taskShareService.showToast(`${processedCount} image(s) processed & attached.`);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error uploading image file:', err);
       this.taskShareService.showToast('Failed to process image file. Please try again.');
     } finally {
@@ -761,7 +835,9 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
 
   async saveTask() {
     this.submitted = true;
-    if (!this.title.trim()) return;
+    if (this.titleError) return;
+
+    this.title = this.title.trim();
 
     if (!this.projectId) {
       this.projectId = this.projectService.activeProject()?.id || (this.projectService.projects()[0]?.id || '');
@@ -781,22 +857,30 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
     let resTask: Task | undefined = undefined;
 
     if (this.isEditMode && this.taskToEdit) {
-      const updated = await this.taskService.updateTask(this.taskToEdit.id, {
-        title: this.title,
-        description: this.description,
-        project_id: this.projectId,
-        workflow_id: activeWf?.id,
-        type: this.type,
-        status: finalStatus,
-        priority: this.priority,
-        severity: targetSeverity,
-        reproducibility: targetReproducibility,
-        assignee: this.assignee,
-        due_date: this.dueDate,
-        labels: parsedLabels,
-        attachments: this.attachments()
-      });
-      resTask = updated || undefined;
+      const updated = await this.taskService.updateTask(
+        this.taskToEdit.id,
+        {
+          title: this.title,
+          description: this.description,
+          project_id: this.projectId,
+          workflow_id: activeWf?.id,
+          type: this.type,
+          status: finalStatus,
+          priority: this.priority,
+          severity: targetSeverity,
+          reproducibility: targetReproducibility,
+          assignee: this.assignee,
+          due_date: this.dueDate,
+          labels: parsedLabels,
+          attachments: this.attachments()
+        },
+        this.initialUpdatedAt
+      );
+      if (!updated) {
+        this.conflictError.set('Concurrent Edit Conflict: This task was modified by another user while you were editing. Your changes were canceled to prevent data loss.');
+        return;
+      }
+      resTask = updated;
     } else {
       const created = await this.taskService.createTask({
         title: this.title,

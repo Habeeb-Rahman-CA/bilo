@@ -8,6 +8,7 @@ import { Project, ProjectActivity, Task, ProjectMember, ProjectRole } from '../m
 import { compressImageFile, MAX_ATTACHMENT_FILE_SIZE_BYTES } from '../utils/image-compressor.util';
 import { createSecureInviteToken } from '../utils/invite-token.util';
 import { validateAndSanitizeProject } from '../utils/data-validator.util';
+import { sanitizeLabels } from '../utils/label.util';
 
 @Injectable({
   providedIn: 'root'
@@ -303,7 +304,7 @@ export class ProjectService {
       description: projectData.description || '',
       repository_url: projectData.repository_url || '',
       status: projectData.status || 'active',
-      labels: projectData.labels || [],
+      labels: sanitizeLabels(projectData.labels),
       color: projectData.color || '#06b6d4',
       image_url: projectData.image_url || '',
       icon: projectData.icon || '',
@@ -440,6 +441,7 @@ export class ProjectService {
     const updatedProj: Project = {
       ...currentProj,
       ...updates,
+      ...(updates.labels !== undefined ? { labels: sanitizeLabels(updates.labels) } : {}),
       ...(finalName ? { name: finalName } : {}),
       ...(finalSlug ? { slug: finalSlug } : {}),
       updated_at: new Date().toISOString()
@@ -858,11 +860,11 @@ export class ProjectService {
   }
 
   async getWorkspaceMemberOptions(projectId?: string, currentAssignee?: string): Promise<{ value: string; label: string; icon?: string }[]> {
-    try {
-      const options: { value: string; label: string; icon?: string }[] = [
-        { value: 'Unassigned', label: 'Unassigned', icon: 'fi fi-rr-user-slash' }
-      ];
+    const options: { value: string; label: string; icon?: string }[] = [
+      { value: 'Unassigned', label: 'Unassigned', icon: 'fi fi-rr-user-slash' }
+    ];
 
+    try {
       const currentUser = this.authService.user();
       if (currentUser) {
         const meta = currentUser.user_metadata;
@@ -906,33 +908,25 @@ export class ProjectService {
 
             options.push({
               value: displayName,
-              label: `${displayName} (${m.role.toUpperCase()})`,
+              label: `${displayName} (${(m.role || 'member').toUpperCase()})`,
               icon: m.role === 'owner' ? 'fi fi-rr-crown text-purple' : 'fi fi-rr-user text-cyan'
             });
           }
         }
       }
-
-      if (currentAssignee && currentAssignee.trim() && currentAssignee.trim() !== 'Self' && currentAssignee.trim() !== 'Unassigned' && !options.some(o => o.value.toLowerCase() === currentAssignee.trim().toLowerCase())) {
-        options.push({
-          value: currentAssignee.trim(),
-          label: currentAssignee.trim(),
-          icon: 'fi fi-rr-user'
-        });
-      }
-
-      const filtered = options.filter(o => o.value !== 'Self');
-      return filtered.length > 0 ? filtered : [{ value: 'Unassigned', label: 'Unassigned', icon: 'fi fi-rr-user-slash' }];
     } catch (e) {
-      console.error('Failed to get workspace member options:', e);
-      const fallbackOptions: { value: string; label: string; icon?: string }[] = [
-        { value: 'Unassigned', label: 'Unassigned', icon: 'fi fi-rr-user-slash' }
-      ];
-      if (currentAssignee && currentAssignee !== 'Unassigned' && currentAssignee !== 'Self') {
-        fallbackOptions.push({ value: currentAssignee, label: currentAssignee, icon: 'fi fi-rr-user' });
-      }
-      return fallbackOptions;
+      console.warn('Failed to resolve workspace member options:', e);
     }
+
+    if (currentAssignee && currentAssignee.trim() && currentAssignee.trim() !== 'Self' && currentAssignee.trim() !== 'Unassigned' && !options.some(o => o.value.toLowerCase() === currentAssignee.trim().toLowerCase())) {
+      options.push({
+        value: currentAssignee.trim(),
+        label: currentAssignee.trim(),
+        icon: 'fi fi-rr-user'
+      });
+    }
+
+    return options;
   }
 }
 

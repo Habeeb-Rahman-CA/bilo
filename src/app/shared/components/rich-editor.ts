@@ -524,27 +524,59 @@ export class RichEditorComponent {
 
   private sanitizeUrl(url: string): string {
     if (!url) return '#';
-    const trimmed = url.trim();
-    // Strip invisible control characters
-    const cleanStr = trimmed.replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
-    // Decode HTML entities to uncover encoded protocols like java&#x09;script:
-    const decoded = cleanStr
-      .replace(/&#x([0-9a-f]+);?/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-      .replace(/&#([0-9]+);?/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)));
-    const normalized = decoded.toLowerCase().replace(/\s+/g, '');
+    let current = url.trim();
 
-    // Block dangerous protocols
+    // Iteratively decode percent-encoding and HTML entities to reveal obfuscated schemes
+    for (let i = 0; i < 5; i++) {
+      const prev = current;
+      try {
+        current = decodeURIComponent(current);
+      } catch {
+        // Ignore URI malformed errors
+      }
+      current = current
+        .replace(/&#x([0-9a-f]+);?/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+        .replace(/&#([0-9]+);?/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
+        .replace(/&colon;/gi, ':');
+      if (current === prev) break;
+    }
+
+    // Strip invisible control characters & all whitespace to normalize protocol scheme check
+    const normalized = current
+      .replace(/[\u0000-\u001F\u007F-\u009F\s]/g, '')
+      .toLowerCase();
+
+    // Blacklist dangerous protocols
     if (
       normalized.startsWith('javascript:') ||
       normalized.startsWith('vbscript:') ||
       normalized.startsWith('data:') ||
-      normalized.startsWith('blob:')
+      normalized.startsWith('blob:') ||
+      normalized.startsWith('file:')
     ) {
       return '#';
     }
 
+    // Enforce strict whitelist: allow http://, https://, mailto:, tel:, or relative paths starting with /, ./, ../, #
+    const isAllowedScheme =
+      normalized.startsWith('http://') ||
+      normalized.startsWith('https://') ||
+      normalized.startsWith('mailto:') ||
+      normalized.startsWith('tel:') ||
+      normalized.startsWith('/') ||
+      normalized.startsWith('./') ||
+      normalized.startsWith('../') ||
+      normalized.startsWith('#');
+
+    const hasUnknownScheme = /^[a-z0-9\+\.\-]+:/i.test(normalized) && !isAllowedScheme;
+
+    if (!isAllowedScheme || hasUnknownScheme) {
+      return '#';
+    }
+
     // Escape quotes and angle brackets to prevent attribute breakout
-    return trimmed
+    return url
+      .trim()
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;')
       .replace(/</g, '&lt;')

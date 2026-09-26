@@ -84,6 +84,12 @@ import { RichEditorComponent } from './rich-editor';
 
         <!-- Page Main Scrollable Container -->
         <div class="detail-page-container">
+          @if (conflictError()) {
+            <div class="form-error-banner font-mono text-rose" style="margin-bottom: 1rem;">
+              <i class="fi fi-rr-triangle-warning"></i>
+              <span>{{ conflictError() }}</span>
+            </div>
+          }
           <!-- Inline Title Edit (Full Width Title Block) -->
           <div class="detail-title-block">
             @if (isEditingTitle()) {
@@ -597,7 +603,14 @@ import { RichEditorComponent } from './rich-editor';
               }
 
               <div class="meta-group">
-                <label class="meta-label">Assignee</label>
+                <div class="label-with-hint">
+                  <label class="meta-label">Assignee</label>
+                  @if (assigneeLoadError()) {
+                    <span class="member-load-error font-mono text-amber" title="Failed to load project members from server. Fallback options active.">
+                      <i class="fi fi-rr-warning"></i> Members load issue
+                    </span>
+                  }
+                </div>
                 <app-select
                   [options]="assigneeOptions"
                   [value]="(!task.assignee || task.assignee === 'Self') ? 'Unassigned' : task.assignee"
@@ -1008,6 +1021,13 @@ import { RichEditorComponent } from './rich-editor';
       background: rgba(6, 182, 212, 0.15);
       padding: 0.2rem 0.6rem;
       border-radius: var(--radius-sm);
+      max-width: 100%;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      display: inline-block;
     }
     .no-labels-text {
       font-size: 0.775rem;
@@ -1895,6 +1915,8 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
   ];
 
   assigneeOptions: SelectOption[] = [];
+  assigneeLoadError = signal<boolean>(false);
+  conflictError = signal<string | null>(null);
 
   constructor(
     public taskService: TaskService,
@@ -1941,6 +1963,7 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
   }
 
   async ngOnInit() {
+    this.conflictError.set(null);
     if (this.task) {
       this.loadAssigneeOptions();
       const [commList, historyList] = await Promise.all([
@@ -1954,28 +1977,48 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
 
   async loadAssigneeOptions() {
     const currentAssignee = (!this.task?.assignee || this.task?.assignee === 'Self') ? 'Unassigned' : this.task.assignee;
-    this.assigneeOptions = [
-      { value: 'Unassigned', label: 'Unassigned', icon: 'fi fi-rr-user-slash' }
-    ];
-    if (currentAssignee && currentAssignee !== 'Unassigned') {
-      this.assigneeOptions.push({ value: currentAssignee, label: currentAssignee, icon: 'fi fi-rr-user' });
+    try {
+      const opts = await this.projectService.getWorkspaceMemberOptions(
+        this.task?.project_id,
+        currentAssignee
+      );
+      this.assigneeOptions = opts as SelectOption[];
+      this.assigneeLoadError.set(false);
+    } catch (e) {
+      console.warn('Failed to load assignee options in detail modal:', e);
+      this.assigneeLoadError.set(true);
+      this.assigneeOptions = [
+        { value: 'Unassigned', label: 'Unassigned', icon: 'fi fi-rr-user-slash' },
+        ...(currentAssignee && currentAssignee !== 'Unassigned' ? [{ value: currentAssignee, label: currentAssignee, icon: 'fi fi-rr-user' }] : [])
+      ];
+    }
+  }
+
+  async safeUpdateTask(updates: Partial<Task>): Promise<Task | null> {
+    if (!this.task) return null;
+    const expectedUpdatedAt = this.task.updated_at;
+    const updated = await this.taskService.updateTask(this.task.id, updates, expectedUpdatedAt);
+
+    if (!updated) {
+      this.conflictError.set('Concurrent Edit Conflict: This task was modified by another user. Displaying the latest task version.');
+      const latest = this.taskService.tasks().find(t => t.id === this.task.id);
+      if (latest) {
+        this.task = latest;
+        await this.refreshHistory();
+      }
+      return null;
     }
 
-    const opts = await this.projectService.getWorkspaceMemberOptions(
-      this.task?.project_id,
-      currentAssignee
-    );
-    this.assigneeOptions = opts as SelectOption[];
+    this.conflictError.set(null);
+    this.task = updated;
+    await this.refreshHistory();
+    return updated;
   }
 
   async updateAssigneeFromSelect(newAssignee: string) {
     const val = newAssignee === 'Unassigned' ? '' : newAssignee;
     if (val !== (this.task.assignee || '')) {
-      const updated = await this.taskService.updateTask(this.task.id, { assignee: val });
-      if (updated) {
-        this.task = updated;
-        await this.refreshHistory();
-      }
+      await this.safeUpdateTask({ assignee: val });
     }
   }
 
@@ -2058,8 +2101,7 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
     this.isEditingTitle.set(false);
     const trimmed = this.titleInputText.trim();
     if (trimmed && trimmed !== this.task.title) {
-      const updated = await this.taskService.updateTask(this.task.id, { title: trimmed });
-      if (updated) this.task = updated;
+      await this.safeUpdateTask({ title: trimmed });
     }
   }
 
@@ -2081,11 +2123,7 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
     if (!this.isEditingDesc()) return;
     this.isEditingDesc.set(false);
     if (this.descInputText !== (this.task.description || '')) {
-      const updated = await this.taskService.updateTask(this.task.id, { description: this.descInputText });
-      if (updated) {
-        this.task = updated;
-        await this.refreshHistory();
-      }
+      await this.safeUpdateTask({ description: this.descInputText });
     }
   }
 
@@ -2107,11 +2145,7 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
     if (!this.isEditingLabels()) return;
     this.isEditingLabels.set(false);
     const parsed = sanitizeLabels(this.labelsInputText.split(','));
-    const updated = await this.taskService.updateTask(this.task.id, { labels: parsed });
-    if (updated) {
-      this.task = updated;
-      await this.refreshHistory();
-    }
+    await this.safeUpdateTask({ labels: parsed });
   }
 
   restrictedToastMessage = signal<string>('');
@@ -2158,19 +2192,10 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
     const available = this.getAvailableStatuses();
     const wf = available.find(w => w.name === newStatus);
 
-    const updated = await this.taskService.updateTask(
-      this.task.id,
-      {
-        status: newStatus,
-        workflow_id: wf?.id
-      },
-      this.task.updated_at
-    );
-    if (updated) {
-      this.task = updated;
-      const historyList = await this.taskService.loadStatusHistoryForTask(this.task.id);
-      this.statusHistory.set(historyList);
-    }
+    await this.safeUpdateTask({
+      status: newStatus,
+      workflow_id: wf?.id
+    });
   }
 
   getActionIcon(actionType?: string): string {
@@ -2200,19 +2225,11 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
   }
 
   async updatePriority(newPriority: TaskPriority) {
-    const updated = await this.taskService.updateTask(this.task.id, { priority: newPriority });
-    if (updated) {
-      this.task = updated;
-      await this.refreshHistory();
-    }
+    await this.safeUpdateTask({ priority: newPriority });
   }
 
   async updateType(newType: TaskType) {
-    const updated = await this.taskService.updateTask(this.task.id, { type: newType });
-    if (updated) {
-      this.task = updated;
-      await this.refreshHistory();
-    }
+    await this.safeUpdateTask({ type: newType });
   }
 
   isReportedTask(): boolean {
@@ -2231,45 +2248,28 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
   }
 
   async updateReportCategory(newCategory: string) {
-    const updated = await this.taskService.updateTask(this.task.id, {
+    await this.safeUpdateTask({
       report_category: newCategory,
       is_app_report: true
     });
-    if (updated) {
-      this.task = updated;
-      await this.refreshHistory();
-    }
   }
 
   async updateSeverity(newSeverity: string) {
-    const updated = await this.taskService.updateTask(this.task.id, { severity: newSeverity as TaskSeverity });
-    if (updated) {
-      this.task = updated;
-      await this.refreshHistory();
-    }
+    await this.safeUpdateTask({ severity: newSeverity as TaskSeverity });
   }
 
   async updateReproducibility(newReproducibility: string) {
-    const updated = await this.taskService.updateTask(this.task.id, { reproducibility: newReproducibility as TaskReproducibility });
-    if (updated) {
-      this.task = updated;
-      await this.refreshHistory();
-    }
+    await this.safeUpdateTask({ reproducibility: newReproducibility as TaskReproducibility });
   }
 
   async updateDueDate(newDueDate: string) {
-    const updated = await this.taskService.updateTask(this.task.id, { due_date: newDueDate });
-    if (updated) {
-      this.task = updated;
-      await this.refreshHistory();
-    }
+    await this.safeUpdateTask({ due_date: newDueDate });
   }
 
   async updateAssignee(event: Event) {
     const val = (event.target as HTMLInputElement).value.trim();
     if (val !== (this.task.assignee || '')) {
-      const updated = await this.taskService.updateTask(this.task.id, { assignee: val });
-      if (updated) this.task = updated;
+      await this.safeUpdateTask({ assignee: val });
     }
   }
 

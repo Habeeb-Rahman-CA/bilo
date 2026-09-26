@@ -464,9 +464,9 @@ export class TaskService {
     if (expectedUpdatedAt && existingTask.updated_at && expectedUpdatedAt !== existingTask.updated_at) {
       console.warn(`[ConcurrentEdit] Base timestamp mismatch for task "${existingTask.title}". Expected: ${expectedUpdatedAt}, Actual: ${existingTask.updated_at}`);
       this.triggerConflictNotification(
-        `Concurrent Edit Conflict: Task "${existingTask.title}" was modified by another user. Board refreshed.`
+        `Concurrent Edit Conflict: Task "${existingTask.title}" was modified by another user. Edits canceled.`
       );
-      return existingTask;
+      return null;
     }
 
     const newStatus = updates.status !== undefined ? updates.status : existingTask.status;

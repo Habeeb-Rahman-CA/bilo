@@ -5,6 +5,7 @@ import { ProjectService } from '../../core/services/project.service';
 import { Project } from '../../core/models/project.model';
 import { SelectComponent, SelectOption } from './select';
 import { ConfirmModalComponent } from './confirm-modal';
+import { sanitizeLabels } from '../../core/utils/label.util';
 
 @Component({
   selector: 'app-project-modal',
@@ -499,10 +500,7 @@ export class ProjectModalComponent implements OnInit, AfterViewInit {
     this.submitted = true;
     if (!this.name.trim()) return;
 
-    const parsedLabels = this.labelsInput
-      .split(',')
-      .map(l => l.trim().toLowerCase())
-      .filter(l => l.length > 0);
+    const parsedLabels = sanitizeLabels(this.labelsInput.split(','));
 
     let resultProject: Project | undefined = undefined;
 

@@ -134,4 +134,61 @@ describe('TaskService - Task Restoration & Target Status Column Recovery', () =>
     expect(restored?.status).toBe('To Do');
     expect(restored?.workflow_id).toBe('wf-todo');
   });
+
+  describe('Optimistic Concurrency Control', () => {
+    it('should reject updates when expectedUpdatedAt mismatches current updated_at timestamp', async () => {
+      const initialTimestamp = '2026-09-26T10:00:00.000Z';
+      const modifiedTimestamp = '2026-09-26T10:05:00.000Z';
+      const task: Task = {
+        id: 't-lock-1',
+        title: 'Original Title',
+        type: 'task',
+        priority: 'medium',
+        status: 'To Do',
+        completed: false,
+        project_id: 'proj-1',
+        position: 0,
+        created_at: initialTimestamp,
+        updated_at: modifiedTimestamp
+      };
+      taskService.tasks.set([task]);
+
+      // Attempt update passing stale initialTimestamp
+      const result = await taskService.updateTask(
+        't-lock-1',
+        { title: 'Concurrent Edit Overwrite Attempt' },
+        initialTimestamp
+      );
+
+      expect(result).toBeNull();
+      expect(taskService.tasks()[0].title).toBe('Original Title');
+    });
+
+    it('should apply updates successfully when expectedUpdatedAt matches current updated_at timestamp', async () => {
+      const currentTimestamp = '2026-09-26T10:00:00.000Z';
+      const task: Task = {
+        id: 't-lock-2',
+        title: 'Task Before Edit',
+        type: 'task',
+        priority: 'low',
+        status: 'To Do',
+        completed: false,
+        project_id: 'proj-1',
+        position: 0,
+        created_at: currentTimestamp,
+        updated_at: currentTimestamp
+      };
+      taskService.tasks.set([task]);
+
+      const result = await taskService.updateTask(
+        't-lock-2',
+        { title: 'Successfully Updated Title' },
+        currentTimestamp
+      );
+
+      expect(result).not.toBeNull();
+      expect(result?.title).toBe('Successfully Updated Title');
+      expect(taskService.tasks()[0].title).toBe('Successfully Updated Title');
+    });
+  });
 });

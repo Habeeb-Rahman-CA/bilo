@@ -26,6 +26,30 @@ describe('Label Utility', () => {
     expect(cleaned.length).toBe(15);
   });
 
+  it('should strip HTML tags, script elements, and dangerous syntax from labels', () => {
+    const malicious = [
+      '<script>alert("XSS")</script>',
+      '<img src=x onerror=alert(1)>',
+      '"><svg onload=alert(1)>',
+      'label <b>bold</b>',
+      'hello & "world"'
+    ];
+    const cleaned = sanitizeLabels(malicious);
+
+    expect(cleaned).not.toContain('<script>');
+    expect(cleaned).not.toContain('<img');
+    expect(cleaned).not.toContain('onerror');
+    expect(cleaned).not.toContain('onload');
+    expect(cleaned).toEqual(['alert(xss)', 'label bold', 'hello  world']);
+  });
+
+  it('should strip control characters and discard empty sanitized labels', () => {
+    const controlChars = ['\u0000\u0001\u001F', '   <style></style>   ', '  \t\n  '];
+    const cleaned = sanitizeLabels(controlChars);
+
+    expect(cleaned).toEqual([]);
+  });
+
   it('should return empty array for empty or null inputs', () => {
     expect(sanitizeLabels(null)).toEqual([]);
     expect(sanitizeLabels(undefined)).toEqual([]);
