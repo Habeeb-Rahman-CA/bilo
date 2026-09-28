@@ -352,8 +352,10 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
       color: #38bdf8;
       padding: 0.1rem 0.35rem;
       border-radius: 4px;
-      font-family: monospace;
+      font-family: var(--font-mono, monospace);
       font-size: 0.825rem;
+      word-break: break-word;
+      overflow-wrap: anywhere;
     }
 
     :host ::ng-deep .markdown-preview-render pre {
@@ -362,15 +364,42 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
       border-radius: var(--radius-xs);
       padding: 0.6rem 0.8rem;
       overflow-x: auto;
+      overflow-y: hidden;
       margin: 0.5rem 0;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      white-space: pre;
     }
+
+    :host ::ng-deep .markdown-preview-render pre::-webkit-scrollbar {
+      height: 6px;
+    }
+    :host ::ng-deep .markdown-preview-render pre::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 3px;
+    }
+    :host ::ng-deep .markdown-preview-render pre::-webkit-scrollbar-thumb {
+      background: var(--border-medium, #30363d);
+      border-radius: 3px;
+    }
+    :host ::ng-deep .markdown-preview-render pre::-webkit-scrollbar-thumb:hover {
+      background: var(--text-muted, #8b949e);
+    }
+
     :host ::ng-deep .markdown-preview-render pre code {
-      font-family: monospace;
+      font-family: var(--font-mono, monospace);
       font-size: 0.825rem;
       color: #e6edf3;
       background: transparent;
       padding: 0;
       border: none;
+      white-space: pre;
+      word-break: normal;
+      overflow-wrap: normal;
+      display: block;
+      min-width: 0;
+      max-width: 100%;
     }
 
     :host ::ng-deep .markdown-preview-render hr {
