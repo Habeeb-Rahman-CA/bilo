@@ -10,6 +10,7 @@ export interface DatePickerDay {
   isCurrentMonth: boolean;
   isToday: boolean;
   isSelected: boolean;
+  isDisabled: boolean;
 }
 
 @Component({
@@ -59,22 +60,49 @@ export interface DatePickerDay {
         >
           <!-- Month Header & Navigation -->
           <div class="popover-header">
-            <button type="button" class="nav-btn" (click)="prevMonth()" title="Previous Month">
+            <button 
+              type="button" 
+              class="nav-btn" 
+              [disabled]="isPrevMonthDisabled()" 
+              (click)="prevMonth()" 
+              title="Previous Month"
+            >
               <i class="fi fi-rr-angle-left"></i>
             </button>
 
             <span class="month-title">{{ viewMonthTitle() }}</span>
 
-            <button type="button" class="nav-btn" (click)="nextMonth()" title="Next Month">
+            <button 
+              type="button" 
+              class="nav-btn" 
+              [disabled]="isNextMonthDisabled()" 
+              (click)="nextMonth()" 
+              title="Next Month"
+            >
               <i class="fi fi-rr-angle-right"></i>
             </button>
           </div>
 
           <!-- Quick Shortcuts -->
           <div class="quick-presets">
-            <button type="button" class="preset-btn" (click)="selectToday()">Today</button>
-            <button type="button" class="preset-btn" (click)="selectTomorrow()">Tomorrow</button>
-            <button type="button" class="preset-btn" (click)="selectNextWeek()">+7 Days</button>
+            <button 
+              type="button" 
+              class="preset-btn" 
+              [disabled]="isDateDisabled(todayStr)" 
+              (click)="selectToday()"
+            >Today</button>
+            <button 
+              type="button" 
+              class="preset-btn" 
+              [disabled]="isDateDisabled(tomorrowStr)" 
+              (click)="selectTomorrow()"
+            >Tomorrow</button>
+            <button 
+              type="button" 
+              class="preset-btn" 
+              [disabled]="isDateDisabled(nextWeekStr)" 
+              (click)="selectNextWeek()"
+            >+7 Days</button>
             @if (value) {
               <button type="button" class="preset-btn preset-clear" (click)="clearDate($event)">Clear</button>
             }
@@ -100,6 +128,8 @@ export interface DatePickerDay {
                 [class.other-month]="!day.isCurrentMonth"
                 [class.is-today]="day.isToday"
                 [class.is-selected]="day.isSelected"
+                [class.is-disabled]="day.isDisabled"
+                [disabled]="day.isDisabled"
                 (click)="selectDate(day.dateStr)"
               >
                 {{ day.dayNumber }}
@@ -334,10 +364,20 @@ export interface DatePickerDay {
       font-weight: 700;
       border-color: var(--text-main) !important;
     }
+
+    .day-btn.is-disabled, .nav-btn[disabled], .preset-btn[disabled] {
+      opacity: 0.3 !important;
+      cursor: not-allowed !important;
+      pointer-events: none !important;
+    }
   `]
 })
 export class DatePickerComponent implements OnChanges {
   @Input() value: string = ''; // YYYY-MM-DD
+  @Input() minDate?: string; // YYYY-MM-DD
+  @Input() maxDate?: string; // YYYY-MM-DD
+  @Input() min?: string; // YYYY-MM-DD alias
+  @Input() max?: string; // YYYY-MM-DD alias
   @Input() placeholder: string = 'Select date...';
   @Input() compact: boolean = false;
   @Input() align: 'left' | 'right' = 'left';
@@ -351,6 +391,49 @@ export class DatePickerComponent implements OnChanges {
   isOpen = signal<boolean>(false);
   viewDate = signal<Date>(new Date());
   triggerRect = signal<{ top: number; left: number; right: number; bottom: number; width: number; height: number } | null>(null);
+
+  get effectiveMinDate(): string {
+    return this.minDate || this.min || '1900-01-01';
+  }
+
+  get effectiveMaxDate(): string {
+    return this.maxDate || this.max || '2100-12-31';
+  }
+
+  get todayStr(): string {
+    return getLocalDateString();
+  }
+
+  get tomorrowStr(): string {
+    return getOffsetDateString(1);
+  }
+
+  get nextWeekStr(): string {
+    return getOffsetDateString(7);
+  }
+
+  isDateDisabled(dateStr: string): boolean {
+    if (!dateStr) return false;
+    if (this.effectiveMinDate && dateStr < this.effectiveMinDate) return true;
+    if (this.effectiveMaxDate && dateStr > this.effectiveMaxDate) return true;
+    return false;
+  }
+
+  isPrevMonthDisabled(): boolean {
+    if (!this.effectiveMinDate) return false;
+    const curr = this.viewDate();
+    const prevMonthLastDay = new Date(curr.getFullYear(), curr.getMonth(), 0);
+    const prevMonthLastDayStr = this.formatYMD(prevMonthLastDay);
+    return prevMonthLastDayStr < this.effectiveMinDate;
+  }
+
+  isNextMonthDisabled(): boolean {
+    if (!this.effectiveMaxDate) return false;
+    const curr = this.viewDate();
+    const nextMonthFirstDay = new Date(curr.getFullYear(), curr.getMonth() + 1, 1);
+    const nextMonthFirstDayStr = this.formatYMD(nextMonthFirstDay);
+    return nextMonthFirstDayStr > this.effectiveMaxDate;
+  }
 
   popoverStyles = computed(() => {
     if (!this.isOpen()) return { display: 'none' };
@@ -470,16 +553,19 @@ export class DatePickerComponent implements OnChanges {
   }
 
   prevMonth() {
+    if (this.isPrevMonthDisabled()) return;
     const d = this.viewDate();
     this.viewDate.set(new Date(d.getFullYear(), d.getMonth() - 1, 1));
   }
 
   nextMonth() {
+    if (this.isNextMonthDisabled()) return;
     const d = this.viewDate();
     this.viewDate.set(new Date(d.getFullYear(), d.getMonth() + 1, 1));
   }
 
   selectDate(dateStr: string) {
+    if (this.isDateDisabled(dateStr)) return;
     this.value = dateStr;
     this.valueChange.emit(dateStr);
     this.dateChange.emit(dateStr);
@@ -495,15 +581,18 @@ export class DatePickerComponent implements OnChanges {
   }
 
   selectToday() {
-    this.selectDate(getLocalDateString());
+    if (this.isDateDisabled(this.todayStr)) return;
+    this.selectDate(this.todayStr);
   }
 
   selectTomorrow() {
-    this.selectDate(getOffsetDateString(1));
+    if (this.isDateDisabled(this.tomorrowStr)) return;
+    this.selectDate(this.tomorrowStr);
   }
 
   selectNextWeek() {
-    this.selectDate(getOffsetDateString(7));
+    if (this.isDateDisabled(this.nextWeekStr)) return;
+    this.selectDate(this.nextWeekStr);
   }
 
   calendarDays(): DatePickerDay[] {
@@ -529,7 +618,8 @@ export class DatePickerComponent implements OnChanges {
         dateStr,
         isCurrentMonth: false,
         isToday: dateStr === todayStr,
-        isSelected: dateStr === this.value
+        isSelected: dateStr === this.value,
+        isDisabled: this.isDateDisabled(dateStr)
       });
     }
 
@@ -542,7 +632,8 @@ export class DatePickerComponent implements OnChanges {
         dateStr,
         isCurrentMonth: true,
         isToday: dateStr === todayStr,
-        isSelected: dateStr === this.value
+        isSelected: dateStr === this.value,
+        isDisabled: this.isDateDisabled(dateStr)
       });
     }
 
@@ -557,7 +648,8 @@ export class DatePickerComponent implements OnChanges {
         dateStr,
         isCurrentMonth: false,
         isToday: dateStr === todayStr,
-        isSelected: dateStr === this.value
+        isSelected: dateStr === this.value,
+        isDisabled: this.isDateDisabled(dateStr)
       });
     }
 
