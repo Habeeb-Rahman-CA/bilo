@@ -70,9 +70,6 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
                 <button type="button" class="tool-btn" (click)="applyFormat('number')" title="Numbered List (1. item)">
                   <i class="fi fi-rr-list-check"></i>
                 </button>
-                <button type="button" class="tool-btn" (click)="applyFormat('checklist')" title="Checklist (- [ ] task)">
-                  <i class="fi fi-rr-checkbox"></i>
-                </button>
 
                 <div class="toolbar-divider"></div>
 
@@ -693,7 +690,7 @@ export class RichEditorComponent {
     return clean;
   }
 
-  applyFormat(type: 'h1' | 'h2' | 'h3' | 'bold' | 'italic' | 'strike' | 'bullet' | 'number' | 'checklist' | 'quote' | 'code' | 'codeblock' | 'hr') {
+  applyFormat(type: 'h1' | 'h2' | 'h3' | 'bold' | 'italic' | 'strike' | 'bullet' | 'number' | 'quote' | 'code' | 'codeblock' | 'hr') {
     const el = this.textareaEl?.nativeElement;
     const currentVal = this.value || '';
 
@@ -742,13 +739,6 @@ export class RichEditorComponent {
             replacement = selectedText.split('\n').map((l, i) => `${i + 1}. ${l}`).join('\n');
           } else {
             replacement = `1. ${selectedText}`;
-          }
-          break;
-        case 'checklist':
-          if (selectedText.includes('\n')) {
-            replacement = selectedText.split('\n').map(l => `- [ ] ${l}`).join('\n');
-          } else {
-            replacement = `- [ ] ${selectedText}`;
           }
           break;
         case 'quote':
@@ -806,10 +796,6 @@ export class RichEditorComponent {
         case 'number':
           prefix = '1. ';
           placeholder = 'List item';
-          break;
-        case 'checklist':
-          prefix = '- [ ] ';
-          placeholder = 'Task item';
           break;
         case 'quote':
           prefix = '> ';

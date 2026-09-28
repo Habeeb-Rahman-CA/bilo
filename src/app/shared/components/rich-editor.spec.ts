@@ -125,10 +125,6 @@ describe('RichEditorComponent XSS Security & Markdown Sanitization', () => {
       component.value = '';
       component.applyFormat('code');
       expect(component.value).toBe('`code`');
-
-      component.value = '';
-      component.applyFormat('checklist');
-      expect(component.value).toBe('- [ ] Task item');
     });
 
     it('should wrap selected text when text is selected', () => {
