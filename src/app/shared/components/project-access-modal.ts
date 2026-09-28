@@ -146,7 +146,7 @@ import { SelectComponent, SelectOption } from './select';
                     @if (isOwner() && m.role !== 'owner') {
                       <button
                         class="btn btn-ghost btn-xs text-amber"
-                        (click)="transferOwnership(m.user_id)"
+                        (click)="transferOwnership(m)"
                         title="Transfer project ownership"
                       >
                         Transfer
@@ -179,8 +179,9 @@ import { SelectComponent, SelectOption } from './select';
         [isOpen]="cs.open"
         [title]="cs.title"
         [message]="cs.message"
-        confirmText="Confirm"
-        type="danger"
+        [confirmText]="cs.confirmText || 'Confirm'"
+        [type]="cs.type || 'danger'"
+        [requireText]="cs.requireText"
         (confirm)="handleConfirm()"
         (cancel)="confirmState.set(null)"
       />
@@ -607,13 +608,23 @@ export class ProjectAccessModalComponent implements OnInit {
     this.submitting.set(false);
   }
 
-  confirmState = signal<{ open: boolean; title: string; message: string; action: () => void } | null>(null);
+  confirmState = signal<{
+    open: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    type?: 'danger' | 'warning' | 'info';
+    requireText?: string;
+    action: () => void;
+  } | null>(null);
 
   removeMember(memberId: string) {
     this.confirmState.set({
       open: true,
       title: 'Remove Member',
       message: 'Are you sure you want to remove this member from the project?',
+      confirmText: 'Remove',
+      type: 'danger',
       action: async () => {
         const success = await this.projectService.removeProjectMember(this.project.id, memberId);
         if (success) {
@@ -628,11 +639,19 @@ export class ProjectAccessModalComponent implements OnInit {
     });
   }
 
-  transferOwnership(targetUserId: string) {
+  transferOwnership(target: ProjectMember | string) {
+    const targetUserId = typeof target === 'string' ? target : target.user_id;
+    const recipientName = typeof target === 'string' 
+      ? target 
+      : this.getUserDisplayName(target);
+
     this.confirmState.set({
       open: true,
-      title: 'Transfer Ownership',
-      message: `Are you sure you want to transfer project ownership of "${this.project.name}" to ${targetUserId}?`,
+      title: 'Transfer Project Ownership',
+      message: `PERMANENT ACTION: You are transferring ownership of project "${this.project.name}" to ${recipientName}. You will lose owner administrative privileges. This transfer cannot be undone.`,
+      confirmText: 'Transfer Ownership',
+      type: 'warning',
+      requireText: this.project.name,
       action: async () => {
         const success = await this.projectService.transferOwnership(this.project.id, targetUserId);
         if (success) {

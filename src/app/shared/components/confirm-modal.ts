@@ -1,10 +1,11 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, Output, OnChanges, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 
 @Component({
   selector: 'app-confirm-modal',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule],
   template: `
     @if (isOpen) {
       <div class="confirm-overlay" (click)="onCancel()" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-desc">
@@ -25,6 +26,21 @@ import { CommonModule } from '@angular/common';
 
           <div class="confirm-body">
             <p id="confirm-modal-desc" class="confirm-message">{{ message }}</p>
+
+            @if (requireText) {
+              <div class="confirm-input-box">
+                <label class="confirm-input-label">
+                  To confirm, type <strong class="text-amber">"{{ requireText }}"</strong> below:
+                </label>
+                <input
+                  type="text"
+                  class="form-input confirm-text-input font-mono"
+                  [placeholder]="inputPlaceholder || ('Type ' + requireText + ' to confirm')"
+                  [(ngModel)]="typedText"
+                  (keydown.enter)="isConfirmDisabled() ? null : onConfirm()"
+                />
+              </div>
+            }
           </div>
 
           <div class="confirm-footer">
@@ -37,6 +53,7 @@ import { CommonModule } from '@angular/common';
               [class.btn-danger]="type === 'danger'"
               [class.btn-warning]="type === 'warning'"
               [class.btn-primary]="type === 'info'"
+              [disabled]="isConfirmDisabled()"
               (click)="onConfirm()"
             >
               @if (type === 'danger') {
@@ -70,7 +87,7 @@ import { CommonModule } from '@angular/common';
 
     .confirm-card {
       width: 100%;
-      max-width: 420px;
+      max-width: 440px;
       background: var(--bg-surface);
       border: 1px solid var(--border-medium);
       border-radius: var(--radius-xs);
@@ -115,6 +132,26 @@ import { CommonModule } from '@angular/common';
       margin: 0;
       line-height: 1.5;
     }
+    .confirm-input-box {
+      margin-top: 0.85rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    .confirm-input-label {
+      font-size: 0.725rem;
+      color: var(--text-main);
+    }
+    .confirm-text-input {
+      font-size: 0.8rem;
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-medium);
+      padding: 0.4rem 0.6rem;
+      border-radius: var(--radius-xs);
+      color: var(--text-main);
+    }
 
     .confirm-footer {
       display: flex;
@@ -145,6 +182,11 @@ import { CommonModule } from '@angular/common';
       background: #f59e0b;
       color: #ffffff;
     }
+    .btn-warning[disabled] {
+      opacity: 0.5;
+      cursor: not-allowed;
+      pointer-events: auto;
+    }
 
     .text-rose { color: #f43f5e; }
     .text-amber { color: #f59e0b; }
@@ -160,22 +202,40 @@ import { CommonModule } from '@angular/common';
     }
   `]
 })
-export class ConfirmModalComponent {
+export class ConfirmModalComponent implements OnChanges {
   @Input() isOpen = false;
   @Input() title = 'Confirm Action';
   @Input() message = 'Are you sure you want to proceed?';
   @Input() confirmText = 'Confirm';
   @Input() cancelText = 'Cancel';
   @Input() type: 'danger' | 'warning' | 'info' = 'warning';
+  @Input() requireText?: string;
+  @Input() inputPlaceholder?: string;
 
   @Output() confirm = new EventEmitter<void>();
   @Output() cancel = new EventEmitter<void>();
 
+  typedText = '';
+
+  ngOnChanges(changes: SimpleChanges) {
+    if (changes['isOpen'] && changes['isOpen'].currentValue) {
+      this.typedText = '';
+    }
+  }
+
+  isConfirmDisabled(): boolean {
+    if (!this.requireText) return false;
+    return this.typedText.trim().toLowerCase() !== this.requireText.trim().toLowerCase();
+  }
+
   onConfirm() {
+    if (this.isConfirmDisabled()) return;
     this.confirm.emit();
+    this.typedText = '';
   }
 
   onCancel() {
     this.cancel.emit();
+    this.typedText = '';
   }
 }
