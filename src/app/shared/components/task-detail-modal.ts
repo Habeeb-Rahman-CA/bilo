@@ -9,6 +9,7 @@ import { AuthService } from '../../core/services/auth.service';
 import { Task, TaskComment, TaskStatusHistory, TaskPriority, TaskSeverity, TaskReproducibility, TaskType, Workflow } from '../../core/models/project.model';
 import { getTaskKey } from '../../core/utils/task-key.util';
 import { sanitizeLabels } from '../../core/utils/label.util';
+import { compressImageFile, canAddAttachment, MAX_ATTACHMENT_FILE_SIZE_BYTES, MAX_ATTACHMENTS_PER_TASK } from '../../core/utils/image-compressor.util';
 import { SelectComponent, SelectOption } from './select';
 import { DatePickerComponent } from './date-picker';
 import { ConfirmModalComponent } from './confirm-modal';
@@ -2514,22 +2515,37 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
       return;
     }
 
+    const MAX_COMMENT_ATTACHMENTS = 5;
+    if (this.commentAttachments().length + imageFiles.length > MAX_COMMENT_ATTACHMENTS) {
+      this.taskShareService.showToast(`Maximum ${MAX_COMMENT_ATTACHMENTS} image attachments allowed per comment.`);
+      return;
+    }
+
     this.uploadingCommentAttachments.set(true);
     this.uploadingCommentCount.set(imageFiles.length);
 
     try {
+      let processedCount = 0;
       for (const file of imageFiles) {
-        const imgData = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = (e: ProgressEvent<FileReader>) => resolve((e.target?.result as string) || '');
-          reader.onerror = () => reject(new Error('Failed to read image file'));
-          reader.readAsDataURL(file);
-        });
-        if (imgData) {
-          this.commentAttachments.update(curr => [...curr, imgData]);
+        if (file.size > MAX_ATTACHMENT_FILE_SIZE_BYTES) {
+          this.taskShareService.showToast(`File "${file.name}" exceeds 10MB limit and was skipped.`);
+          continue;
+        }
+
+        const compressed = await compressImageFile(file);
+        if (compressed) {
+          const check = canAddAttachment(this.commentAttachments(), compressed);
+          if (!check.allowed) {
+            this.taskShareService.showToast(check.reason || 'Cumulative attachment size limit reached for comment draft.');
+            break;
+          }
+          this.commentAttachments.update(curr => [...curr, compressed]);
+          processedCount++;
         }
       }
-      this.taskShareService.showToast(`${imageFiles.length} image(s) attached to comment draft.`);
+      if (processedCount > 0) {
+        this.taskShareService.showToast(`${processedCount} image(s) attached to comment draft.`);
+      }
     } catch (e) {
       console.error('Error processing comment image:', e);
       this.taskShareService.showToast('Failed to process image for comment. Please try again.');
@@ -2652,28 +2668,43 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
       return;
     }
 
+    const currentAttachments = [...(this.task.attachments || [])];
+    if (currentAttachments.length + files.length > MAX_ATTACHMENTS_PER_TASK) {
+      this.taskShareService.showToast(`Maximum ${MAX_ATTACHMENTS_PER_TASK} attachments allowed per task.`);
+      return;
+    }
+
     this.uploadingDetailAttachments.set(true);
     this.uploadingDetailCount.set(files.length);
 
     try {
-      const currentAttachments = [...(this.task.attachments || [])];
       const newImgs: string[] = [];
 
       for (const file of files) {
-        const imgData = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = (e) => resolve((e.target?.result as string) || '');
-          reader.onerror = () => reject(new Error('Failed to read image file'));
-          reader.readAsDataURL(file);
-        });
-        if (imgData) newImgs.push(imgData);
+        if (file.size > MAX_ATTACHMENT_FILE_SIZE_BYTES) {
+          this.taskShareService.showToast(`File "${file.name}" exceeds 10MB limit and was skipped.`);
+          continue;
+        }
+
+        const compressed = await compressImageFile(file);
+        if (compressed) {
+          const combined = [...currentAttachments, ...newImgs];
+          const check = canAddAttachment(combined, compressed);
+          if (!check.allowed) {
+            this.taskShareService.showToast(check.reason || 'Cumulative task attachment size limit (1.5MB) reached.');
+            break;
+          }
+          newImgs.push(compressed);
+        }
       }
 
       if (newImgs.length > 0) {
         const updatedAttachments = [...currentAttachments, ...newImgs];
-        const updated = await this.taskService.updateTask(this.task.id, { attachments: updatedAttachments });
-        if (updated) this.task = updated;
-        this.taskShareService.showToast(`${newImgs.length} image attachment(s) added successfully.`);
+        const updated = await this.safeUpdateTask({ attachments: updatedAttachments });
+        if (updated) {
+          this.task = updated;
+          this.taskShareService.showToast(`${newImgs.length} image attachment(s) added successfully.`);
+        }
       }
     } catch (e) {
       console.error('Error adding image attachment:', e);

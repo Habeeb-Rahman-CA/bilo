@@ -8,7 +8,7 @@ import { TaskShareService } from '../../core/services/task-share.service';
 import { SelectComponent, SelectOption } from './select';
 import { RichEditorComponent } from './rich-editor';
 import { TaskPriority, TaskSeverity, TaskReproducibility, TaskType, Project } from '../../core/models/project.model';
-import { compressImageFile, MAX_ATTACHMENT_FILE_SIZE_BYTES, MAX_ATTACHMENTS_PER_TASK } from '../../core/utils/image-compressor.util';
+import { compressImageFile, canAddAttachment, MAX_ATTACHMENT_FILE_SIZE_BYTES, MAX_ATTACHMENTS_PER_TASK } from '../../core/utils/image-compressor.util';
 
 @Component({
   selector: 'app-report-issue-modal',
@@ -511,6 +511,11 @@ export class ReportIssueModalComponent {
 
         const compressed = await compressImageFile(file);
         if (compressed) {
+          const check = canAddAttachment(this.attachments(), compressed);
+          if (!check.allowed) {
+            this.taskShareService.showToast(check.reason || 'Cumulative task attachment size limit (1.5MB) reached.');
+            break;
+          }
           this.attachments.update(list => [...list, compressed]);
           processedCount++;
         }
