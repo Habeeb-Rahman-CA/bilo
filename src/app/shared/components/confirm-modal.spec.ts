@@ -60,4 +60,31 @@ describe('ConfirmModalComponent', () => {
       expect(spy).toHaveBeenCalled();
     });
   });
+
+  describe('Keyboard navigation & Focus Trap', () => {
+    it('should emit cancel event when Escape key is pressed while open', () => {
+      component.isOpen = true;
+      const spy = vi.fn();
+      component.cancel.subscribe(spy);
+
+      const event = new KeyboardEvent('keydown', { key: 'Escape' });
+      const preventSpy = vi.spyOn(event, 'preventDefault');
+
+      component.handleKeyDown(event);
+
+      expect(preventSpy).toHaveBeenCalled();
+      expect(spy).toHaveBeenCalled();
+    });
+
+    it('should not react to key events when modal is closed', () => {
+      component.isOpen = false;
+      const spy = vi.fn();
+      component.cancel.subscribe(spy);
+
+      const event = new KeyboardEvent('keydown', { key: 'Escape' });
+      component.handleKeyDown(event);
+
+      expect(spy).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output, OnChanges, SimpleChanges } from '@angular/core';
+import { Component, EventEmitter, Input, Output, OnChanges, SimpleChanges, ElementRef, ViewChild, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
@@ -9,7 +9,7 @@ import { FormsModule } from '@angular/forms';
   template: `
     @if (isOpen) {
       <div class="confirm-overlay" (click)="onCancel()" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-desc">
-        <div class="confirm-card paper-panel font-mono" (click)="$event.stopPropagation()">
+        <div #modalCard class="confirm-card paper-panel font-mono" (click)="$event.stopPropagation()">
           <div class="confirm-header" [class.header-danger]="type === 'danger'" [class.header-warning]="type === 'warning'">
             <div class="header-icon" aria-hidden="true">
               @switch (type) {
@@ -215,11 +215,73 @@ export class ConfirmModalComponent implements OnChanges {
   @Output() confirm = new EventEmitter<void>();
   @Output() cancel = new EventEmitter<void>();
 
+  @ViewChild('modalCard') modalCard?: ElementRef<HTMLElement>;
+
   typedText = '';
 
   ngOnChanges(changes: SimpleChanges) {
     if (changes['isOpen'] && changes['isOpen'].currentValue) {
       this.typedText = '';
+      setTimeout(() => this.focusInitialElement(), 50);
+    }
+  }
+
+  @HostListener('window:keydown', ['$event'])
+  handleKeyDown(event: KeyboardEvent) {
+    if (!this.isOpen) return;
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.onCancel();
+      return;
+    }
+
+    if (event.key === 'Tab') {
+      this.trapFocus(event);
+    }
+  }
+
+  public focusInitialElement() {
+    if (!this.modalCard) return;
+    const focusables = this.getFocusableElements();
+    if (focusables.length > 0) {
+      const inputEl = this.modalCard.nativeElement.querySelector<HTMLElement>('input');
+      if (inputEl) {
+        inputEl.focus();
+      } else {
+        focusables[0].focus();
+      }
+    }
+  }
+
+  public getFocusableElements(): HTMLElement[] {
+    if (!this.modalCard) return [];
+    const selector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    return Array.from(this.modalCard.nativeElement.querySelectorAll<HTMLElement>(selector))
+      .filter(el => el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement);
+  }
+
+  public trapFocus(event: KeyboardEvent) {
+    const focusables = this.getFocusableElements();
+    if (focusables.length === 0) {
+      event.preventDefault();
+      return;
+    }
+
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement;
+
+    if (event.shiftKey) {
+      if (active === first || !this.modalCard?.nativeElement.contains(active)) {
+        event.preventDefault();
+        last.focus();
+      }
+    } else {
+      if (active === last || !this.modalCard?.nativeElement.contains(active)) {
+        event.preventDefault();
+        first.focus();
+      }
     }
   }
 
@@ -239,3 +301,4 @@ export class ConfirmModalComponent implements OnChanges {
     this.typedText = '';
   }
 }
+
