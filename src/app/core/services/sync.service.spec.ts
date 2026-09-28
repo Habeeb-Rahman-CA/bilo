@@ -376,6 +376,64 @@ describe('SyncService User Data Isolation & DLQ Escalation', () => {
     expect(syncService.pendingSyncQueue().length).toBe(1);
     expect(syncService.pendingSyncQueue()[0].retryCount).toBe(1);
   });
+
+  it('should handle PGRST204 error on CREATE_TASK by stripping missing columns and retrying upsert', async () => {
+    let callPayloads: any[] = [];
+    mockSupabaseService.supabase.from = () => ({
+      upsert: async (payload: any[]) => {
+        callPayloads.push({ ...payload[0] });
+        if ('is_app_report' in payload[0]) {
+          return { error: { code: 'PGRST204', message: "Could not find the 'is_app_report' column of 'tasks' in the schema cache" } };
+        }
+        return { error: null };
+      }
+    });
+
+    syncService.pendingSyncQueue.set([
+      {
+        id: 'op-pgrst204-task',
+        user_id: 'user-111',
+        type: 'CREATE_TASK',
+        payload: { id: 't-rep', title: 'App Report Task', is_app_report: true, report_category: 'bug' },
+        timestamp: new Date().toISOString()
+      }
+    ]);
+
+    await syncService.processQueue();
+
+    expect(syncService.pendingSyncQueue().length).toBe(0);
+    expect(callPayloads.length).toBe(2);
+    expect('is_app_report' in callPayloads[1]).toBe(false);
+  });
+
+  it('should handle PGRST204 error on ADD_STATUS_HISTORY by stripping action_type and retrying upsert', async () => {
+    let callPayloads: any[] = [];
+    mockSupabaseService.supabase.from = () => ({
+      upsert: async (payload: any[]) => {
+        callPayloads.push({ ...payload[0] });
+        if ('action_type' in payload[0]) {
+          return { error: { code: 'PGRST204', message: "Could not find the 'action_type' column of 'task_status_history' in the schema cache" } };
+        }
+        return { error: null };
+      }
+    });
+
+    syncService.pendingSyncQueue.set([
+      {
+        id: 'op-pgrst204-history',
+        user_id: 'user-111',
+        type: 'ADD_STATUS_HISTORY',
+        payload: { id: 'sh-1', task_id: '550e8400-e29b-41d4-a716-446655440000', from_status: 'To Do', to_status: 'Done', action_type: 'status_changed' },
+        timestamp: new Date().toISOString()
+      }
+    ]);
+
+    await syncService.processQueue();
+
+    expect(syncService.pendingSyncQueue().length).toBe(0);
+    expect(callPayloads.length).toBe(2);
+    expect('action_type' in callPayloads[1]).toBe(false);
+  });
 });
 
 

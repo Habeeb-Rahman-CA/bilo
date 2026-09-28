@@ -464,6 +464,17 @@ export class SyncService {
     }
   }
 
+  private stripMissingColumn(payload: any, error: any): boolean {
+    if (!payload || !error) return false;
+    let stripped = false;
+    const match = String(error.message || '').match(/Could not find the '([^']+)' column/i);
+    if (match && match[1] && match[1] in payload) {
+      delete payload[match[1]];
+      stripped = true;
+    }
+    return stripped;
+  }
+
   private isFatalError(error: any): boolean {
     if (!error) return false;
     const code = String(error.code || error.status || '');
@@ -475,6 +486,7 @@ export class SyncService {
     // 42501: Row Level Security policy violation
     // 23505: Unique constraint violation
     // 42703: Undefined column
+    // PGRST204: Missing column in schema cache
     // 400: Bad request / malformed payload
     // 404: Endpoint / resource not found
     if (
@@ -485,6 +497,7 @@ export class SyncService {
       code === '42703' ||
       code === 'PGRST100' ||
       code === 'PGRST200' ||
+      code === 'PGRST204' ||
       code === '400' ||
       code === '404' ||
       message.includes('violates foreign key constraint') ||
@@ -646,14 +659,21 @@ export class SyncService {
           cleanPayload.user_id = currentUserId;
           let { error } = await sb.from('tasks').upsert([cleanPayload]);
 
-          // Retry 1: Schema mismatch (missing columns like attachments)
+          // Retry 1: Schema mismatch (missing columns like is_app_report, report_category, attachments)
           if (error && error.code === 'PGRST204') {
+            delete cleanPayload.is_app_report;
+            delete cleanPayload.report_category;
             delete cleanPayload.attachments;
-            const retry = await sb.from('tasks').upsert([cleanPayload]);
-            if (retry.error) {
-              return { success: false, fatal: this.isFatalError(retry.error), rateLimited: this.isRateLimitError(retry.error), error: retry.error.message };
+            this.stripMissingColumn(cleanPayload, error);
+
+            let retry = await sb.from('tasks').upsert([cleanPayload]);
+            let retryCount = 0;
+            while (retry.error && retry.error.code === 'PGRST204' && retryCount < 5) {
+              if (!this.stripMissingColumn(cleanPayload, retry.error)) break;
+              retry = await sb.from('tasks').upsert([cleanPayload]);
+              retryCount++;
             }
-            return { success: true };
+            error = retry.error;
           }
 
           // Retry 2: FK Constraint violation (e.g. deleted workflow or project on server)
@@ -683,14 +703,21 @@ export class SyncService {
           const cleanUpdates: any = { id, ...updates, user_id: currentUserId };
           let { error } = await sb.from('tasks').upsert([cleanUpdates]);
 
-          // Retry 1: Schema mismatch (missing columns like attachments)
+          // Retry 1: Schema mismatch (missing columns like is_app_report, report_category, attachments)
           if (error && error.code === 'PGRST204') {
+            delete cleanUpdates.is_app_report;
+            delete cleanUpdates.report_category;
             delete cleanUpdates.attachments;
-            const retry = await sb.from('tasks').upsert([cleanUpdates]);
-            if (retry.error) {
-              return { success: false, fatal: this.isFatalError(retry.error), rateLimited: this.isRateLimitError(retry.error), error: retry.error.message };
+            this.stripMissingColumn(cleanUpdates, error);
+
+            let retry = await sb.from('tasks').upsert([cleanUpdates]);
+            let retryCount = 0;
+            while (retry.error && retry.error.code === 'PGRST204' && retryCount < 5) {
+              if (!this.stripMissingColumn(cleanUpdates, retry.error)) break;
+              retry = await sb.from('tasks').upsert([cleanUpdates]);
+              retryCount++;
             }
-            return { success: true };
+            error = retry.error;
           }
 
           // Retry 2: FK Constraint violation (e.g. deleted workflow or project on server)
@@ -831,7 +858,26 @@ export class SyncService {
           if (!cleanPayload.task_id || !this.isValidUuid(cleanPayload.task_id)) {
             return { success: false, fatal: true, error: 'Invalid or missing task_id UUID' };
           }
-          const { error } = await sb.from('task_status_history').upsert([cleanPayload]);
+          let { error } = await sb.from('task_status_history').upsert([cleanPayload]);
+
+          if (error && error.code === 'PGRST204') {
+            delete cleanPayload.action_type;
+            delete cleanPayload.details;
+            this.stripMissingColumn(cleanPayload, error);
+
+            let retry = await sb.from('task_status_history').upsert([cleanPayload]);
+            let retryCount = 0;
+            while (retry.error && retry.error.code === 'PGRST204' && retryCount < 5) {
+              if (!this.stripMissingColumn(cleanPayload, retry.error)) break;
+              retry = await sb.from('task_status_history').upsert([cleanPayload]);
+              retryCount++;
+            }
+            if (retry.error) {
+              return { success: false, fatal: this.isFatalError(retry.error), rateLimited: this.isRateLimitError(retry.error), error: retry.error.message };
+            }
+            return { success: true };
+          }
+
           if (error) {
             return { success: false, fatal: this.isFatalError(error), rateLimited: this.isRateLimitError(error), error: error.message };
           }
