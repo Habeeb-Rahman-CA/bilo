@@ -7,7 +7,7 @@ import { AuthService } from '../../core/services/auth.service';
 import { TaskShareService } from '../../core/services/task-share.service';
 import { SelectComponent, SelectOption } from './select';
 import { RichEditorComponent } from './rich-editor';
-import { TaskPriority, TaskSeverity, TaskReproducibility, TaskType } from '../../core/models/project.model';
+import { TaskPriority, TaskSeverity, TaskReproducibility, TaskType, Project } from '../../core/models/project.model';
 import { compressImageFile, MAX_ATTACHMENT_FILE_SIZE_BYTES, MAX_ATTACHMENTS_PER_TASK } from '../../core/utils/image-compressor.util';
 
 @Component({
@@ -436,10 +436,28 @@ export class ReportIssueModalComponent {
     private taskShareService: TaskShareService
   ) {}
 
-  getTargetProjectName(): string {
+  getTargetProject(): Project | null {
     const allProjects = this.projectService.projects();
-    const biloProj = allProjects.find(p => p.name.toLowerCase() === 'bilo' || p.slug.toLowerCase() === 'bilo' || p.id === 'proj-bilo-main');
-    return biloProj ? biloProj.name : 'bilo';
+    if (!allProjects || allProjects.length === 0) return null;
+
+    const biloProj = allProjects.find(p =>
+      p.name.trim().toLowerCase() === 'bilo' ||
+      p.slug.trim().toLowerCase() === 'bilo' ||
+      p.id === 'proj-bilo-main'
+    );
+    if (biloProj) return biloProj;
+
+    const active = this.projectService.activeProject();
+    if (active && allProjects.some(p => p.id === active.id)) {
+      return active;
+    }
+
+    return allProjects[0];
+  }
+
+  getTargetProjectName(): string {
+    const target = this.getTargetProject();
+    return target ? target.name : 'Project';
   }
 
   onDragOver(e: DragEvent) {
@@ -519,14 +537,22 @@ export class ReportIssueModalComponent {
     this.submitting.set(true);
 
     try {
-      const allProjects = this.projectService.projects();
-      let biloProj = allProjects.find(p => p.name.toLowerCase() === 'bilo' || p.slug.toLowerCase() === 'bilo' || p.id === 'proj-bilo-main');
+      let targetProject = this.getTargetProject();
 
-      if (!biloProj && allProjects.length > 0) {
-        biloProj = allProjects[0];
+      if (!targetProject) {
+        targetProject = await this.projectService.createProject({
+          name: 'General Workspace',
+          color: '#06b6d4',
+          description: 'Primary workspace for tasks'
+        });
       }
 
-      const targetProjectId = biloProj ? biloProj.id : 'proj-bilo-main';
+      if (!targetProject || !targetProject.id) {
+        this.taskShareService.showToast('No valid project found to submit issue. Please create a project first.');
+        return;
+      }
+
+      const targetProjectId = targetProject.id;
       const currentUser = this.authService.user();
       const reporterName = currentUser?.user_metadata?.['display_name'] ||
         currentUser?.user_metadata?.['full_name'] ||
@@ -568,7 +594,7 @@ export class ReportIssueModalComponent {
         attachments: this.attachments()
       });
 
-      this.taskShareService.showToast(`Feedback submitted successfully! Submitted under project "${biloProj?.name || 'bilo'}".`);
+      this.taskShareService.showToast(`Feedback submitted successfully! Submitted under project "${targetProject.name}".`);
       this.close.emit();
     } catch (e) {
       console.error('Failed to submit application issue:', e);
