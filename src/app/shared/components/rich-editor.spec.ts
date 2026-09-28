@@ -87,4 +87,24 @@ describe('RichEditorComponent XSS Security & Markdown Sanitization', () => {
     expect(output).toContain('href="mailto:test@example.com"');
     expect(output).toContain('href="tel:123456789"');
   });
+
+  it('should strip unquoted and slash-delimited inline event handlers and dangerous elements in sanitizeHtmlStrict', () => {
+    const dangerousHtmlInputs = [
+      '<img/src=x/onerror=alert(1)>',
+      '<svg/onload=alert(1)>',
+      '<details/open/ontoggle=alert(1)>',
+      '<body onload=alert(1)>',
+      '<script>alert(1)</script>'
+    ];
+
+    for (const raw of dangerousHtmlInputs) {
+      const clean = (component as any).sanitizeHtmlStrict(raw);
+      expect(clean).not.toContain('onerror');
+      expect(clean).not.toContain('onload');
+      expect(clean).not.toContain('ontoggle');
+      expect(clean).not.toContain('<script>');
+      expect(clean).not.toContain('<svg');
+      expect(clean).not.toContain('<details');
+    }
+  });
 });

@@ -416,8 +416,9 @@ export class RichEditorComponent {
       );
     }
     const rawHtml = this.parseMarkdown(this.value);
-    const sanitizedByAngular = this.sanitizer.sanitize(SecurityContext.HTML, rawHtml) || '';
-    const safeHtml = this.sanitizeHtmlStrict(sanitizedByAngular || rawHtml);
+    const sanitizedByAngular = this.sanitizer.sanitize(SecurityContext.HTML, rawHtml);
+    const htmlToClean = (sanitizedByAngular !== null && sanitizedByAngular !== undefined) ? sanitizedByAngular : rawHtml;
+    const safeHtml = this.sanitizeHtmlStrict(htmlToClean);
     return this.sanitizer.bypassSecurityTrustHtml(safeHtml);
   }
 
@@ -425,14 +426,23 @@ export class RichEditorComponent {
     if (!html) return '';
 
     // 1. Remove dangerous elements entirely
-    let clean = html.replace(/<(script|iframe|object|embed|style|form|input|button)[\s\S]*?<\/\1>/gi, '');
-    clean = clean.replace(/<(script|iframe|object|embed|style|form|input|button)[\s\S]*?>/gi, '');
+    let clean = html;
+    clean = clean.replace(/<(script|iframe|object|embed|style|form|input|button|svg|details|audio|video|math|template|link|meta|base)[\s\S]*?<\/\1>/gi, '');
+    clean = clean.replace(/<(script|iframe|object|embed|style|form|input|button|svg|details|audio|video|math|template|link|meta|base)[\s\S]*?>/gi, '');
 
-    // 2. Remove all inline event handlers (onerror, onclick, onload, etc.)
-    clean = clean.replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+    // 2. Strip all inline event handlers (onerror, onclick, onload, ontoggle, etc.) regardless of leading whitespace or slash delimiters
+    clean = clean.replace(/<([a-z1-6]+)([^>]*)>/gi, (_match, tagName, attrs) => {
+      let cleanedAttrs = attrs.replace(/(\/|\s+)on[a-z0-9_]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+      cleanedAttrs = cleanedAttrs.replace(/(\/|\s+)on[a-z0-9_]+(?=\s|>|\/)/gi, '');
 
-    // 3. Remove dangerous URI schemes in src or href attributes
-    clean = clean.replace(/\s+(src|href)\s*=\s*(["']?)\s*(javascript|vbscript|data|blob|file):[\s\S]*?\2/gi, ' $1="#"');
+      // Clean src and href attributes in any tag
+      cleanedAttrs = cleanedAttrs.replace(/\s+(src|href)\s*=\s*(["']?)([\s\S]*?)\2(?=\s|>|\/)/gi, (_m: string, attrName: string, quote: string, urlVal: string) => {
+        const safeUrl = this.sanitizeUrl(urlVal);
+        return ` ${attrName}=${quote || '"'}${safeUrl}${quote || '"'}`;
+      });
+
+      return `<${tagName}${cleanedAttrs}>`;
+    });
 
     return clean;
   }
