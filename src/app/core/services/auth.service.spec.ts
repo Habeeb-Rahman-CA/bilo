@@ -238,6 +238,23 @@ describe('AuthService updateProfile display_name validation', () => {
     await expect(authService.updateProfile({ display_name: '   ' })).rejects.toThrow('Display name cannot be empty');
   });
 
+  it('should throw an error if display_name is less than 2 characters', async () => {
+    const mockSupabaseService: any = {
+      isConfigured: true,
+      supabase: {
+        auth: {
+          getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+          onAuthStateChange: vi.fn().mockReturnValue({ data: { subscription: { unsubscribe: () => {} } } })
+        }
+      }
+    };
+    const mockInjector: any = { get: vi.fn().mockReturnValue(null) };
+    const authService = new AuthService(mockSupabaseService, mockInjector);
+    authService.user.set({ id: 'user-1', email: 'test@example.com' } as any);
+
+    await expect(authService.updateProfile({ display_name: 'a' })).rejects.toThrow('Display name must be at least 2 characters long');
+  });
+
   it('should throw an error if display_name exceeds 20 characters', async () => {
     const mockSupabaseService: any = {
       isConfigured: true,
@@ -256,7 +273,7 @@ describe('AuthService updateProfile display_name validation', () => {
     await expect(authService.updateProfile({ display_name: longName })).rejects.toThrow('Display name must not exceed 20 characters');
   });
 
-  it('should successfully update profile when display_name is valid (1-20 chars)', async () => {
+  it('should successfully update profile when display_name is valid (2-20 chars)', async () => {
     const upsertSpy = vi.fn().mockResolvedValue({ error: null });
     const updateUserSpy = vi.fn().mockResolvedValue({ error: null });
     const mockSupabaseService: any = {

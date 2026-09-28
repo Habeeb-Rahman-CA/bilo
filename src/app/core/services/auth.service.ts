@@ -23,12 +23,20 @@ export class AuthService implements OnDestroy {
   readonly userEmail = computed(() => this.user()?.email || '');
   readonly userName = computed(() => {
     const profile = this.userProfile();
-    if (profile?.display_name) return profile.display_name;
+    if (profile?.display_name && profile.display_name.trim().length >= 2) {
+      return profile.display_name.trim();
+    }
     const u = this.user();
     if (!u) return 'User';
-    return u.user_metadata?.['display_name'] ||
-      u.user_metadata?.['full_name'] ||
-      (u.email ? u.email.split('@')[0] : 'User');
+    const metadataName = u.user_metadata?.['display_name'] || u.user_metadata?.['full_name'];
+    if (metadataName && metadataName.trim().length >= 2) {
+      return metadataName.trim();
+    }
+    if (u.email) {
+      const emailPrefix = u.email.split('@')[0].trim();
+      if (emailPrefix.length >= 2) return emailPrefix;
+    }
+    return 'User';
   });
   readonly userAvatar = computed(() => {
     const profile = this.userProfile();
@@ -623,6 +631,9 @@ export class AuthService implements OnDestroy {
       const trimmedName = updates.display_name ? updates.display_name.trim() : '';
       if (!trimmedName) {
         throw new Error('Display name cannot be empty');
+      }
+      if (trimmedName.length < 2) {
+        throw new Error('Display name must be at least 2 characters long');
       }
       if (trimmedName.length > 20) {
         throw new Error('Display name must not exceed 20 characters');

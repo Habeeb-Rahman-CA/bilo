@@ -26,10 +26,10 @@ import { TaskShareService } from '../../core/services/task-share.service';
 
         <form (ngSubmit)="saveProfile()" class="modal-form">
           <div class="form-body">
-            @if (submitted && !displayName.trim()) {
+            @if (submitted && displayNameError) {
               <div class="form-error-banner font-mono">
                 <i class="fi fi-rr-triangle-warning"></i>
-                <span>Please enter a display name.</span>
+                <span>{{ displayNameError }}</span>
               </div>
             }
 
@@ -106,18 +106,18 @@ import { TaskShareService } from '../../core/services/task-share.service';
               <input
                 type="text"
                 class="form-input font-mono"
-                [class.input-error]="submitted && (!displayName.trim() || displayName.trim().length > 20)"
+                [class.input-error]="submitted && !!displayNameError"
                 [(ngModel)]="displayName"
                 name="displayName"
                 placeholder="e.g. Habeeb Rahman or Alex Smith"
+                minlength="2"
                 maxlength="20"
                 required
               />
-              @if (submitted && !displayName.trim()) {
-                <span class="field-error-text font-mono text-rose" style="font-size: 0.7rem;">Display name is required.</span>
-              }
-              @if (submitted && displayName.trim().length > 20) {
-                <span class="field-error-text font-mono text-rose" style="font-size: 0.7rem;">Display name cannot exceed 20 characters.</span>
+              @if (submitted && displayNameError) {
+                <span class="field-error-text font-mono text-rose" style="font-size: 0.7rem; margin-top: 0.2rem;">
+                  <i class="fi fi-rr-exclamation"></i> {{ displayNameError }}
+                </span>
               }
             </div>
 
@@ -460,18 +460,30 @@ export class EditProfileModalComponent implements OnInit {
     this.pendingFile = null;
   }
 
+  get displayNameError(): string | null {
+    const trimmed = (this.displayName || '').trim();
+    if (!trimmed) {
+      return 'Display name is required.';
+    }
+    if (trimmed.length < 2) {
+      return 'Display name must be at least 2 characters long.';
+    }
+    if (trimmed.length > 20) {
+      return 'Display name cannot exceed 20 characters.';
+    }
+    return null;
+  }
+
   async saveProfile() {
     this.submitted = true;
-    const trimmed = this.displayName ? this.displayName.trim() : '';
-    if (!trimmed || trimmed.length > 20 || this.saving()) {
-      if (!trimmed) {
-        this.taskShareService.showToast('Display name cannot be empty.');
-      } else if (trimmed.length > 20) {
-        this.taskShareService.showToast('Display name cannot exceed 20 characters.');
+    if (this.displayNameError || this.saving()) {
+      if (this.displayNameError) {
+        this.taskShareService.showToast(this.displayNameError);
       }
       return;
     }
 
+    const trimmed = this.displayName.trim();
     this.saving.set(true);
     try {
       let finalAvatarUrl = this.avatarUrl;
