@@ -6,6 +6,8 @@ describe('SelectComponent', () => {
   let mockElementRef: any;
 
   beforeEach(() => {
+    vi.useFakeTimers();
+
     mockElementRef = {
       nativeElement: document.createElement('div')
     };
@@ -13,8 +15,65 @@ describe('SelectComponent', () => {
     component = new SelectComponent(mockElementRef);
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('should create component', () => {
     expect(component).toBeTruthy();
+  });
+
+  describe('Click-Outside & Parent Modal Conflict Prevention', () => {
+    it('should stop propagation on selectOption click event and defer popover closure', () => {
+      component.options = [
+        { value: 'opt-1', label: 'Option 1' }
+      ];
+
+      const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
+      const stopSpy = vi.spyOn(clickEvent, 'stopPropagation');
+      const valueSpy = vi.fn();
+      component.valueChange.subscribe(valueSpy);
+
+      component.selectOption({ value: 'opt-1', label: 'Option 1' }, clickEvent);
+
+      expect(stopSpy).toHaveBeenCalled();
+      expect(component.valueSignal()).toBe('opt-1');
+      expect(valueSpy).toHaveBeenCalledWith('opt-1');
+
+      // Popover closure deferred to next tick to allow event processing
+      vi.advanceTimersByTime(0);
+      expect(component.isOpen()).toBe(false);
+    });
+
+    it('should stop propagation on clearSelection click event', () => {
+      component.value = 'opt-1';
+      const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
+      const stopSpy = vi.spyOn(clickEvent, 'stopPropagation');
+
+      component.clearSelection(clickEvent);
+
+      expect(stopSpy).toHaveBeenCalled();
+      expect(component.valueSignal()).toBe(null);
+
+      vi.advanceTimersByTime(0);
+      expect(component.isOpen()).toBe(false);
+    });
+
+    it('should mark popover element with data-bilo-popover attribute when appended', () => {
+      const mockTrigger = document.createElement('div');
+      const mockPopover = document.createElement('div');
+      vi.spyOn(mockTrigger, 'getBoundingClientRect').mockReturnValue({
+        top: 100, left: 100, bottom: 140, right: 200, width: 100, height: 40, x: 100, y: 100, toJSON: () => {}
+      });
+
+      component.triggerEl = { nativeElement: mockTrigger } as any;
+      component.popoverEl = { nativeElement: mockPopover } as any;
+
+      component.openPopover();
+      vi.advanceTimersByTime(0);
+
+      expect(mockPopover.getAttribute('data-bilo-popover')).toBe('true');
+    });
   });
 
   describe('Popover & Scroll Positioning Alignment', () => {
@@ -129,6 +188,8 @@ describe('SelectComponent', () => {
       expect(component.valueSignal()).toBe('opt-2');
       expect(valueSpy).toHaveBeenCalledWith('opt-2');
       expect(selectionSpy).toHaveBeenCalledWith({ value: 'opt-2', label: 'Option 2' });
+
+      vi.advanceTimersByTime(0);
       expect(component.isOpen()).toBe(false);
     });
   });

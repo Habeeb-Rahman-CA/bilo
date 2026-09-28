@@ -112,7 +112,7 @@ export function unregisterOpenPopover(instance: ClosablePopover) {
                 [class.is-selected]="opt.value === valueSignal()"
                 [class.is-focused]="i === activeIndex()"
                 [class.is-disabled]="opt.disabled"
-                (click)="selectOption(opt)"
+                (click)="selectOption(opt, $event)"
                 (mouseenter)="onOptionMouseEnter(i)"
               >
                 @if (opt.icon) {
@@ -564,6 +564,7 @@ export class SelectComponent implements OnChanges, OnDestroy {
 
       setTimeout(() => {
         if (this.popoverEl?.nativeElement && document.body) {
+          this.popoverEl.nativeElement.setAttribute('data-bilo-popover', 'true');
           document.body.appendChild(this.popoverEl.nativeElement);
         }
         if (this.searchInputEl) {
@@ -586,19 +587,31 @@ export class SelectComponent implements OnChanges, OnDestroy {
     this.activeIndex.set(-1);
   }
 
-  selectOption(opt: SelectOption) {
+  selectOption(opt: SelectOption, event?: Event) {
+    if (event) {
+      event.stopPropagation();
+    }
     if (opt.disabled) return;
     this.valueSignal.set(opt.value);
     this.valueChange.emit(opt.value);
     this.selectionChange.emit(opt);
-    this.closePopover();
+
+    // Defer DOM removal to next microtask so event propagation and parent contains() checks complete safely
+    setTimeout(() => {
+      this.closePopover();
+    }, 0);
   }
 
   clearSelection(event?: Event) {
-    if (event) event.stopPropagation();
+    if (event) {
+      event.stopPropagation();
+    }
     this.valueSignal.set(null);
     this.valueChange.emit(null);
-    this.closePopover();
+
+    setTimeout(() => {
+      this.closePopover();
+    }, 0);
   }
 
   isKeyboardNav = false;
