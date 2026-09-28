@@ -19,7 +19,7 @@ import { RichEditorComponent } from './rich-editor';
   standalone: true,
   imports: [CommonModule, FormsModule, SelectComponent, DatePickerComponent, ConfirmModalComponent, RichEditorComponent],
   template: `
-    <div class="task-detail-overlay" (click)="close.emit()">
+    <div class="task-detail-overlay" (click)="handleCloseAttempt()">
       <div class="task-detail-panel font-mono" (click)="$event.stopPropagation()">
         <!-- Restricted Transition Toast Notification -->
         @if (restrictedToastMessage()) {
@@ -75,7 +75,7 @@ import { RichEditorComponent } from './rich-editor';
           </div>
 
           <div class="nav-right">
-            <button type="button" class="btn-close-page font-mono" (click)="close.emit()" title="Close Task Detail Panel (Esc)">
+            <button type="button" class="btn-close-page font-mono" (click)="handleCloseAttempt()" title="Close Task Detail Panel (Esc)">
               <i class="fi fi-rr-cross"></i>
               <span>Close</span>
             </button>
@@ -1926,11 +1926,58 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
     public authService: AuthService
   ) { }
 
-  @HostListener('window:keydown.escape')
-  onEscapePress() {
-    if (!this.previewImageModal() && !this.isEditingTitle() && !this.isEditingDesc() && !this.isEditingLabels()) {
-      this.close.emit();
+  get hasUnsavedTitleChanges(): boolean {
+    return this.isEditingTitle() &&
+      this.titleInputText.trim() !== '' &&
+      this.titleInputText.trim() !== (this.task?.title || '');
+  }
+
+  @HostListener('window:beforeunload', ['$event'])
+  unloadNotification($event: BeforeUnloadEvent): boolean | string {
+    if (this.hasUnsavedTitleChanges) {
+      $event.preventDefault();
+      $event.returnValue = 'You have unsaved inline title changes!';
+      return 'You have unsaved inline title changes!';
     }
+    return true;
+  }
+
+  async handleCloseAttempt() {
+    if (this.hasUnsavedTitleChanges) {
+      await this.saveTitle();
+    }
+    if (this.isEditingDesc() && this.descInputText !== (this.task?.description || '')) {
+      await this.saveDesc();
+    }
+    if (this.isEditingLabels()) {
+      await this.saveLabels();
+    }
+    this.close.emit();
+  }
+
+  @HostListener('window:keydown.escape')
+  async onEscapePress() {
+    if (this.previewImageModal()) return;
+
+    if (this.hasUnsavedTitleChanges) {
+      await this.saveTitle();
+    } else if (this.isEditingTitle()) {
+      this.cancelTitleEdit();
+    }
+
+    if (this.isEditingDesc()) {
+      if (this.descInputText !== (this.task?.description || '')) {
+        await this.saveDesc();
+      } else {
+        this.cancelDescEdit();
+      }
+    }
+
+    if (this.isEditingLabels()) {
+      await this.saveLabels();
+    }
+
+    this.close.emit();
   }
 
   getActorDisplayName(h: TaskStatusHistory): string {
