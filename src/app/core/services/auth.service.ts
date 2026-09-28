@@ -92,8 +92,10 @@ export class AuthService implements OnDestroy {
         }
       }
 
-      this.session.set(session);
-      this.user.set(session?.user ?? null);
+      if (session) {
+        this.session.set(session);
+        this.user.set(session.user);
+      }
 
       if (session?.user) {
         try {
@@ -623,10 +625,9 @@ export class AuthService implements OnDestroy {
     this.authModalOpen.set(false);
   }
 
-  async updateProfile(updates: { display_name?: string; avatar_url?: string | null }) {
-    const currentUser = this.user();
-    if (!currentUser) return;
+  private profileUpdateQueue: Promise<any> = Promise.resolve();
 
+  async updateProfile(updates: { display_name?: string; avatar_url?: string | null }) {
     if (updates.display_name !== undefined) {
       const trimmedName = updates.display_name ? updates.display_name.trim() : '';
       if (!trimmedName) {
@@ -645,13 +646,7 @@ export class AuthService implements OnDestroy {
       const trimmedAvatar = updates.avatar_url.trim();
       if (!trimmedAvatar) {
         updates = { ...updates, avatar_url: null };
-      } else if (trimmedAvatar.startsWith('blob:')) {
-        const tiny = await this.compressImageToTinyThumbnail(trimmedAvatar);
-        updates = { ...updates, avatar_url: tiny || null };
-      } else if (trimmedAvatar.length > 64 * 1024 && /^data:image\//i.test(trimmedAvatar)) {
-        const tiny = await this.compressImageToTinyThumbnail(trimmedAvatar);
-        updates = { ...updates, avatar_url: tiny || null };
-      } else {
+      } else if (!trimmedAvatar.startsWith('blob:') && !(trimmedAvatar.length > 64 * 1024 && /^data:image\//i.test(trimmedAvatar))) {
         const isDataImage = /^data:image\/(png|jpeg|jpg|webp|gif|svg\+xml);base64,/i.test(trimmedAvatar);
         const isBlobUrl = /^blob:https?:\/\//i.test(trimmedAvatar);
         let isValidHttpUrl = false;
@@ -666,6 +661,25 @@ export class AuthService implements OnDestroy {
           throw new Error('Invalid avatar URL. Must be a valid http/https URL or image data URI');
         }
         updates = { ...updates, avatar_url: trimmedAvatar };
+      }
+    }
+
+    const nextTask = this.profileUpdateQueue.then(async () => {
+      return await this.performUpdateProfile(updates);
+    });
+    this.profileUpdateQueue = nextTask.catch(() => {});
+    return await nextTask;
+  }
+
+  private async performUpdateProfile(updates: { display_name?: string; avatar_url?: string | null }) {
+    const currentUser = this.user();
+    if (!currentUser) return;
+
+    if (updates.avatar_url !== undefined && updates.avatar_url !== null) {
+      const trimmedAvatar = updates.avatar_url.trim();
+      if (trimmedAvatar.startsWith('blob:') || (trimmedAvatar.length > 64 * 1024 && /^data:image\//i.test(trimmedAvatar))) {
+        const tiny = await this.compressImageToTinyThumbnail(trimmedAvatar);
+        updates = { ...updates, avatar_url: tiny || null };
       }
     }
 

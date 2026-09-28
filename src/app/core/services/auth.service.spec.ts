@@ -296,6 +296,34 @@ describe('AuthService updateProfile display_name validation', () => {
     expect(authService.userProfile()?.display_name).toBe('Valid User Name');
     expect(upsertSpy).toHaveBeenCalledWith(expect.objectContaining({ display_name: 'Valid User Name' }));
   });
+
+  it('should process rapid concurrent updateProfile calls sequentially without losing partial updates', async () => {
+    const upsertSpy = vi.fn().mockImplementation(() => new Promise(resolve => setTimeout(() => resolve({ error: null }), 20)));
+    const mockSupabaseService: any = {
+      isConfigured: true,
+      supabase: {
+        from: vi.fn().mockReturnValue({ upsert: upsertSpy }),
+        auth: {
+          getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+          onAuthStateChange: vi.fn().mockReturnValue({ data: { subscription: { unsubscribe: () => {} } } }),
+          updateUser: vi.fn().mockResolvedValue({ error: null })
+        }
+      }
+    };
+    const mockInjector: any = { get: vi.fn().mockReturnValue(null) };
+    const authService = new AuthService(mockSupabaseService, mockInjector);
+    authService.user.set({ id: 'user-1', email: 'test@example.com' } as any);
+
+    // Rapid concurrent calls: Call 1 sets avatar, Call 2 sets display_name
+    const p1 = authService.updateProfile({ avatar_url: 'https://example.com/avatar.jpg' });
+    const p2 = authService.updateProfile({ display_name: 'Concurrent User' });
+
+    await Promise.all([p1, p2]);
+
+    const finalProfile = authService.userProfile();
+    expect(finalProfile?.avatar_url).toBe('https://example.com/avatar.jpg');
+    expect(finalProfile?.display_name).toBe('Concurrent User');
+  });
 });
 
 describe('AuthService updateProfile avatar_url validation', () => {
