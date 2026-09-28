@@ -589,19 +589,20 @@ export class ProjectAccessModalComponent implements OnInit {
     this.message.set('');
     this.isError.set(false);
 
-    const success = await this.projectService.addProjectMember(
+    const result = await this.projectService.addProjectMemberDetailed(
       this.project.id,
       this.newUserId.trim(),
       this.newRole
     );
 
-    if (success) {
-      this.message.set('Member added successfully.');
+    if (result.success) {
+      this.message.set(result.message || 'Member added successfully.');
+      this.isError.set(false);
       this.newUserId = '';
       await this.loadMembers();
     } else {
       this.isError.set(true);
-      this.message.set('Failed to add member. Check user ID / permissions.');
+      this.message.set(result.error || 'Failed to add member.');
     }
     this.submitting.set(false);
   }

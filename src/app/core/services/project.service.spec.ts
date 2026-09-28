@@ -219,4 +219,27 @@ describe('ProjectService Workspace Naming', () => {
     expect(joinResult.success).toBe(false);
     expect(joinResult.error).toContain('Former collaborators who were removed');
   });
+
+  it('should return clear feedback when adding invalid email format or unregistered user', async () => {
+    mockSyncService.isOnline = () => true;
+    mockSupabaseService.isConfigured = true;
+    mockSupabaseService.supabase.from = () => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: () => Promise.resolve({ data: null, error: null })
+        })
+      })
+    });
+
+    // Test invalid email format
+    const invalidRes = await projectService.addProjectMemberDetailed('p-1', 'not-a-valid-email@');
+    expect(invalidRes.success).toBe(false);
+    expect(invalidRes.error).toContain('not a valid email address format');
+
+    // Test unregistered user email
+    const unregisteredRes = await projectService.addProjectMemberDetailed('p-1', 'unregistered@domain.com');
+    expect(unregisteredRes.success).toBe(false);
+    expect(unregisteredRes.code).toBe('USER_NOT_FOUND');
+    expect(unregisteredRes.error).toContain('No registered account found for "unregistered@domain.com"');
+  });
 });

@@ -682,53 +682,121 @@ export class ProjectService {
     });
   }
 
-  async addProjectMember(
+  async addProjectMemberDetailed(
     projectId: string,
-    userId: string,
+    userIdOrEmail: string,
     role: ProjectRole = 'member',
     userName?: string,
     userEmail?: string
-  ): Promise<boolean> {
-    if (!this.syncService.isOnline()) return false;
+  ): Promise<{ success: boolean; message?: string; error?: string; code?: string }> {
+    const trimmedInput = (userIdOrEmail || '').trim();
+    if (!trimmedInput) {
+      return { success: false, error: 'Please enter a valid User ID or email address.' };
+    }
+
+    const isEmailInput = trimmedInput.includes('@');
+    if (isEmailInput) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(trimmedInput)) {
+        return { success: false, error: `"${trimmedInput}" is not a valid email address format.` };
+      }
+    }
+
+    if (!this.syncService.isOnline()) {
+      return { success: false, error: 'Cannot add member while offline. Please reconnect to network.' };
+    }
+
     try {
-      let finalEmail = userEmail;
+      let finalUserId = trimmedInput;
+      let finalEmail = userEmail || (isEmailInput ? trimmedInput.toLowerCase() : undefined);
       let finalName = userName;
 
       const currentUser = this.authService.user();
-      if (currentUser && (userId === currentUser.id || userId === currentUser.email)) {
-        finalEmail = finalEmail || currentUser.email || undefined;
+      if (currentUser && (trimmedInput === currentUser.id || (currentUser.email && trimmedInput.toLowerCase() === currentUser.email.toLowerCase()))) {
+        finalUserId = currentUser.id;
+        finalEmail = currentUser.email || finalEmail;
         const meta = currentUser.user_metadata;
         finalName = finalName || meta?.['display_name'] || meta?.['full_name'] || meta?.['name'] || undefined;
       }
 
-      if (!finalEmail && userId.includes('@')) {
-        finalEmail = userId;
-      }
-      if (!finalName && finalEmail) {
-        const parts = finalEmail.split('@')[0];
-        finalName = parts.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
-      } else if (!finalName && !userId.includes('-')) {
-        const clean = userId.replace(/^usr_/, '').replace(/^user_/, '');
-        finalName = clean.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
-      }
-
-      // Check if user is already a member of this project to prevent duplicate records
+      // Check if user is already a member of this project
       const existingMembers = await this.getProjectMembers(projectId);
       const existing = existingMembers.find(
-        m => m.user_id === userId || (m.user_email && finalEmail && m.user_email.toLowerCase() === finalEmail.toLowerCase())
+        m => m.user_id?.toLowerCase() === trimmedInput.toLowerCase() ||
+             (m.user_email && finalEmail && m.user_email.toLowerCase() === finalEmail.toLowerCase())
       );
 
       if (existing) {
-        // User is already a member. If role is elevated, update existing record instead of creating duplicate row
         if (existing.role !== role && existing.role !== 'owner') {
           await this.updateMemberRole(projectId, existing.id, role);
+          return {
+            success: true,
+            message: `Updated ${existing.user_name || existing.user_email || 'member'}'s role to ${role.toUpperCase()}.`
+          };
         }
-        return true;
+        return {
+          success: true,
+          message: `User "${existing.user_name || existing.user_email || trimmedInput}" is already a member of this project.`
+        };
+      }
+
+      // User Profile Lookup for Email or ID in Supabase
+      if (this.supabaseService.isConfigured) {
+        try {
+          let profileQuery = this.supabaseService.supabase
+            .from('user_profiles')
+            .select('id, email, display_name');
+
+          if (isEmailInput) {
+            profileQuery = profileQuery.eq('email', trimmedInput.toLowerCase());
+          } else {
+            profileQuery = profileQuery.eq('id', trimmedInput);
+          }
+
+          const rawProfileRes: any = typeof profileQuery.maybeSingle === 'function' ? await profileQuery.maybeSingle() : await profileQuery;
+          const profile: any = Array.isArray(rawProfileRes?.data) ? rawProfileRes.data[0] : rawProfileRes?.data;
+
+          if (profile) {
+            finalUserId = profile.id || finalUserId;
+            finalEmail = profile.email || finalEmail;
+            finalName = profile.display_name || finalName;
+          } else if (isEmailInput) {
+            // Check if email exists in project_members
+            const memberQuery = this.supabaseService.supabase
+              .from('project_members')
+              .select('user_id, user_email, user_name')
+              .eq('user_email', trimmedInput.toLowerCase());
+            const rawMemberRes: any = typeof memberQuery.maybeSingle === 'function' ? await memberQuery.maybeSingle() : await memberQuery;
+            const memberData: any = Array.isArray(rawMemberRes?.data) ? rawMemberRes.data[0] : rawMemberRes?.data;
+
+            if (memberData) {
+              finalUserId = memberData.user_id || finalUserId;
+              finalEmail = memberData.user_email || finalEmail;
+              finalName = memberData.user_name || finalName;
+            } else if (!currentUser || (currentUser.email && currentUser.email.toLowerCase() !== trimmedInput.toLowerCase())) {
+              return {
+                success: false,
+                error: `No registered account found for "${trimmedInput}". Share an invite link with them so they can register and join.`,
+                code: 'USER_NOT_FOUND'
+              };
+            }
+          }
+        } catch (profileErr) {
+          console.warn('[ProjectService] User profile lookup notice:', profileErr);
+        }
+      }
+
+      if (!finalName && finalEmail) {
+        const parts = finalEmail.split('@')[0];
+        finalName = parts.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+      } else if (!finalName && !finalUserId.includes('-')) {
+        const clean = finalUserId.replace(/^usr_/, '').replace(/^user_/, '');
+        finalName = clean.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
       }
 
       const payload: any = {
         project_id: projectId,
-        user_id: userId,
+        user_id: finalUserId,
         role
       };
       if (finalEmail) payload.user_email = finalEmail;
@@ -738,25 +806,63 @@ export class ProjectService {
         .from('project_members')
         .upsert([payload]);
 
-      if (!error) {
-        try {
-          const removedKey = `bilo_removed_members_${projectId}`;
-          const currentRemovedStr = localStorage.getItem(removedKey) || '[]';
-          let removedList: string[] = JSON.parse(currentRemovedStr);
-          removedList = removedList.filter(
-            id => id.toLowerCase() !== userId.toLowerCase() &&
-                  (!finalEmail || id.toLowerCase() !== finalEmail.toLowerCase())
-          );
-          localStorage.setItem(removedKey, JSON.stringify(removedList));
-        } catch (e) {}
-
-        this.logActivity(projectId, 'Member Added', `${finalName || userId} added as ${role}`);
-        return true;
+      if (error) {
+        if (error.code === '23503' || String(error.message).includes('foreign key constraint')) {
+          return {
+            success: false,
+            error: `User "${trimmedInput}" is not registered in the system database.`,
+            code: 'USER_NOT_FOUND'
+          };
+        }
+        if (error.code === '42501' || String(error.message).includes('row-level security')) {
+          return {
+            success: false,
+            error: 'Permission denied. Only project owners and admins can add team members.',
+            code: 'PERMISSION_DENIED'
+          };
+        }
+        return {
+          success: false,
+          error: `Failed to add member: ${error.message}`
+        };
       }
-    } catch (e) {
+
+      // Clear from removed list if user was re-added explicitly
+      try {
+        const removedKey = `bilo_removed_members_${projectId}`;
+        const currentRemovedStr = localStorage.getItem(removedKey) || '[]';
+        let removedList: string[] = JSON.parse(currentRemovedStr);
+        removedList = removedList.filter(
+          id => id.toLowerCase() !== finalUserId.toLowerCase() &&
+                (!finalEmail || id.toLowerCase() !== finalEmail.toLowerCase())
+        );
+        localStorage.setItem(removedKey, JSON.stringify(removedList));
+      } catch (e) {}
+
+      this.logActivity(projectId, 'Member Added', `${finalName || finalUserId} added as ${role}`);
+      return {
+        success: true,
+        message: `Added ${finalName || finalEmail || finalUserId} as ${role.toUpperCase()} successfully.`
+      };
+
+    } catch (e: any) {
       console.warn('Failed to add project member:', e);
+      return {
+        success: false,
+        error: `Unexpected error adding member: ${e?.message || 'Operation failed'}`
+      };
     }
-    return false;
+  }
+
+  async addProjectMember(
+    projectId: string,
+    userId: string,
+    role: ProjectRole = 'member',
+    userName?: string,
+    userEmail?: string
+  ): Promise<boolean> {
+    const res = await this.addProjectMemberDetailed(projectId, userId, role, userName, userEmail);
+    return res.success;
   }
 
   async removeProjectMember(projectId: string, memberId: string): Promise<boolean> {
