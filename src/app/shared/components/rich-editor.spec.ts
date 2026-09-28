@@ -144,4 +144,27 @@ describe('RichEditorComponent XSS Security & Markdown Sanitization', () => {
       expect(component.value).toBe('**Important**');
     });
   });
+
+  describe('Interactive Checklist Functionality', () => {
+    it('should render interactive checkbox input elements with data-task-index attributes', () => {
+      component.value = '- [ ] Unchecked task\n- [x] Completed task';
+      const output = component.renderedContent as unknown as string;
+
+      expect(output).toContain('type="checkbox"');
+      expect(output).toContain('class="task-checkbox"');
+      expect(output).toContain('data-task-index="0"');
+      expect(output).toContain('data-task-index="1"');
+      expect(output).toContain('checked');
+    });
+
+    it('should toggle checklist items between checked and unchecked state on toggleChecklistItem', () => {
+      component.value = '- [ ] Task 1\n- [x] Task 2';
+
+      component.toggleChecklistItem(0);
+      expect(component.value).toBe('- [x] Task 1\n- [x] Task 2');
+
+      component.toggleChecklistItem(1);
+      expect(component.value).toBe('- [x] Task 1\n- [ ] Task 2');
+    });
+  });
 });

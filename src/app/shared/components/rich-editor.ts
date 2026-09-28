@@ -111,7 +111,7 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
             (keydown)="handleKeydown($event)"
           ></textarea>
         } @else {
-          <div class="markdown-preview-render" [innerHTML]="renderedContent"></div>
+          <div class="markdown-preview-render" [innerHTML]="renderedContent" (click)="onPreviewClick($event)"></div>
         }
       </div>
     </div>
@@ -330,10 +330,51 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 
     :host ::ng-deep .markdown-preview-render li.task-item {
       list-style: none;
-      margin-left: -1rem;
+      margin-left: -0.5rem;
       display: flex;
       align-items: center;
-      gap: 0.4rem;
+      gap: 0.45rem;
+      cursor: pointer;
+    }
+
+    :host ::ng-deep .markdown-preview-render input.task-checkbox {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border: 1.5px solid var(--border-medium, #4b5563);
+      border-radius: var(--radius-xs, 3px);
+      background: var(--bg-surface-subtle, rgba(255,255,255,0.05));
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      outline: none;
+      transition: all 0.15s ease;
+      flex-shrink: 0;
+      margin: 0;
+    }
+
+    :host ::ng-deep .markdown-preview-render input.task-checkbox:hover {
+      border-color: var(--accent-cyan, #38bdf8);
+      background: var(--bg-surface-hover, rgba(56, 189, 248, 0.1));
+    }
+
+    :host ::ng-deep .markdown-preview-render input.task-checkbox:checked {
+      background: var(--accent-cyan, #06b6d4);
+      border-color: var(--accent-cyan, #06b6d4);
+    }
+
+    :host ::ng-deep .markdown-preview-render input.task-checkbox:checked::after {
+      content: '';
+      width: 4px;
+      height: 8px;
+      border: solid #000;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+      position: absolute;
+      top: 1px;
     }
 
     :host ::ng-deep .markdown-preview-render blockquote {
@@ -454,10 +495,11 @@ export class RichEditorComponent {
   private sanitizeHtmlStrict(html: string): string {
     if (!html) return '';
 
-    // 1. Remove dangerous elements entirely
+    // 1. Remove dangerous elements entirely, but preserve <input type="checkbox"> for interactive checklists
     let clean = html;
-    clean = clean.replace(/<(script|iframe|object|embed|style|form|input|button|svg|details|audio|video|math|template|link|meta|base)[\s\S]*?<\/\1>/gi, '');
-    clean = clean.replace(/<(script|iframe|object|embed|style|form|input|button|svg|details|audio|video|math|template|link|meta|base)[\s\S]*?>/gi, '');
+    clean = clean.replace(/<(script|iframe|object|embed|style|form|button|svg|details|audio|video|math|template|link|meta|base)[\s\S]*?<\/\1>/gi, '');
+    clean = clean.replace(/<(script|iframe|object|embed|style|form|button|svg|details|audio|video|math|template|link|meta|base)[\s\S]*?>/gi, '');
+    clean = clean.replace(/<input(?![^>]*\btype=["']?checkbox["']?)[^>]*>/gi, '');
 
     // 2. Strip all inline event handlers (onerror, onclick, onload, ontoggle, etc.) regardless of leading whitespace or slash delimiters
     clean = clean.replace(/<([a-z1-6]+)([^>]*)>/gi, (_match, tagName, attrs) => {
@@ -474,6 +516,56 @@ export class RichEditorComponent {
     });
 
     return clean;
+  }
+
+  onPreviewClick(event: MouseEvent) {
+    const target = event.target as HTMLElement;
+    if (!target) return;
+
+    const checkbox = target.classList.contains('task-checkbox') 
+      ? (target as HTMLInputElement) 
+      : (target.closest('.task-checkbox') as HTMLInputElement);
+
+    if (checkbox) {
+      event.preventDefault();
+      event.stopPropagation();
+      const indexAttr = checkbox.getAttribute('data-task-index');
+      if (indexAttr !== null && indexAttr !== undefined) {
+        const itemIndex = parseInt(indexAttr, 10);
+        if (!isNaN(itemIndex)) {
+          this.toggleChecklistItem(itemIndex);
+        }
+      }
+    }
+  }
+
+  toggleChecklistItem(itemIndex: number) {
+    if (!this.value) return;
+    const lines = this.value.split('\n');
+    let checklistCount = 0;
+
+    const newLines = lines.map(line => {
+      const uncheckedMatch = line.match(/^(\s*[-*+]|\s*\d+\.)\s*\[ \]\s*(.*)$/);
+      const checkedMatch = line.match(/^(\s*[-*+]|\s*\d+\.)\s*\[[xX]\]\s*(.*)$/);
+
+      if (uncheckedMatch || checkedMatch) {
+        if (checklistCount === itemIndex) {
+          checklistCount++;
+          if (uncheckedMatch) {
+            const [, prefix, text] = uncheckedMatch;
+            return `${prefix} [x] ${text}`;
+          } else if (checkedMatch) {
+            const [, prefix, text] = checkedMatch;
+            return `${prefix} [ ] ${text}`;
+          }
+        }
+        checklistCount++;
+      }
+      return line;
+    });
+
+    const updated = newLines.join('\n');
+    this.onTextChange(updated);
   }
 
   onTextChange(val: string) {
@@ -742,8 +834,15 @@ export class RichEditorComponent {
     html = html.replace(/^&gt; (.*$)/gim, '<blockquote>$1</blockquote>');
 
     // Checklists: - [ ] or - [x]
-    html = html.replace(/^- \[ \] (.*$)/gim, '<li class="task-item"><i class="fi fi-rr-square text-muted"></i> $1</li>');
-    html = html.replace(/^- \[x\] (.*$)/gim, '<li class="task-item"><i class="fi fi-rr-checkbox text-cyan"></i> <del>$1</del></li>');
+    let taskIndex = 0;
+    html = html.replace(/^(\s*[-*+]|\s*\d+\.)\s*\[ \]\s*(.*$)/gim, (_m, _prefix, text) => {
+      const idx = taskIndex++;
+      return `<li class="task-item"><input type="checkbox" class="task-checkbox" data-task-index="${idx}"> <span>${text}</span></li>`;
+    });
+    html = html.replace(/^(\s*[-*+]|\s*\d+\.)\s*\[[xX]\]\s*(.*$)/gim, (_m, _prefix, text) => {
+      const idx = taskIndex++;
+      return `<li class="task-item"><input type="checkbox" class="task-checkbox" data-task-index="${idx}" checked> <del>${text}</del></li>`;
+    });
 
     // Bullet Lists
     html = html.replace(/^- (.*$)/gim, '<li>$1</li>');
