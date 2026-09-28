@@ -443,6 +443,11 @@ export class EditProfileModalComponent implements OnInit {
       return;
     }
 
+    if (imageFile.size > 10 * 1024 * 1024) {
+      this.taskShareService.showToast(`File "${imageFile.name}" exceeds maximum size limit of 10MB.`);
+      return;
+    }
+
     this.pendingFile = imageFile;
     // Create instant local blob object URL for UI preview without heavy base64 strings
     if (this.avatarUrl && this.avatarUrl.startsWith('blob:')) {

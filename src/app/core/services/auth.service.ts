@@ -645,6 +645,12 @@ export class AuthService implements OnDestroy {
       const trimmedAvatar = updates.avatar_url.trim();
       if (!trimmedAvatar) {
         updates = { ...updates, avatar_url: null };
+      } else if (trimmedAvatar.startsWith('blob:')) {
+        const tiny = await this.compressImageToTinyThumbnail(trimmedAvatar);
+        updates = { ...updates, avatar_url: tiny || null };
+      } else if (trimmedAvatar.length > 64 * 1024 && /^data:image\//i.test(trimmedAvatar)) {
+        const tiny = await this.compressImageToTinyThumbnail(trimmedAvatar);
+        updates = { ...updates, avatar_url: tiny || null };
       } else {
         const isDataImage = /^data:image\/(png|jpeg|jpg|webp|gif|svg\+xml);base64,/i.test(trimmedAvatar);
         const isBlobUrl = /^blob:https?:\/\//i.test(trimmedAvatar);
@@ -701,12 +707,19 @@ export class AuthService implements OnDestroy {
 
     // 3. Keep JWT Auth Token lightweight: Only pass essential minimal data in auth.updateUser
     try {
-      await this.supabaseService.supabase.auth.updateUser({
+      const safeAuthAvatar = (updatedProfile.avatar_url && updatedProfile.avatar_url.length <= 2048)
+        ? updatedProfile.avatar_url
+        : null;
+
+      const { error: authError } = await this.supabaseService.supabase.auth.updateUser({
         data: {
-          display_name: updatedProfile.display_name
-          // Notice: avatar_url is omitted from Auth JWT user_metadata to keep Bearer token small!
+          display_name: updatedProfile.display_name,
+          ...(safeAuthAvatar ? { avatar_url: safeAuthAvatar } : {})
         }
       });
+      if (authError) {
+        console.warn('[AuthService] Auth updateUser metadata sync notice:', authError.message);
+      }
     } catch (e) {
       console.warn('[AuthService] Auth updateUser metadata sync skipped:', e);
     }
@@ -745,29 +758,55 @@ export class AuthService implements OnDestroy {
     return await this.compressImageToTinyThumbnail(file);
   }
 
-  private compressImageToTinyThumbnail(file: File): Promise<string> {
+  private compressImageToTinyThumbnail(file: File | string): Promise<string> {
     return new Promise((resolve) => {
       const img = new Image();
-      const url = URL.createObjectURL(file);
+      let objectUrl = '';
+
+      if (typeof file === 'string') {
+        img.src = file;
+      } else {
+        try {
+          objectUrl = URL.createObjectURL(file);
+          img.src = objectUrl;
+        } catch {
+          resolve('');
+          return;
+        }
+      }
+
       img.onload = () => {
-        URL.revokeObjectURL(url);
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
         const canvas = document.createElement('canvas');
-        const size = 80;
-        canvas.width = size;
-        canvas.height = size;
+        const size = 120;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > size || height > size) {
+          if (width > height) {
+            height = Math.round((height * size) / width);
+            width = size;
+          } else {
+            width = Math.round((width * size) / height);
+            height = size;
+          }
+        }
+
+        canvas.width = Math.max(width, 1);
+        canvas.height = Math.max(height, 1);
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          ctx.drawImage(img, 0, 0, size, size);
-          resolve(canvas.toDataURL('image/jpeg', 0.7));
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
         } else {
           resolve('');
         }
       };
+
       img.onerror = () => {
-        URL.revokeObjectURL(url);
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
         resolve('');
       };
-      img.src = url;
     });
   }
 }
