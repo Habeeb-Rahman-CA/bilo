@@ -513,16 +513,31 @@ export class SelectComponent implements OnChanges, OnDestroy {
   @HostListener('window:resize')
   onWindowResize() {
     if (this.isOpen()) {
-      this.closePopover();
+      this.updateRect();
     }
   }
 
   private onScrollCapture = (event: Event) => {
-    if (this.isOpen()) {
-      if (this.optionsListEl?.nativeElement && this.optionsListEl.nativeElement.contains(event.target as Node)) {
-        return;
+    if (!this.isOpen()) return;
+
+    // Ignore scroll events originating from inside the options list dropdown itself
+    if (
+      this.optionsListEl?.nativeElement &&
+      event.target &&
+      this.optionsListEl.nativeElement.contains(event.target as Node)
+    ) {
+      return;
+    }
+
+    // Recalculate trigger element bounding rect on scroll to dynamically update popover position
+    this.updateRect();
+
+    // Auto-close if trigger element scrolls completely out of viewport
+    const rect = this.triggerRect();
+    if (rect) {
+      if (rect.bottom < 0 || rect.top > window.innerHeight || rect.right < 0 || rect.left > window.innerWidth) {
+        this.closePopover();
       }
-      this.closePopover();
     }
   };
 
@@ -545,7 +560,7 @@ export class SelectComponent implements OnChanges, OnDestroy {
     this.updateActiveIndex();
 
     if (typeof document !== 'undefined') {
-      document.addEventListener('scroll', this.onScrollCapture, true);
+      document.addEventListener('scroll', this.onScrollCapture, { capture: true, passive: true });
 
       setTimeout(() => {
         if (this.popoverEl?.nativeElement && document.body) {
