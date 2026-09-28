@@ -486,6 +486,9 @@ export class SelectComponent implements OnChanges, OnDestroy {
 
   constructor(private elementRef: ElementRef) {}
 
+  private openTimeoutId: any = null;
+  private appendedPopoverEl: HTMLElement | null = null;
+
   ngOnChanges(changes: SimpleChanges) {
     if (changes['options']) {
       this.optionsSignal.set(changes['options'].currentValue || []);
@@ -504,7 +507,7 @@ export class SelectComponent implements OnChanges, OnDestroy {
   onDocumentClick(event: MouseEvent) {
     const target = event.target as Node;
     const isInsideTrigger = this.elementRef.nativeElement.contains(target);
-    const isInsidePopover = this.popoverEl?.nativeElement?.contains(target);
+    const isInsidePopover = this.popoverEl?.nativeElement?.contains(target) || this.appendedPopoverEl?.contains(target);
     if (!isInsideTrigger && !isInsidePopover) {
       this.closePopover();
     }
@@ -562,10 +565,18 @@ export class SelectComponent implements OnChanges, OnDestroy {
     if (typeof document !== 'undefined') {
       document.addEventListener('scroll', this.onScrollCapture, { capture: true, passive: true });
 
-      setTimeout(() => {
+      if (this.openTimeoutId) {
+        clearTimeout(this.openTimeoutId);
+      }
+
+      this.openTimeoutId = setTimeout(() => {
+        this.openTimeoutId = null;
+        if (!this.isOpen()) return;
+
         if (this.popoverEl?.nativeElement && document.body) {
           this.popoverEl.nativeElement.setAttribute('data-bilo-popover', 'true');
           document.body.appendChild(this.popoverEl.nativeElement);
+          this.appendedPopoverEl = this.popoverEl.nativeElement;
         }
         if (this.searchInputEl) {
           this.searchInputEl.nativeElement.focus();
@@ -576,9 +587,19 @@ export class SelectComponent implements OnChanges, OnDestroy {
 
   closePopover() {
     unregisterOpenPopover(this);
+    if (this.openTimeoutId) {
+      clearTimeout(this.openTimeoutId);
+      this.openTimeoutId = null;
+    }
     if (typeof document !== 'undefined') {
       document.removeEventListener('scroll', this.onScrollCapture, true);
-      if (this.popoverEl?.nativeElement && document.body && this.popoverEl.nativeElement.parentNode === document.body) {
+      if (this.appendedPopoverEl) {
+        if (this.appendedPopoverEl.parentNode) {
+          this.appendedPopoverEl.remove();
+        }
+        this.appendedPopoverEl = null;
+      }
+      if (this.popoverEl?.nativeElement && this.popoverEl.nativeElement.parentNode) {
         this.popoverEl.nativeElement.remove();
       }
     }

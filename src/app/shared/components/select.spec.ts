@@ -118,6 +118,43 @@ describe('SelectComponent', () => {
       vi.advanceTimersByTime(0);
 
       expect(mockPopover.getAttribute('data-bilo-popover')).toBe('true');
+      expect(document.body.contains(mockPopover)).toBe(true);
+    });
+
+    it('should remove teleported popover from document.body when component is destroyed while open', () => {
+      const mockTrigger = document.createElement('div');
+      const mockPopover = document.createElement('div');
+      vi.spyOn(mockTrigger, 'getBoundingClientRect').mockReturnValue({
+        top: 100, left: 100, bottom: 140, right: 200, width: 100, height: 40, x: 100, y: 100, toJSON: () => {}
+      });
+
+      component.triggerEl = { nativeElement: mockTrigger } as any;
+      component.popoverEl = { nativeElement: mockPopover } as any;
+
+      component.openPopover();
+      vi.advanceTimersByTime(0);
+      expect(document.body.contains(mockPopover)).toBe(true);
+
+      component.ngOnDestroy();
+      expect(document.body.contains(mockPopover)).toBe(false);
+    });
+
+    it('should cancel pending open timeout and prevent orphan element if destroyed before timeout fires', () => {
+      const mockTrigger = document.createElement('div');
+      const mockPopover = document.createElement('div');
+      vi.spyOn(mockTrigger, 'getBoundingClientRect').mockReturnValue({
+        top: 100, left: 100, bottom: 140, right: 200, width: 100, height: 40, x: 100, y: 100, toJSON: () => {}
+      });
+
+      component.triggerEl = { nativeElement: mockTrigger } as any;
+      component.popoverEl = { nativeElement: mockPopover } as any;
+
+      component.openPopover();
+      // Destroy immediately before timers advance
+      component.ngOnDestroy();
+
+      vi.advanceTimersByTime(0);
+      expect(document.body.contains(mockPopover)).toBe(false);
     });
   });
 
