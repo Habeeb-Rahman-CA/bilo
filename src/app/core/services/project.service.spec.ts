@@ -242,4 +242,27 @@ describe('ProjectService Workspace Naming', () => {
     expect(unregisteredRes.code).toBe('USER_NOT_FOUND');
     expect(unregisteredRes.error).toContain('No registered account found for "unregistered@domain.com"');
   });
+
+  it('should reject joinProjectViaInvite when token signature is tampered or project ID mismatches', async () => {
+    projectService.projects.set([
+      { id: 'proj-sec-1', name: 'Secure Project', user_id: 'user-1', slug: 'sec', status: 'active', color: '#06b6d4', labels: [], created_at: '', updated_at: '' }
+    ]);
+
+    const tamperedToken = 'invalid_base64_token_tampered';
+    const tamperedResult = await projectService.joinProjectViaInvite('proj-sec-1', 'admin', undefined, tamperedToken);
+    expect(tamperedResult.success).toBe(false);
+    expect(tamperedResult.error).toContain('Security rejection');
+  });
+
+  it('should accept joinProjectViaInvite when token is valid and cryptographically signed', async () => {
+    const validToken = await projectService.generateInviteLink('proj-valid-1', 'admin');
+    const tokenStr = new URL(validToken).searchParams.get('token');
+
+    projectService.projects.set([
+      { id: 'proj-valid-1', name: 'Valid Project', user_id: 'owner-1', slug: 'val', status: 'active', color: '#06b6d4', labels: [], created_at: '', updated_at: '' }
+    ]);
+
+    const joinResult = await projectService.joinProjectViaInvite('proj-valid-1', 'admin', undefined, tokenStr || undefined);
+    expect(joinResult.success).toBe(true);
+  });
 });

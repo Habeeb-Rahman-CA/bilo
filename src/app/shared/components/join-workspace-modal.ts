@@ -24,6 +24,13 @@ import { Project, ProjectRole } from '../../core/models/project.model';
           </div>
 
           <div class="modal-body">
+            @if (validationError) {
+              <div class="join-alert font-mono error">
+                <i class="fi fi-rr-shield-exclamation text-rose"></i>
+                <span>{{ validationError }}</span>
+              </div>
+            }
+
             @if (project) {
               <div class="workspace-preview-box">
                 <div class="avatar-large" [style.border-color]="project.color || 'var(--accent-cyan)'">
@@ -66,7 +73,7 @@ import { Project, ProjectRole } from '../../core/models/project.model';
             <button type="button" class="btn btn-secondary btn-sm" (click)="onCancel()">
               Decline
             </button>
-            <button type="button" class="btn btn-primary btn-sm" [disabled]="!project" (click)="onJoin()">
+            <button type="button" class="btn btn-primary btn-sm" [disabled]="!project || !!validationError" (click)="onJoin()">
               <i class="fi fi-rr-check"></i> Accept & Join Workspace
             </button>
           </div>
@@ -116,6 +123,19 @@ import { Project, ProjectRole } from '../../core/models/project.model';
 
     .modal-body {
       padding: 1.25rem 1.15rem;
+    }
+
+    .join-alert {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.6rem 0.85rem;
+      border-radius: var(--radius-xs);
+      font-size: 0.775rem;
+      margin-bottom: 0.85rem;
+      background: rgba(244, 63, 94, 0.12);
+      border: 1px solid rgba(244, 63, 94, 0.3);
+      color: #fb7185;
     }
 
     .workspace-preview-box {
@@ -232,11 +252,13 @@ export class JoinWorkspaceModalComponent {
   @Input() isOpen = false;
   @Input() project: Project | null = null;
   @Input() role: ProjectRole = 'member';
+  @Input() validationError: string | null = null;
 
   @Output() join = new EventEmitter<void>();
   @Output() cancel = new EventEmitter<void>();
 
   onJoin() {
+    if (this.validationError) return;
     this.join.emit();
   }
 

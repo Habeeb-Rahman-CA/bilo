@@ -6,7 +6,7 @@ import { TaskService } from './task.service';
 import { WorkflowService } from './workflow.service';
 import { Project, ProjectActivity, Task, ProjectMember, ProjectRole } from '../models/project.model';
 import { compressImageFile, MAX_ATTACHMENT_FILE_SIZE_BYTES } from '../utils/image-compressor.util';
-import { createSecureInviteToken } from '../utils/invite-token.util';
+import { createSecureInviteToken, verifySecureInviteToken } from '../utils/invite-token.util';
 import { validateAndSanitizeProject } from '../utils/data-validator.util';
 import { sanitizeLabels } from '../utils/label.util';
 
@@ -1000,8 +1000,34 @@ export class ProjectService {
   async joinProjectViaInvite(
     projectId: string,
     role: ProjectRole = 'member',
-    tokenIssuedAt?: number
+    tokenIssuedAt?: number,
+    token?: string
   ): Promise<{ success: boolean; project?: Project; error?: string }> {
+    if (token) {
+      const verified = await verifySecureInviteToken(token);
+      if (!verified) {
+        console.warn('[ProjectService] Security rejection: Invitation token verification failed');
+        return {
+          success: false,
+          error: 'Security rejection: Invitation token is invalid, tampered, or expired.'
+        };
+      }
+
+      if (verified.projectId !== projectId) {
+        console.warn('[ProjectService] Security rejection: Token project ID mismatch');
+        return {
+          success: false,
+          error: 'Security rejection: Invitation token does not match target workspace.'
+        };
+      }
+
+      // Overwrite role directly from HMAC signed payload to prevent client-side privilege escalation
+      role = verified.role;
+      if (verified.issuedAt) {
+        tokenIssuedAt = verified.issuedAt;
+      }
+    }
+
     const proj = await this.fetchProjectById(projectId);
     if (!proj) return { success: false, error: 'Project not found.' };
 

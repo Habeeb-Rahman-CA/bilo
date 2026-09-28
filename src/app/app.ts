@@ -82,6 +82,7 @@ export class App implements OnInit {
   incomingInviteRole = signal<ProjectRole>('member');
   incomingInviteProject = signal<Project | null>(null);
   incomingInviteIssuedAt = signal<number | undefined>(undefined);
+  incomingInviteToken = signal<string | null>(null);
 
   userName = computed(() => {
     const u = this.authService.user();
@@ -143,6 +144,7 @@ export class App implements OnInit {
           this.taskShareService.showToast('Workspace invite link is invalid or expired.');
           return;
         }
+        this.incomingInviteToken.set(token);
       } else if (rawInvite) {
         // Fallback for valid legacy UUID links
         if (this.syncService.isValidUuid(rawInvite)) {
@@ -173,9 +175,10 @@ export class App implements OnInit {
     const projId = this.incomingInviteProjectId();
     const role = this.incomingInviteRole();
     const iat = this.incomingInviteIssuedAt();
+    const token = this.incomingInviteToken();
 
     if (projId) {
-      const result = await this.projectService.joinProjectViaInvite(projId, role, iat);
+      const result = await this.projectService.joinProjectViaInvite(projId, role, iat, token || undefined);
       if (result.success && result.project) {
         this.taskShareService.showToast(`Joined workspace "${result.project.name}" successfully!`);
       } else if (result.error) {
@@ -192,6 +195,7 @@ export class App implements OnInit {
     this.incomingInviteProjectId.set(null);
     this.incomingInviteProject.set(null);
     this.incomingInviteIssuedAt.set(undefined);
+    this.incomingInviteToken.set(null);
 
     // Clean up query param from URL without refreshing page
     if (window.history && window.history.replaceState) {
