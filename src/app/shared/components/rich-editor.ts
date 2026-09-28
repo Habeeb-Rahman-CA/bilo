@@ -416,8 +416,25 @@ export class RichEditorComponent {
       );
     }
     const rawHtml = this.parseMarkdown(this.value);
-    const sanitizedHtml = this.sanitizer.sanitize(SecurityContext.HTML, rawHtml) || '';
-    return this.sanitizer.bypassSecurityTrustHtml(sanitizedHtml);
+    const sanitizedByAngular = this.sanitizer.sanitize(SecurityContext.HTML, rawHtml) || '';
+    const safeHtml = this.sanitizeHtmlStrict(sanitizedByAngular || rawHtml);
+    return this.sanitizer.bypassSecurityTrustHtml(safeHtml);
+  }
+
+  private sanitizeHtmlStrict(html: string): string {
+    if (!html) return '';
+
+    // 1. Remove dangerous elements entirely
+    let clean = html.replace(/<(script|iframe|object|embed|style|form|input|button)[\s\S]*?<\/\1>/gi, '');
+    clean = clean.replace(/<(script|iframe|object|embed|style|form|input|button)[\s\S]*?>/gi, '');
+
+    // 2. Remove all inline event handlers (onerror, onclick, onload, etc.)
+    clean = clean.replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+
+    // 3. Remove dangerous URI schemes in src or href attributes
+    clean = clean.replace(/\s+(src|href)\s*=\s*(["']?)\s*(javascript|vbscript|data|blob|file):[\s\S]*?\2/gi, ' $1="#"');
+
+    return clean;
   }
 
   onTextChange(val: string) {

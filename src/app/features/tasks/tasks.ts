@@ -1075,6 +1075,25 @@ export class TasksComponent implements OnInit, OnDestroy, AfterViewInit {
       };
       localStorage.setItem('bilo_board_filters', JSON.stringify(filters));
     });
+
+    // Deleted Project Safeguard:
+    // If selectedProjectId points to a project that was deleted, auto-fallback to 'all'
+    effect(() => {
+      const projId = this.selectedProjectId();
+      if (projId && projId !== 'all') {
+        const projects = this.projectService.projects();
+        if (projects.length > 0 && !projects.some(p => p.id === projId)) {
+          console.warn(`[TasksBoard] Selected project "${projId}" no longer exists. Falling back to "all".`);
+          this.selectedProjectId.set('all');
+        }
+      }
+    }, { allowSignalWrites: true });
+
+    effect(() => {
+      this.activeColumns();
+      this.filteredTasks();
+      setTimeout(() => this.updateScrollState(), 100);
+    });
   }
 
   toggleSortOrder() {
@@ -1109,25 +1128,6 @@ export class TasksComponent implements OnInit, OnDestroy, AfterViewInit {
         this.selectedProjectId.set('all');
       }
     }
-
-    // Deleted Project Safeguard:
-    // If selectedProjectId points to a project that was deleted, auto-fallback to 'all'
-    effect(() => {
-      const projId = this.selectedProjectId();
-      if (projId && projId !== 'all') {
-        const projects = this.projectService.projects();
-        if (projects.length > 0 && !projects.some(p => p.id === projId)) {
-          console.warn(`[TasksBoard] Selected project "${projId}" no longer exists. Falling back to "all".`);
-          this.selectedProjectId.set('all');
-        }
-      }
-    }, { allowSignalWrites: true });
-
-    effect(() => {
-      this.activeColumns();
-      this.filteredTasks();
-      setTimeout(() => this.updateScrollState(), 100);
-    });
   }
 
   onProjectChange(projId: string) {
