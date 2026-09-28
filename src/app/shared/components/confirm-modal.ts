@@ -19,7 +19,7 @@ import { FormsModule } from '@angular/forms';
               }
             </div>
             <h3 id="confirm-modal-title" class="confirm-title">{{ title }}</h3>
-            <button type="button" class="btn btn-ghost btn-xs close-btn" (click)="onCancel()" title="Close" aria-label="Close dialog">
+            <button type="button" class="btn btn-ghost btn-xs close-btn" (click)="onCancel()" [disabled]="isSubmitting" title="Close" aria-label="Close dialog">
               <i class="fi fi-rr-cross"></i>
             </button>
           </div>
@@ -36,6 +36,7 @@ import { FormsModule } from '@angular/forms';
                   type="text"
                   class="form-input confirm-text-input font-mono"
                   [placeholder]="inputPlaceholder || ('Type ' + requireText + ' to confirm')"
+                  [disabled]="isSubmitting"
                   [(ngModel)]="typedText"
                   (keydown.enter)="isConfirmDisabled() ? null : onConfirm()"
                 />
@@ -44,7 +45,7 @@ import { FormsModule } from '@angular/forms';
           </div>
 
           <div class="confirm-footer">
-            <button type="button" class="btn btn-secondary btn-sm" (click)="onCancel()">
+            <button type="button" class="btn btn-secondary btn-sm" (click)="onCancel()" [disabled]="isSubmitting">
               {{ cancelText }}
             </button>
             <button
@@ -56,7 +57,9 @@ import { FormsModule } from '@angular/forms';
               [disabled]="isConfirmDisabled()"
               (click)="onConfirm()"
             >
-              @if (type === 'danger') {
+              @if (isSubmitting) {
+                <i class="fi fi-rr-spinner spinner-icon"></i>
+              } @else if (type === 'danger') {
                 <i class="fi fi-rr-trash"></i>
               } @else if (type === 'warning') {
                 <i class="fi fi-rr-check"></i>
@@ -192,6 +195,15 @@ import { FormsModule } from '@angular/forms';
     .text-amber { color: #f59e0b; }
     .text-cyan { color: var(--accent-cyan); }
 
+    .spinner-icon {
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
     @keyframes fadeIn {
       from { opacity: 0; }
       to { opacity: 1; }
@@ -218,11 +230,17 @@ export class ConfirmModalComponent implements OnChanges {
   @ViewChild('modalCard') modalCard?: ElementRef<HTMLElement>;
 
   typedText = '';
+  isSubmitting = false;
 
   ngOnChanges(changes: SimpleChanges) {
-    if (changes['isOpen'] && changes['isOpen'].currentValue) {
-      this.typedText = '';
-      setTimeout(() => this.focusInitialElement(), 50);
+    if (changes['isOpen']) {
+      if (changes['isOpen'].currentValue) {
+        this.typedText = '';
+        this.isSubmitting = false;
+        setTimeout(() => this.focusInitialElement(), 50);
+      } else {
+        this.isSubmitting = false;
+      }
     }
   }
 
@@ -286,19 +304,22 @@ export class ConfirmModalComponent implements OnChanges {
   }
 
   isConfirmDisabled(): boolean {
+    if (this.isSubmitting) return true;
     if (!this.requireText) return false;
     return this.typedText.trim().toLowerCase() !== this.requireText.trim().toLowerCase();
   }
 
   onConfirm() {
     if (this.isConfirmDisabled()) return;
+    this.isSubmitting = true;
     this.confirm.emit();
-    this.typedText = '';
   }
 
   onCancel() {
+    if (this.isSubmitting) return;
     this.cancel.emit();
     this.typedText = '';
+    this.isSubmitting = false;
   }
 }
 

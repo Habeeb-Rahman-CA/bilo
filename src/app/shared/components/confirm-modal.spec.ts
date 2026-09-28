@@ -87,4 +87,33 @@ describe('ConfirmModalComponent', () => {
       expect(spy).not.toHaveBeenCalled();
     });
   });
+
+  describe('Duplicate click prevention (isSubmitting)', () => {
+    it('should set isSubmitting to true and only emit confirm once on multiple clicks', () => {
+      const spy = vi.fn();
+      component.confirm.subscribe(spy);
+
+      component.onConfirm();
+      component.onConfirm();
+      component.onConfirm();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(component.isSubmitting).toBe(true);
+      expect(component.isConfirmDisabled()).toBe(true);
+    });
+
+    it('should reset isSubmitting when isOpen changes', () => {
+      component.isSubmitting = true;
+      component.ngOnChanges({
+        isOpen: {
+          currentValue: true,
+          previousValue: false,
+          firstChange: false,
+          isFirstChange: () => false
+        }
+      });
+
+      expect(component.isSubmitting).toBe(false);
+    });
+  });
 });
