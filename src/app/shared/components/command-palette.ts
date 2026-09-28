@@ -1,4 +1,4 @@
-import { Component, signal, computed, ElementRef, ViewChild, AfterViewInit } from '@angular/core';
+import { Component, signal, computed, ElementRef, ViewChild, AfterViewInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { WorkspaceService } from '../../core/services/workspace.service';
@@ -195,7 +195,7 @@ interface PaletteItem {
     }
   `]
 })
-export class CommandPaletteComponent implements AfterViewInit {
+export class CommandPaletteComponent implements AfterViewInit, OnDestroy {
   @ViewChild('searchInput') searchInput!: ElementRef<HTMLInputElement>;
   @ViewChild('paletteBody') paletteBody!: ElementRef<HTMLDivElement>;
 
@@ -326,33 +326,72 @@ export class CommandPaletteComponent implements AfterViewInit {
     return list;
   });
 
+  readonly MAX_RESULTS = 50;
+  readonly DEBOUNCE_MS = 200;
+
   filteredItems = computed<PaletteItem[]>(() => {
     const q = this.searchQuery().toLowerCase().trim();
-    if (!q) return this.items();
+    const allItems = this.items();
+    if (!q) return allItems.slice(0, this.MAX_RESULTS);
 
-    return this.items().filter(item =>
-      item.title.toLowerCase().includes(q) ||
-      (item.subtitle && item.subtitle.toLowerCase().includes(q))
-    );
+    const matches: PaletteItem[] = [];
+    for (let i = 0; i < allItems.length; i++) {
+      const item = allItems[i];
+      if (
+        item.title.toLowerCase().includes(q) ||
+        (item.subtitle && item.subtitle.toLowerCase().includes(q))
+      ) {
+        matches.push(item);
+        if (matches.length >= this.MAX_RESULTS) {
+          break;
+        }
+      }
+    }
+    return matches;
   });
 
   rawSearchQuery = signal<string>('');
   searchQuery = signal<string>('');
   private searchDebounceTimer: any = null;
 
+  ngOnDestroy() {
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = null;
+    }
+  }
+
   onSearchInput(value: string) {
     this.rawSearchQuery.set(value);
     if (this.searchDebounceTimer) {
       clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = null;
     }
+
+    // Immediate update when query is cleared for instant UI responsiveness
+    if (!value.trim()) {
+      this.searchQuery.set('');
+      this.selectedIndex.set(0);
+      return;
+    }
+
     this.searchDebounceTimer = setTimeout(() => {
       this.searchQuery.set(value);
       this.selectedIndex.set(0);
       this.scrollToSelected();
-    }, 150);
+      this.searchDebounceTimer = null;
+    }, this.DEBOUNCE_MS);
   }
 
   onKeydown(e: KeyboardEvent) {
+    // If user hits Enter while search input is still debouncing, flush pending search query immediately
+    if (e.key === 'Enter' && this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = null;
+      this.searchQuery.set(this.rawSearchQuery());
+      this.selectedIndex.set(0);
+    }
+
     const total = this.filteredItems().length;
     if (total === 0) return;
 
