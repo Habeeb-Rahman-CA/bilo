@@ -2170,10 +2170,45 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
   }
 
   get statusOptions(): SelectOption[] {
-    return this.getAvailableStatuses().map(s => ({
-      value: s.name,
-      label: s.name
-    }));
+    const available = this.getAvailableStatuses();
+    const currentStatus = this.task?.status || '';
+
+    return available.map(s => {
+      const isCurrent = !!currentStatus && s.name.trim().toLowerCase() === currentStatus.trim().toLowerCase();
+
+      if (isCurrent) {
+        return {
+          value: s.name,
+          label: s.name,
+          icon: 'fi fi-rr-check-circle text-cyan',
+          badge: 'CURRENT',
+          description: 'Current status',
+          disabled: false
+        };
+      }
+
+      const isAllowed = !currentStatus ? true : this.workflowService.canTransition(currentStatus, s.id, this.task?.project_id);
+
+      if (isAllowed) {
+        return {
+          value: s.name,
+          label: s.name,
+          icon: 'fi fi-rr-angle-small-right text-emerald',
+          badge: 'ALLOWED',
+          description: 'Transition allowed',
+          disabled: false
+        };
+      } else {
+        return {
+          value: s.name,
+          label: s.name,
+          icon: 'fi fi-rr-lock text-rose',
+          badge: 'RESTRICTED',
+          description: `Transition from "${currentStatus}" restricted by workflow rules`,
+          disabled: true
+        };
+      }
+    });
   }
 
   getTaskKeyStr(task?: Task): string {
