@@ -240,7 +240,7 @@ import { RichEditorComponent } from './rich-editor';
                             <button
                               type="button"
                               class="thumb-remove-btn"
-                              (click)="$event.stopPropagation(); removeDetailAttachment($index)"
+                              (click)="$event.stopPropagation(); confirmDeleteAttachment($index)"
                               title="Remove image"
                             >
                               <i class="fi fi-rr-trash"></i>
@@ -2640,11 +2640,24 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
     }
   }
 
+  confirmDeleteAttachment(index: number) {
+    this.confirmState.set({
+      open: true,
+      title: 'Remove Image Attachment',
+      message: 'Are you sure you want to remove this image attachment from the task? This action cannot be undone.',
+      action: async () => {
+        await this.removeDetailAttachment(index);
+      }
+    });
+  }
+
   async removeDetailAttachment(index: number) {
     const currentAttachments = [...(this.task.attachments || [])];
     currentAttachments.splice(index, 1);
-    const updated = await this.taskService.updateTask(this.task.id, { attachments: currentAttachments });
-    if (updated) this.task = updated;
+    const updated = await this.safeUpdateTask({ attachments: currentAttachments });
+    if (updated) {
+      this.taskShareService.showToast('Image attachment removed successfully.');
+    }
   }
 
   formatDate(isoString: string): string {
