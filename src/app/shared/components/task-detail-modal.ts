@@ -419,20 +419,31 @@ import { RichEditorComponent } from './rich-editor';
                                     class="form-textarea edit-textarea"
                                     rows="2"
                                     [(ngModel)]="editText"
+                                    [disabled]="isSavingCommentId() === c.id"
                                   ></textarea>
+                                  @if (commentEditError()) {
+                                    <div class="comment-edit-error font-mono text-rose">
+                                      <i class="fi fi-rr-triangle-warning"></i> {{ commentEditError() }}
+                                    </div>
+                                  }
                                   <div class="edit-btn-row">
                                     <button
                                       class="btn btn-secondary btn-xs"
+                                      [disabled]="isSavingCommentId() === c.id"
                                       (click)="cancelCommentEdit()"
                                     >
                                       Cancel
                                     </button>
                                     <button
                                       class="btn btn-primary btn-xs"
-                                      [disabled]="!editText.trim()"
+                                      [disabled]="!editText.trim() || isSavingCommentId() === c.id"
                                       (click)="saveCommentEdit(c.id)"
                                     >
-                                      Save Changes
+                                      @if (isSavingCommentId() === c.id) {
+                                        <i class="fi fi-rr-spinner spinner"></i> Saving...
+                                      } @else {
+                                        Save Changes
+                                      }
                                     </button>
                                   </div>
                                 </div>
@@ -1747,6 +1758,13 @@ import { RichEditorComponent } from './rich-editor';
       gap: 0.4rem;
       margin-top: 0.2rem;
     }
+    .comment-edit-error {
+      font-size: 0.725rem;
+      margin-top: 0.15rem;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
     .edit-textarea {
       font-size: 0.85rem;
     }
@@ -1932,7 +1950,10 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
   newCommentText = '';
 
   editingCommentId = signal<string | null>(null);
+  editingCommentOriginalText = '';
   editText = '';
+  isSavingCommentId = signal<string | null>(null);
+  commentEditError = signal<string | null>(null);
 
   // Inline edit state
   previewImageModal = signal<string | null>(null);
@@ -2489,21 +2510,57 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
 
   startEditingComment(comment: TaskComment) {
     this.editingCommentId.set(comment.id);
+    this.editingCommentOriginalText = comment.content;
     this.editText = comment.content;
+    this.commentEditError.set(null);
   }
 
   cancelCommentEdit() {
+    const id = this.editingCommentId();
+    if (id && this.editingCommentOriginalText) {
+      const orig = this.editingCommentOriginalText;
+      this.comments.update(list => list.map(c => c.id === id ? { ...c, content: orig } : c));
+    }
     this.editingCommentId.set(null);
+    this.editingCommentOriginalText = '';
     this.editText = '';
+    this.commentEditError.set(null);
+    this.isSavingCommentId.set(null);
   }
 
   async saveCommentEdit(commentId: string) {
-    if (!this.editText.trim()) return;
-    const updated = await this.taskService.updateComment(commentId, this.task.id, this.editText.trim());
-    if (updated) {
-      this.comments.update(list => list.map(c => c.id === commentId ? updated : c));
+    const cleanText = this.editText.trim();
+    if (!cleanText) {
+      this.commentEditError.set('Comment content cannot be empty.');
+      return;
     }
-    this.cancelCommentEdit();
+
+    const originalContent = this.editingCommentOriginalText;
+    this.isSavingCommentId.set(commentId);
+    this.commentEditError.set(null);
+
+    try {
+      const updated = await this.taskService.updateComment(commentId, this.task.id, cleanText);
+      if (updated) {
+        this.comments.update(list => list.map(c => c.id === commentId ? updated : c));
+        this.editingCommentId.set(null);
+        this.editingCommentOriginalText = '';
+        this.editText = '';
+        this.isSavingCommentId.set(null);
+        this.taskShareService.showToast('Comment updated successfully.');
+      } else {
+        this.comments.update(list => list.map(c => c.id === commentId ? { ...c, content: originalContent } : c));
+        this.commentEditError.set('Failed to save comment changes. Original content preserved.');
+        this.taskShareService.showToast('Failed to update comment. Original content restored.');
+      }
+    } catch (e) {
+      console.error('Error updating comment:', e);
+      this.comments.update(list => list.map(c => c.id === commentId ? { ...c, content: originalContent } : c));
+      this.commentEditError.set('Failed to save comment changes. Original content preserved.');
+      this.taskShareService.showToast('Failed to update comment. Original content restored.');
+    } finally {
+      this.isSavingCommentId.set(null);
+    }
   }
 
   confirmState = signal<{ open: boolean; title: string; message: string; action: () => void } | null>(null);

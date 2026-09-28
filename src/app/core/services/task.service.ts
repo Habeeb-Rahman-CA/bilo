@@ -1247,25 +1247,40 @@ export class TaskService {
   }
 
   async updateComment(commentId: string, taskId: string, newContent: string): Promise<TaskComment | null> {
+    const cleanContent = (newContent || '').trim();
+    if (!cleanContent) {
+      console.warn('[TaskService] Rejected empty comment update.');
+      return null;
+    }
+
+    const list = this.taskComments()[taskId] || [];
+    const targetComment = list.find(c => c.id === commentId);
+    if (!targetComment) {
+      console.warn(`[TaskService] Comment ${commentId} not found for task ${taskId}.`);
+      return null;
+    }
+
     const updatedAt = new Date().toISOString();
-    let updatedComment: TaskComment | null = null;
+    const updatedComment: TaskComment = {
+      ...targetComment,
+      content: cleanContent.length > 10000 ? cleanContent.slice(0, 10000) : cleanContent,
+      updated_at: updatedAt
+    };
 
-    this.taskComments.update(map => {
-      const list = map[taskId] || [];
-      const newList: TaskComment[] = list.map(c => {
-        if (c.id === commentId) {
-          const updated: TaskComment = { ...c, content: newContent, updated_at: updatedAt };
-          updatedComment = updated;
-          return updated;
-        }
-        return c;
+    try {
+      this.taskComments.update(map => {
+        const currentList = map[taskId] || [];
+        const newList = currentList.map(c => c.id === commentId ? updatedComment : c);
+        return { ...map, [taskId]: newList };
       });
-      return { ...map, [taskId]: newList };
-    });
 
-    this.saveToStorage();
-    this.syncService.enqueue('UPDATE_COMMENT', { id: commentId, content: newContent, updated_at: updatedAt });
-    return updatedComment;
+      this.saveToStorage();
+      this.syncService.enqueue('UPDATE_COMMENT', { id: commentId, content: updatedComment.content, updated_at: updatedAt });
+      return updatedComment;
+    } catch (e) {
+      console.error('[TaskService] Failed to update comment:', e);
+      return null;
+    }
   }
 
   async deleteComment(commentId: string, taskId: string): Promise<void> {
