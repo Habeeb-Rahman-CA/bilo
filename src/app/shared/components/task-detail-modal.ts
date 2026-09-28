@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, OnInit, OnDestroy, Output, HostListener, signal } from '@angular/core';
+import { Component, EventEmitter, Input, OnInit, OnDestroy, Output, HostListener, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TaskService } from '../../core/services/task.service';
@@ -371,7 +371,7 @@ import { RichEditorComponent } from './rich-editor';
                           <span>No comments yet. Post the first update above!</span>
                         </div>
                       } @else {
-                        @for (c of comments(); track c.id) {
+                        @for (c of displayedComments(); track c.id) {
                           <div class="comment-item glass-panel">
                             <div class="comment-avatar">
                               <i class="fi fi-rr-user"></i>
@@ -453,6 +453,22 @@ import { RichEditorComponent } from './rich-editor';
                                   </div>
                                 }
                               }
+                            </div>
+                          </div>
+                        }
+
+                        @if (hasMoreComments()) {
+                          <div class="load-more-comments-bar font-mono glass-panel">
+                            <span class="comments-count-info">
+                              Showing {{ displayedComments().length }} of {{ comments().length }} comments ({{ remainingCommentsCount() }} remaining)
+                            </span>
+                            <div class="load-more-actions">
+                              <button type="button" class="btn btn-secondary btn-xs load-more-btn" (click)="loadMoreComments()">
+                                <i class="fi fi-rr-angle-down"></i> Load 20 More
+                              </button>
+                              <button type="button" class="btn btn-ghost btn-xs show-all-btn" (click)="showAllComments()">
+                                Show All ({{ comments().length }})
+                              </button>
                             </div>
                           </div>
                         }
@@ -1364,6 +1380,44 @@ import { RichEditorComponent } from './rich-editor';
       gap: 0.75rem;
       width: 100%;
     }
+    .load-more-comments-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.65rem 0.85rem;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      margin-top: 0.25rem;
+      flex-wrap: wrap;
+    }
+    .comments-count-info {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+    .load-more-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .load-more-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      color: var(--accent-cyan);
+      border-color: rgba(6, 182, 212, 0.3);
+    }
+    .load-more-btn:hover {
+      background: rgba(6, 182, 212, 0.15);
+      border-color: var(--accent-cyan);
+    }
+    .show-all-btn {
+      color: var(--text-subtle);
+    }
+    .show-all-btn:hover {
+      color: var(--text-main);
+    }
     .edit-textarea {
       width: 100%;
       box-sizing: border-box;
@@ -1860,6 +1914,19 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
   @Output() editTask = new EventEmitter<Task>();
 
   comments = signal<TaskComment[]>([]);
+  commentsLimit = signal<number>(20);
+  displayedComments = computed(() => this.comments().slice(0, this.commentsLimit()));
+  hasMoreComments = computed(() => this.comments().length > this.commentsLimit());
+  remainingCommentsCount = computed(() => Math.max(0, this.comments().length - this.commentsLimit()));
+
+  loadMoreComments(): void {
+    this.commentsLimit.update(l => l + 20);
+  }
+
+  showAllComments(): void {
+    this.commentsLimit.set(this.comments().length);
+  }
+
   statusHistory = signal<TaskStatusHistory[]>([]);
   activeTab = signal<'comments' | 'history'>('comments');
   newCommentText = '';
@@ -2348,6 +2415,7 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
     );
     if (added) {
       this.comments.update(list => [...list, added]);
+      this.commentsLimit.update(l => Math.max(l + 1, 20));
     }
     this.newCommentText = '';
     this.commentAttachments.set([]);
