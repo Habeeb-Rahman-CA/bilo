@@ -30,151 +30,168 @@ import { compressImageFile, canAddAttachment, MAX_ATTACHMENT_FILE_SIZE_BYTES, MA
           </button>
         </div>
 
-        <form (ngSubmit)="submitIssue()" class="modal-form">
-          <div class="form-body">
-            @if (submitted && titleError) {
-              <div class="form-error-banner font-mono">
-                <i class="fi fi-rr-triangle-warning"></i>
-                <span>{{ titleError }}</span>
-              </div>
-            }
-
-            <!-- Issue Title / Summary -->
-            <div class="form-group">
-              <label class="form-label">ISSUE SUMMARY / TITLE <span class="text-rose">*</span></label>
-              <input
-                #titleInput
-                type="text"
-                class="form-input"
-                [class.input-error]="submitted && !!titleError"
-                [(ngModel)]="title"
-                name="title"
-                placeholder="e.g. Kanban board drag & drop issue or Notification permission reset"
-                maxlength="255"
-                required
-              />
+        @if (submittedSuccessfully()) {
+          <div class="success-confirmation-body font-mono">
+            <div class="success-icon-badge">
+              <i class="fi fi-rr-check-circle text-emerald"></i>
+            </div>
+            <h3 class="success-title text-emerald">Report Submitted Successfully!</h3>
+            <p class="success-desc font-mono">
+              Your feedback report has been logged into the backlog under project <strong>"{{ getTargetProjectName() }}"</strong>.
+            </p>
+            <div class="success-actions">
+              <button type="button" class="btn btn-primary btn-sm" (click)="close.emit()">
+                <i class="fi fi-rr-check"></i> Done
+              </button>
+            </div>
+          </div>
+        } @else {
+          <form (ngSubmit)="submitIssue()" class="modal-form">
+            <div class="form-body">
               @if (submitted && titleError) {
-                <span class="field-error-text font-mono">
-                  <i class="fi fi-rr-exclamation"></i> {{ titleError }}
-                </span>
+                <div class="form-error-banner font-mono">
+                  <i class="fi fi-rr-triangle-warning"></i>
+                  <span>{{ titleError }}</span>
+                </div>
               }
-            </div>
 
-            <!-- Category & Priority Row -->
-            <div class="form-row">
-              <div class="form-group half">
-                <label class="form-label">CATEGORY / TYPE</label>
-                <app-select [options]="categoryOptions" [(value)]="category" placeholder="Select category..."></app-select>
+              <!-- Issue Title / Summary -->
+              <div class="form-group">
+                <label class="form-label">ISSUE SUMMARY / TITLE <span class="text-rose">*</span></label>
+                <input
+                  #titleInput
+                  type="text"
+                  class="form-input"
+                  [class.input-error]="submitted && !!titleError"
+                  [(ngModel)]="title"
+                  name="title"
+                  placeholder="e.g. Kanban board drag & drop issue or Notification permission reset"
+                  maxlength="255"
+                  required
+                />
+                @if (submitted && titleError) {
+                  <span class="field-error-text font-mono">
+                    <i class="fi fi-rr-exclamation"></i> {{ titleError }}
+                  </span>
+                }
               </div>
 
-              <div class="form-group half">
-                <label class="form-label">PRIORITY</label>
-                <app-select [options]="priorityOptions" [(value)]="priority" placeholder="Select priority..."></app-select>
-              </div>
-            </div>
-
-            <!-- Severity & Reproducibility Row (Only for Bug category) -->
-            @if (category === 'bug') {
+              <!-- Category & Priority Row -->
               <div class="form-row">
                 <div class="form-group half">
-                  <label class="form-label">SEVERITY</label>
-                  <app-select [options]="severityOptions" [(value)]="severity" placeholder="Select severity..."></app-select>
+                  <label class="form-label">CATEGORY / TYPE</label>
+                  <app-select [options]="categoryOptions" [(value)]="category" placeholder="Select category..."></app-select>
                 </div>
 
                 <div class="form-group half">
-                  <label class="form-label">REPRODUCIBILITY</label>
-                  <app-select [options]="reproducibilityOptions" [(value)]="reproducibility" placeholder="Select reproducibility..."></app-select>
+                  <label class="form-label">PRIORITY</label>
+                  <app-select [options]="priorityOptions" [(value)]="priority" placeholder="Select priority..."></app-select>
                 </div>
               </div>
-            }
 
-            <!-- Description / Steps to Reproduce -->
-            <div class="form-group">
-              <label class="form-label">DESCRIPTION & STEPS TO REPRODUCE</label>
-              <app-rich-editor
-                [(value)]="description"
-                placeholder="Describe what went wrong, expected result, or steps to reproduce..."
-                [minRows]="4"
-              ></app-rich-editor>
-            </div>
+              <!-- Severity & Reproducibility Row (Only for Bug category) -->
+              @if (category === 'bug') {
+                <div class="form-row">
+                  <div class="form-group half">
+                    <label class="form-label">SEVERITY</label>
+                    <app-select [options]="severityOptions" [(value)]="severity" placeholder="Select severity..."></app-select>
+                  </div>
 
-            <!-- Attachments Section (Screenshots / Images) -->
-            <div class="form-group">
-              <div class="label-with-hint">
-                <label class="form-label">SCREENSHOTS / ATTACHMENTS</label>
-                @if (attachments().length > 0) {
-                  <span class="attachment-count font-mono">{{ attachments().length }} attached</span>
-                }
+                  <div class="form-group half">
+                    <label class="form-label">REPRODUCIBILITY</label>
+                    <app-select [options]="reproducibilityOptions" [(value)]="reproducibility" placeholder="Select reproducibility..."></app-select>
+                  </div>
+                </div>
+              }
+
+              <!-- Description / Steps to Reproduce -->
+              <div class="form-group">
+                <label class="form-label">DESCRIPTION & STEPS TO REPRODUCE</label>
+                <app-rich-editor
+                  [(value)]="description"
+                  placeholder="Describe what went wrong, expected result, or steps to reproduce..."
+                  [minRows]="4"
+                ></app-rich-editor>
               </div>
 
-              <div
-                class="attachment-dropzone"
-                [class.drag-over]="isDraggingOver()"
-                [class.is-uploading]="uploadingAttachments()"
-                (dragover)="onDragOver($event)"
-                (dragleave)="onDragLeave($event)"
-                (drop)="onDrop($event)"
-                (click)="!uploadingAttachments() && fileInput.click()"
-              >
-                <input
-                  #fileInput
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  (change)="onFileSelected($event)"
-                  style="display: none;"
-                />
-                @if (uploadingAttachments()) {
-                  <div class="dropzone-content font-mono">
-                    <i class="fi fi-rr-spinner spinner dropzone-icon text-cyan"></i>
-                    <div class="dropzone-text">
-                      <span class="dropzone-title text-cyan">Uploading {{ uploadCount() }} image(s)...</span>
-                      <span class="dropzone-sub">Generating image preview, please wait...</span>
-                    </div>
-                  </div>
-                } @else {
-                  <div class="dropzone-content font-mono">
-                    <i class="fi fi-rr-picture dropzone-icon text-cyan"></i>
-                    <div class="dropzone-text">
-                      <span class="dropzone-title">Click to upload screenshot or drag & drop</span>
-                      <span class="dropzone-sub">PNG, JPG, WEBP, GIF supported</span>
-                    </div>
-                  </div>
-                }
-              </div>
+              <!-- Attachments Section (Screenshots / Images) -->
+              <div class="form-group">
+                <div class="label-with-hint">
+                  <label class="form-label">SCREENSHOTS / ATTACHMENTS</label>
+                  @if (attachments().length > 0) {
+                    <span class="attachment-count font-mono">{{ attachments().length }} attached</span>
+                  }
+                </div>
 
-              @if (attachments().length > 0) {
-                <div class="attachment-preview-grid">
-                  @for (img of attachments(); track $index) {
-                    <div class="preview-card">
-                      <img [src]="img" alt="Screenshot" />
-                      <button
-                        type="button"
-                        class="remove-img-btn"
-                        (click)="removeAttachment($index)"
-                        title="Remove image"
-                      >
-                        <i class="fi fi-rr-cross"></i>
-                      </button>
+                <div
+                  class="attachment-dropzone"
+                  [class.drag-over]="isDraggingOver()"
+                  [class.is-uploading]="uploadingAttachments()"
+                  (dragover)="onDragOver($event)"
+                  (dragleave)="onDragLeave($event)"
+                  (drop)="onDrop($event)"
+                  (click)="!uploadingAttachments() && fileInput.click()"
+                >
+                  <input
+                    #fileInput
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    (change)="onFileSelected($event)"
+                    style="display: none;"
+                  />
+                  @if (uploadingAttachments()) {
+                    <div class="dropzone-content font-mono">
+                      <i class="fi fi-rr-spinner spinner dropzone-icon text-cyan"></i>
+                      <div class="dropzone-text">
+                        <span class="dropzone-title text-cyan">Uploading {{ uploadCount() }} image(s)...</span>
+                        <span class="dropzone-sub">Generating image preview, please wait...</span>
+                      </div>
+                    </div>
+                  } @else {
+                    <div class="dropzone-content font-mono">
+                      <i class="fi fi-rr-picture dropzone-icon text-cyan"></i>
+                      <div class="dropzone-text">
+                        <span class="dropzone-title">Click to upload screenshot or drag & drop</span>
+                        <span class="dropzone-sub">PNG, JPG, WEBP, GIF supported</span>
+                      </div>
                     </div>
                   }
                 </div>
-              }
-            </div>
-          </div>
 
-          <!-- Footer Strip -->
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary btn-sm" (click)="close.emit()">Cancel</button>
-            <button type="submit" class="btn btn-primary btn-sm" [disabled]="submitting()">
-              @if (submitting()) {
-                <i class="fi fi-rr-spinner spinner-icon"></i> Submitting...
-              } @else {
-                <i class="fi fi-rr-paper-plane"></i> Submit Issue to {{ getTargetProjectName() }}
-              }
-            </button>
-          </div>
-        </form>
+                @if (attachments().length > 0) {
+                  <div class="attachment-preview-grid">
+                    @for (img of attachments(); track $index) {
+                      <div class="preview-card">
+                        <img [src]="img" alt="Screenshot" />
+                        <button
+                          type="button"
+                          class="remove-img-btn"
+                          (click)="removeAttachment($index)"
+                          title="Remove image"
+                        >
+                          <i class="fi fi-rr-cross"></i>
+                        </button>
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            </div>
+
+            <!-- Footer Strip -->
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary btn-sm" (click)="close.emit()">Cancel</button>
+              <button type="submit" class="btn btn-primary btn-sm" [disabled]="submitting()">
+                @if (submitting()) {
+                  <i class="fi fi-rr-spinner spinner-icon"></i> Submitting...
+                } @else {
+                  <i class="fi fi-rr-paper-plane"></i> Submit Issue to {{ getTargetProjectName() }}
+                }
+              </button>
+            </div>
+          </form>
+        }
       </div>
     </div>
   `,
@@ -382,6 +399,35 @@ import { compressImageFile, canAddAttachment, MAX_ATTACHMENT_FILE_SIZE_BYTES, MA
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
     }
+    .success-confirmation-body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2.5rem 1.5rem;
+      text-align: center;
+      background: var(--bg-surface);
+    }
+    .success-icon-badge {
+      font-size: 3.25rem;
+      margin-bottom: 0.75rem;
+      line-height: 1;
+    }
+    .success-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+    .success-desc {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 1.5rem;
+      max-width: 420px;
+    }
+    .success-actions {
+      display: flex;
+      justify-content: center;
+    }
   `]
 })
 export class ReportIssueModalComponent {
@@ -399,6 +445,7 @@ export class ReportIssueModalComponent {
 
   submitted = false;
   submitting = signal<boolean>(false);
+  submittedSuccessfully = signal<boolean>(false);
   isDraggingOver = signal<boolean>(false);
 
   categoryOptions: SelectOption[] = [
@@ -614,8 +661,15 @@ export class ReportIssueModalComponent {
         attachments: this.attachments()
       });
 
-      this.taskShareService.showToast(`Feedback submitted successfully! Submitted under project "${targetProject.name}".`);
-      this.close.emit();
+      if (newTask) {
+        this.submittedSuccessfully.set(true);
+        this.taskShareService.showToast(`Feedback report "${newTask.title}" submitted successfully under project "${targetProject.name}".`);
+        setTimeout(() => {
+          this.close.emit();
+        }, 1800);
+      } else {
+        this.taskShareService.showToast('Failed to submit issue report. Please try again.');
+      }
     } catch (e) {
       console.error('Failed to submit application issue:', e);
       this.taskShareService.showToast('Failed to submit issue. Please try again.');

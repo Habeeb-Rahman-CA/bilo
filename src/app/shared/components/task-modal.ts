@@ -929,6 +929,7 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
         return;
       }
       resTask = updated;
+      this.taskShareService.showToast(`Task "${updated.title}" updated successfully!`);
     } else {
       const created = await this.taskService.createTask({
         title: this.title,
@@ -946,6 +947,9 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
         attachments: this.attachments()
       });
       resTask = created;
+      if (created) {
+        this.taskShareService.showToast(`Task "${created.title}" created successfully!`);
+      }
     }
 
     this.close.emit(resTask);
