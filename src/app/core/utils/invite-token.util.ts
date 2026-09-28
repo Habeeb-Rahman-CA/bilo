@@ -7,6 +7,7 @@ export interface VerifiedInvitePayload {
   projectId: string;
   role: ProjectRole;
   expiresAt: number;
+  issuedAt?: number;
   nonce: string;
 }
 
@@ -41,7 +42,8 @@ export async function createSecureInviteToken(
   role: ProjectRole = 'member',
   expiresInMs: number = DEFAULT_EXPIRATION_MS
 ): Promise<string> {
-  const expiresAt = Date.now() + expiresInMs;
+  const issuedAt = Date.now();
+  const expiresAt = issuedAt + expiresInMs;
   let nonce = '';
 
   if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
@@ -52,7 +54,7 @@ export async function createSecureInviteToken(
     nonce = Math.random().toString(36).slice(2) + Date.now().toString(36);
   }
 
-  const payloadString = `${projectId}:${role}:${expiresAt}:${nonce}`;
+  const payloadString = `${projectId}:${role}:${expiresAt}:${nonce}:${issuedAt}`;
   let signatureHex = '';
 
   const key = await getHmacKey();
@@ -67,6 +69,7 @@ export async function createSecureInviteToken(
     pid: projectId,
     r: role,
     exp: expiresAt,
+    iat: issuedAt,
     n: nonce,
     sig: signatureHex
   };
@@ -108,7 +111,9 @@ export async function verifySecureInviteToken(token: string): Promise<VerifiedIn
     // Signature check via Web Crypto HMAC
     const key = await getHmacKey();
     if (key && typeof crypto !== 'undefined' && crypto.subtle) {
-      const payloadString = `${parsed.pid}:${parsed.r}:${parsed.exp}:${parsed.n}`;
+      const payloadString = parsed.iat
+        ? `${parsed.pid}:${parsed.r}:${parsed.exp}:${parsed.n}:${parsed.iat}`
+        : `${parsed.pid}:${parsed.r}:${parsed.exp}:${parsed.n}`;
       const expectedBuffer = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payloadString));
       const expectedSigHex = arrayBufferToHex(expectedBuffer);
 
@@ -122,6 +127,7 @@ export async function verifySecureInviteToken(token: string): Promise<VerifiedIn
       projectId: parsed.pid,
       role: parsed.r as ProjectRole,
       expiresAt: Number(parsed.exp),
+      issuedAt: parsed.iat ? Number(parsed.iat) : undefined,
       nonce: parsed.n
     };
   } catch (e) {

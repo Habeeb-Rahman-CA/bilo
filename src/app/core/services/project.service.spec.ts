@@ -193,4 +193,30 @@ describe('ProjectService Workspace Naming', () => {
     expect(latest.description).not.toContain('<iframe');
     expect(latest.description).toBe('Created task "Fix Login Bug"');
   });
+
+  it('should invalidate invite links when revokeInviteLinks is called', async () => {
+    const link = await projectService.generateInviteLink('proj-revoke-1', 'member');
+    expect(link).toContain('token=');
+
+    const isRevokedBefore = projectService.isInviteLinkRevoked('proj-revoke-1', Date.now());
+    expect(isRevokedBefore).toBe(false);
+
+    projectService.revokeInviteLinks('proj-revoke-1');
+
+    const isRevokedAfter = projectService.isInviteLinkRevoked('proj-revoke-1', Date.now() - 5000);
+    expect(isRevokedAfter).toBe(true);
+  });
+
+  it('should block former collaborators from rejoining via old invite links', async () => {
+    projectService.projects.set([
+      { id: 'proj-collab-1', name: 'Collab Workspace', user_id: 'owner-999', slug: 'collab', status: 'active', color: '#06b6d4', labels: [], created_at: '', updated_at: '' }
+    ]);
+
+    // Simulate collaborator was removed from project
+    localStorage.setItem('bilo_removed_members_proj-collab-1', JSON.stringify(['user-123', 'habeebu@example.com']));
+
+    const joinResult = await projectService.joinProjectViaInvite('proj-collab-1', 'member');
+    expect(joinResult.success).toBe(false);
+    expect(joinResult.error).toContain('Former collaborators who were removed');
+  });
 });

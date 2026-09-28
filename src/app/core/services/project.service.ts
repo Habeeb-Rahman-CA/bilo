@@ -739,6 +739,17 @@ export class ProjectService {
         .upsert([payload]);
 
       if (!error) {
+        try {
+          const removedKey = `bilo_removed_members_${projectId}`;
+          const currentRemovedStr = localStorage.getItem(removedKey) || '[]';
+          let removedList: string[] = JSON.parse(currentRemovedStr);
+          removedList = removedList.filter(
+            id => id.toLowerCase() !== userId.toLowerCase() &&
+                  (!finalEmail || id.toLowerCase() !== finalEmail.toLowerCase())
+          );
+          localStorage.setItem(removedKey, JSON.stringify(removedList));
+        } catch (e) {}
+
         this.logActivity(projectId, 'Member Added', `${finalName || userId} added as ${role}`);
         return true;
       }
@@ -751,12 +762,31 @@ export class ProjectService {
   async removeProjectMember(projectId: string, memberId: string): Promise<boolean> {
     if (!this.syncService.isOnline()) return false;
     try {
+      const members = await this.getProjectMembers(projectId);
+      const target = members.find(m => m.id === memberId);
+
       const { error } = await this.supabaseService.supabase
         .from('project_members')
         .delete()
         .eq('id', memberId);
 
       if (!error) {
+        if (target) {
+          try {
+            const removedKey = `bilo_removed_members_${projectId}`;
+            const currentRemovedStr = localStorage.getItem(removedKey) || '[]';
+            let removedList: string[] = JSON.parse(currentRemovedStr);
+
+            if (target.user_id && !removedList.includes(target.user_id)) {
+              removedList.push(target.user_id);
+            }
+            if (target.user_email && !removedList.includes(target.user_email.toLowerCase())) {
+              removedList.push(target.user_email.toLowerCase());
+            }
+            localStorage.setItem(removedKey, JSON.stringify(removedList));
+          } catch (e) {}
+        }
+
         this.logActivity(projectId, 'Member Removed', `Project member removed`);
         return true;
       }
@@ -806,10 +836,38 @@ export class ProjectService {
 
   // --- Invite Link & Workspace Joining ---
 
-  async generateInviteLink(projectId: string, role: ProjectRole = 'member'): Promise<string> {
+  async generateInviteLink(
+    projectId: string,
+    role: ProjectRole = 'member',
+    expiresInMs: number = 7 * 24 * 60 * 60 * 1000
+  ): Promise<string> {
     const origin = typeof window !== 'undefined' ? (window.location.origin + window.location.pathname) : '';
-    const token = await createSecureInviteToken(projectId, role);
+    const token = await createSecureInviteToken(projectId, role, expiresInMs);
     return `${origin}?token=${encodeURIComponent(token)}`;
+  }
+
+  revokeInviteLinks(projectId: string): boolean {
+    try {
+      localStorage.setItem(`bilo_project_invite_revoked_${projectId}`, Date.now().toString());
+      this.logActivity(projectId, 'Invite Links Revoked', 'All previous invite links were invalidated');
+      return true;
+    } catch (e) {
+      console.warn('Failed to revoke invite links:', e);
+      return false;
+    }
+  }
+
+  isInviteLinkRevoked(projectId: string, tokenIssuedAt?: number): boolean {
+    try {
+      const revokedAtStr = localStorage.getItem(`bilo_project_invite_revoked_${projectId}`);
+      if (!revokedAtStr) return false;
+      const revokedAt = parseInt(revokedAtStr, 10);
+      if (isNaN(revokedAt)) return false;
+      if (!tokenIssuedAt || tokenIssuedAt <= revokedAt) {
+        return true;
+      }
+    } catch (e) {}
+    return false;
   }
 
   async fetchProjectById(projectId: string): Promise<Project | null> {
@@ -833,12 +891,37 @@ export class ProjectService {
     return null;
   }
 
-  async joinProjectViaInvite(projectId: string, role: ProjectRole = 'member'): Promise<Project | null> {
+  async joinProjectViaInvite(
+    projectId: string,
+    role: ProjectRole = 'member',
+    tokenIssuedAt?: number
+  ): Promise<{ success: boolean; project?: Project; error?: string }> {
     const proj = await this.fetchProjectById(projectId);
-    if (!proj) return null;
+    if (!proj) return { success: false, error: 'Project not found.' };
+
+    if (this.isInviteLinkRevoked(projectId, tokenIssuedAt)) {
+      return { success: false, error: 'This invite link has been revoked by the project owner.' };
+    }
 
     const currentUser = this.authService.user();
     if (currentUser?.id) {
+      const removedKey = `bilo_removed_members_${projectId}`;
+      const currentRemovedStr = localStorage.getItem(removedKey) || '[]';
+      try {
+        const removedList: string[] = JSON.parse(currentRemovedStr);
+        const isRemoved = removedList.some(
+          id => id.toLowerCase() === currentUser.id.toLowerCase() ||
+                (currentUser.email && id.toLowerCase() === currentUser.email.toLowerCase())
+        );
+        if (isRemoved) {
+          console.warn(`[ProjectService] Former collaborator ${currentUser.id} blocked from rejoining project ${projectId}`);
+          return {
+            success: false,
+            error: 'Former collaborators who were removed from this project cannot rejoin via old invite links. Please ask the project owner for a new invitation.'
+          };
+        }
+      } catch (e) {}
+
       const existingMembers = await this.getProjectMembers(projectId);
       const isAlreadyMember = existingMembers.some(
         m => m.user_id === currentUser.id || (m.user_email && currentUser.email && m.user_email.toLowerCase() === currentUser.email.toLowerCase())
@@ -849,14 +932,13 @@ export class ProjectService {
       }
     }
 
-    // Add project to local projects signal if not present
     if (!this.projects().some(p => p.id === proj.id)) {
       this.projects.update(list => [proj, ...list]);
     }
 
     this.activeProject.set(proj);
     this.saveToStorage();
-    return proj;
+    return { success: true, project: proj };
   }
 
   async getWorkspaceMemberOptions(projectId?: string, currentAssignee?: string): Promise<{ value: string; label: string; icon?: string }[]> {

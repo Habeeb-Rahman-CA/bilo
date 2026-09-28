@@ -39,15 +39,28 @@ import { SelectComponent, SelectOption } from './select';
 
         <!-- Invite via Link Section -->
         <div class="invite-link-section paper-panel font-mono">
-          <label class="form-label">
-            <i class="fi fi-rr-link text-cyan"></i> INVITE VIA LINK
-          </label>
+          <div class="invite-header">
+            <label class="form-label">
+              <i class="fi fi-rr-link text-cyan"></i> INVITE VIA LINK
+            </label>
+            <span class="expiration-hint text-cyan">
+              <i class="fi fi-rr-clock"></i> Expires in {{ getExpirationLabel() }}
+            </span>
+          </div>
           <div class="invite-link-controls">
             <app-select
               class="role-select"
               [options]="roleOptions"
               [(value)]="inviteRole"
               (valueChange)="onInviteRoleChange($event)"
+              [searchable]="false"
+              [compact]="true"
+            ></app-select>
+            <app-select
+              class="expiration-select"
+              [options]="expirationOptions"
+              [(value)]="inviteExpirationMs"
+              (valueChange)="onInviteExpirationChange($event)"
               [searchable]="false"
               [compact]="true"
             ></app-select>
@@ -65,6 +78,12 @@ import { SelectComponent, SelectOption } from './select';
                 <i class="fi fi-rr-copy"></i> Copy
               }
             </button>
+          </div>
+          <div class="revoke-bar">
+            <button type="button" class="btn btn-ghost btn-xs text-rose" (click)="revokeInviteLinks()" title="Revoke all previous invite links for this project">
+              <i class="fi fi-rr-cross-circle"></i> Revoke Old Links
+            </button>
+            <span class="collaborator-notice">Former collaborators cannot rejoin via old links</span>
           </div>
         </div>
 
@@ -207,10 +226,44 @@ import { SelectComponent, SelectOption } from './select';
       margin-bottom: 0.85rem;
       background: var(--bg-surface-subtle);
     }
+    .invite-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.35rem;
+    }
+    .invite-header .form-label {
+      margin-bottom: 0;
+    }
+    .expiration-hint {
+      font-size: 0.65rem;
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      opacity: 0.9;
+    }
     .invite-link-controls {
       display: flex;
-      gap: 0.5rem;
+      gap: 0.4rem;
       margin-top: 0.35rem;
+    }
+    .expiration-select {
+      width: 105px;
+      min-width: 105px;
+      flex-shrink: 0;
+    }
+    .revoke-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 0.5rem;
+      padding-top: 0.35rem;
+      border-top: 1px dashed var(--border-subtle);
+    }
+    .collaborator-notice {
+      font-size: 0.625rem;
+      color: var(--text-muted);
+      font-style: italic;
     }
     .link-input {
       flex: 1;
@@ -240,8 +293,8 @@ import { SelectComponent, SelectOption } from './select';
       flex: 1;
     }
     .role-select {
-      width: 110px;
-      min-width: 110px;
+      width: 105px;
+      min-width: 105px;
       flex-shrink: 0;
     }
     .members-section {
@@ -355,6 +408,7 @@ export class ProjectAccessModalComponent implements OnInit {
   newUserId = '';
   newRole: ProjectRole = 'member';
   inviteRole: ProjectRole = 'member';
+  inviteExpirationMs: number = 604800000; // 7 days default
   linkCopied = signal<boolean>(false);
 
   roleOptions: SelectOption[] = [
@@ -363,13 +417,24 @@ export class ProjectAccessModalComponent implements OnInit {
     { value: 'viewer', label: 'Viewer' }
   ];
 
+  expirationOptions: SelectOption[] = [
+    { value: 86400000, label: '24 Hours' },
+    { value: 604800000, label: '7 Days' },
+    { value: 2592000000, label: '30 Days' }
+  ];
+
   message = signal<string>('');
   isError = signal<boolean>(false);
   generatedInviteLink = signal<string>('');
 
+  getExpirationLabel(): string {
+    const found = this.expirationOptions.find(o => String(o.value) === String(this.inviteExpirationMs));
+    return found ? found.label : '7 Days';
+  }
+
   async updateInviteLink() {
     if (!this.project) return;
-    const link = await this.projectService.generateInviteLink(this.project.id, this.inviteRole);
+    const link = await this.projectService.generateInviteLink(this.project.id, this.inviteRole, Number(this.inviteExpirationMs));
     this.generatedInviteLink.set(link);
   }
 
@@ -378,10 +443,23 @@ export class ProjectAccessModalComponent implements OnInit {
     await this.updateInviteLink();
   }
 
+  async onInviteExpirationChange(expMs: number) {
+    this.inviteExpirationMs = Number(expMs);
+    await this.updateInviteLink();
+  }
+
+  async revokeInviteLinks() {
+    if (!this.project) return;
+    this.projectService.revokeInviteLinks(this.project.id);
+    await this.updateInviteLink();
+    this.message.set('Previous invite links revoked. A new link has been generated.');
+    this.isError.set(false);
+  }
+
   async copyInviteLink() {
     let link = this.generatedInviteLink();
     if (!link && this.project) {
-      link = await this.projectService.generateInviteLink(this.project.id, this.inviteRole);
+      link = await this.projectService.generateInviteLink(this.project.id, this.inviteRole, Number(this.inviteExpirationMs));
       this.generatedInviteLink.set(link);
     }
     if (!link) return;

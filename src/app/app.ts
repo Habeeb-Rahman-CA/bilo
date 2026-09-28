@@ -81,6 +81,7 @@ export class App implements OnInit {
   incomingInviteProjectId = signal<string | null>(null);
   incomingInviteRole = signal<ProjectRole>('member');
   incomingInviteProject = signal<Project | null>(null);
+  incomingInviteIssuedAt = signal<number | undefined>(undefined);
 
   userName = computed(() => {
     const u = this.authService.user();
@@ -157,6 +158,7 @@ export class App implements OnInit {
       if (verifiedPayload) {
         this.incomingInviteProjectId.set(verifiedPayload.projectId);
         this.incomingInviteRole.set(verifiedPayload.role);
+        this.incomingInviteIssuedAt.set(verifiedPayload.issuedAt);
 
         // Fetch workspace details for confirmation modal preview
         const proj = await this.projectService.fetchProjectById(verifiedPayload.projectId);
@@ -170,11 +172,16 @@ export class App implements OnInit {
   async acceptWorkspaceInvite() {
     const projId = this.incomingInviteProjectId();
     const role = this.incomingInviteRole();
+    const iat = this.incomingInviteIssuedAt();
 
     if (projId) {
-      const joinedProj = await this.projectService.joinProjectViaInvite(projId, role);
-      if (joinedProj) {
-        this.taskShareService.showToast(`Joined workspace "${joinedProj.name}" successfully!`);
+      const result = await this.projectService.joinProjectViaInvite(projId, role, iat);
+      if (result.success && result.project) {
+        this.taskShareService.showToast(`Joined workspace "${result.project.name}" successfully!`);
+      } else if (result.error) {
+        this.taskShareService.showToast(result.error);
+      } else {
+        this.taskShareService.showToast('Failed to join workspace.');
       }
     }
 
@@ -184,6 +191,7 @@ export class App implements OnInit {
   clearInviteState() {
     this.incomingInviteProjectId.set(null);
     this.incomingInviteProject.set(null);
+    this.incomingInviteIssuedAt.set(undefined);
 
     // Clean up query param from URL without refreshing page
     if (window.history && window.history.replaceState) {
