@@ -48,14 +48,14 @@ interface PaletteItem {
               <p>No matching commands found for "{{ searchQuery() }}"</p>
             </div>
           } @else {
-            <div class="results-list" role="listbox" aria-label="Command palette results">
+            <div class="results-list" role="listbox" aria-label="Command palette results" (mousemove)="onMouseMove()">
               @for (item of filteredItems(); track item.id; let idx = $index) {
                 <div
                   class="palette-item"
                   role="option"
                   [attr.aria-selected]="selectedIndex() === idx"
                   [class.selected]="selectedIndex() === idx"
-                  (mouseenter)="selectedIndex.set(idx)"
+                  (mouseenter)="onItemMouseEnter(idx)"
                   (click)="execute(item)"
                 >
                   <div class="item-left">
@@ -516,6 +516,18 @@ export class CommandPaletteComponent implements OnInit, AfterViewInit, OnDestroy
     }, this.DEBOUNCE_MS);
   }
 
+  isKeyboardNavigating = false;
+
+  onMouseMove() {
+    this.isKeyboardNavigating = false;
+  }
+
+  onItemMouseEnter(idx: number) {
+    if (!this.isKeyboardNavigating) {
+      this.selectedIndex.set(idx);
+    }
+  }
+
   onKeydown(e: KeyboardEvent) {
     // If user hits Enter while search input is still debouncing, flush pending search query immediately
     if (e.key === 'Enter' && this.searchDebounceTimer) {
@@ -530,11 +542,33 @@ export class CommandPaletteComponent implements OnInit, AfterViewInit, OnDestroy
 
     if (e.key === 'ArrowDown') {
       e.preventDefault();
+      this.isKeyboardNavigating = true;
       this.selectedIndex.update(i => (i + 1) % total);
       this.scrollToSelected();
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
+      this.isKeyboardNavigating = true;
       this.selectedIndex.update(i => (i - 1 + total) % total);
+      this.scrollToSelected();
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      this.isKeyboardNavigating = true;
+      this.selectedIndex.set(0);
+      this.scrollToSelected();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      this.isKeyboardNavigating = true;
+      this.selectedIndex.set(total - 1);
+      this.scrollToSelected();
+    } else if (e.key === 'PageDown') {
+      e.preventDefault();
+      this.isKeyboardNavigating = true;
+      this.selectedIndex.update(i => Math.min(i + 5, total - 1));
+      this.scrollToSelected();
+    } else if (e.key === 'PageUp') {
+      e.preventDefault();
+      this.isKeyboardNavigating = true;
+      this.selectedIndex.update(i => Math.max(i - 5, 0));
       this.scrollToSelected();
     } else if (e.key === 'Enter') {
       e.preventDefault();
@@ -547,10 +581,12 @@ export class CommandPaletteComponent implements OnInit, AfterViewInit, OnDestroy
 
   private scrollToSelected() {
     setTimeout(() => {
-      if (!this.paletteBody?.nativeElement) return;
-      const selectedEl = this.paletteBody.nativeElement.querySelector('.palette-item.selected') as HTMLElement;
+      const body = this.paletteBody?.nativeElement;
+      if (!body) return;
+
+      const selectedEl = body.querySelector('.palette-item.selected') as HTMLElement;
       if (selectedEl) {
-        selectedEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        selectedEl.scrollIntoView({ block: 'nearest', behavior: 'auto' });
       }
     }, 0);
   }

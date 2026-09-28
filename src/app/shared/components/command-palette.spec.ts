@@ -61,6 +61,93 @@ describe('CommandPaletteComponent', () => {
     expect(component).toBeTruthy();
   });
 
+  describe('Keyboard Navigation & Auto-Scrolling', () => {
+    beforeEach(() => {
+      const mockTasks: Task[] = [];
+      for (let i = 1; i <= 20; i++) {
+        mockTasks.push({
+          id: `task-${i}`,
+          title: `Scroll Item ${i}`,
+          type: 'task',
+          status: 'todo',
+          priority: 'medium',
+          projectId: 'p1',
+          createdAt: new Date().toISOString()
+        } as Task);
+      }
+      mockTaskService.tasks.set(mockTasks);
+    });
+
+    it('should navigate down and up with Arrow keys', () => {
+      expect(component.selectedIndex()).toBe(0);
+
+      const downEvent = new KeyboardEvent('keydown', { key: 'ArrowDown', cancelable: true });
+      component.onKeydown(downEvent);
+      expect(component.selectedIndex()).toBe(1);
+
+      const upEvent = new KeyboardEvent('keydown', { key: 'ArrowUp', cancelable: true });
+      component.onKeydown(upEvent);
+      expect(component.selectedIndex()).toBe(0);
+    });
+
+    it('should navigate to top and bottom with Home and End keys', () => {
+      const total = component.filteredItems().length;
+
+      const endEvent = new KeyboardEvent('keydown', { key: 'End', cancelable: true });
+      component.onKeydown(endEvent);
+      expect(component.selectedIndex()).toBe(total - 1);
+
+      const homeEvent = new KeyboardEvent('keydown', { key: 'Home', cancelable: true });
+      component.onKeydown(homeEvent);
+      expect(component.selectedIndex()).toBe(0);
+    });
+
+    it('should navigate in pages with PageUp and PageDown keys', () => {
+      const pageDownEvent = new KeyboardEvent('keydown', { key: 'PageDown', cancelable: true });
+      component.onKeydown(pageDownEvent);
+      expect(component.selectedIndex()).toBe(5);
+
+      const pageUpEvent = new KeyboardEvent('keydown', { key: 'PageUp', cancelable: true });
+      component.onKeydown(pageUpEvent);
+      expect(component.selectedIndex()).toBe(0);
+    });
+
+    it('should prevent mouse hover from stealing selection during keyboard navigation', () => {
+      const downEvent = new KeyboardEvent('keydown', { key: 'ArrowDown', cancelable: true });
+      component.onKeydown(downEvent);
+      expect(component.selectedIndex()).toBe(1);
+      expect(component.isKeyboardNavigating).toBe(true);
+
+      // Passive mouse hover over item 10 should be ignored while keyboard navigating
+      component.onItemMouseEnter(10);
+      expect(component.selectedIndex()).toBe(1);
+
+      // Actual mouse movement re-enables hover selection
+      component.onMouseMove();
+      expect(component.isKeyboardNavigating).toBe(false);
+
+      component.onItemMouseEnter(10);
+      expect(component.selectedIndex()).toBe(10);
+    });
+
+    it('should invoke scrollIntoView when scrolling selected item', () => {
+      const mockBody = document.createElement('div');
+      const mockItem = document.createElement('div');
+      mockItem.className = 'palette-item selected';
+      const scrollIntoViewSpy = vi.fn();
+      mockItem.scrollIntoView = scrollIntoViewSpy;
+      mockBody.appendChild(mockItem);
+
+      component.paletteBody = { nativeElement: mockBody } as any;
+
+      const downEvent = new KeyboardEvent('keydown', { key: 'ArrowDown', cancelable: true });
+      component.onKeydown(downEvent);
+
+      vi.advanceTimersByTime(10);
+      expect(scrollIntoViewSpy).toHaveBeenCalledWith({ block: 'nearest', behavior: 'auto' });
+    });
+  });
+
   describe('Focus Trap & WCAG Accessibility', () => {
     it('should close command palette on Escape keypress', () => {
       const escapeEvent = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
