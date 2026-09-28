@@ -213,29 +213,31 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
         }
 
         <div class="kanban-board-wrapper">
-          @if (canScrollLeft()) {
-            <button
-              type="button"
-              class="board-scroll-indicator left font-mono"
-              (click)="scrollBoard('left')"
-              title="Scroll left to view off-screen columns"
-            >
-              <i class="fi fi-rr-angle-left"></i>
-              <span>{{ offScreenLeftCount() }} OFF-SCREEN</span>
-            </button>
-          }
+          <div class="board-scroll-indicators-sticky">
+            @if (canScrollLeft()) {
+              <button
+                type="button"
+                class="board-scroll-indicator left font-mono"
+                (click)="scrollBoard('left')"
+                title="Scroll left to view off-screen columns"
+              >
+                <i class="fi fi-rr-angle-left"></i>
+                <span>{{ offScreenLeftCount() }} OFF-SCREEN</span>
+              </button>
+            }
 
-          @if (canScrollRight()) {
-            <button
-              type="button"
-              class="board-scroll-indicator right font-mono"
-              (click)="scrollBoard('right')"
-              title="Scroll right to view off-screen columns"
-            >
-              <span>{{ offScreenRightCount() }} OFF-SCREEN</span>
-              <i class="fi fi-rr-angle-right"></i>
-            </button>
-          }
+            @if (canScrollRight()) {
+              <button
+                type="button"
+                class="board-scroll-indicator right font-mono"
+                (click)="scrollBoard('right')"
+                title="Scroll right to view off-screen columns"
+              >
+                <span>{{ offScreenRightCount() }} OFF-SCREEN</span>
+                <i class="fi fi-rr-angle-right"></i>
+              </button>
+            }
+          </div>
 
           <div
             #kanbanBoardContainer
@@ -497,7 +499,6 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
     .kanban-board-wrapper {
       position: relative;
       width: 100%;
-      overflow: hidden;
       border-radius: var(--radius-xs);
     }
     .column-quick-nav {
@@ -584,11 +585,22 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       flex-shrink: 0;
       background: var(--bg-surface);
     }
+    .board-scroll-indicators-sticky {
+      position: sticky;
+      top: 50vh;
+      left: 0;
+      right: 0;
+      height: 0;
+      z-index: 90;
+      pointer-events: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 0.75rem;
+    }
     .board-scroll-indicator {
-      position: absolute;
-      top: 50%;
+      pointer-events: auto;
       transform: translateY(-50%);
-      z-index: 20;
       display: flex;
       align-items: center;
       gap: 0.4rem;
@@ -610,10 +622,10 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       box-shadow: 0 6px 18px rgba(6, 182, 212, 0.4);
     }
     .board-scroll-indicator.left {
-      left: 0.75rem;
+      margin-right: auto;
     }
     .board-scroll-indicator.right {
-      right: 0.75rem;
+      margin-left: auto;
     }
     .column-header {
       display: flex;
