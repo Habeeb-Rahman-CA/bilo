@@ -730,14 +730,15 @@ export class AuthService implements OnDestroy {
     if (!currentUser) return null;
 
     try {
-      const fileExt = file.name.split('.').pop() || 'png';
-      const fileName = `avatar-${Date.now()}.${fileExt}`;
+      // 1. Rescale high-resolution images (e.g. 4000x4000) to crisp 256x256 max dimension avatar blob (~15KB)
+      const compressedBlob = await this.compressAvatarToBlob(file, 256, 0.85);
+      const fileName = `avatar-${Date.now()}.jpg`;
       const filePath = `${currentUser.id}/${fileName}`;
 
-      // 1. Upload to Supabase Storage 'avatars' bucket
+      // 2. Upload optimized 256x256 thumbnail blob to Supabase Storage 'avatars' bucket
       const { error: uploadError } = await this.supabaseService.supabase.storage
         .from('avatars')
-        .upload(filePath, file, { upsert: true });
+        .upload(filePath, compressedBlob, { upsert: true, contentType: 'image/jpeg' });
 
       if (!uploadError) {
         const { data } = this.supabaseService.supabase.storage
@@ -754,8 +755,61 @@ export class AuthService implements OnDestroy {
       console.warn('[AuthService] Supabase storage upload exception:', e);
     }
 
-    // 2. Fallback if storage bucket is missing or offline: compress to a tiny 80x80 thumbnail (~2KB max)
+    // 3. Fallback if storage bucket is missing or offline: compress to a tiny 120x120 data URI thumbnail (~8KB max)
     return await this.compressImageToTinyThumbnail(file);
+  }
+
+  private compressAvatarToBlob(file: File, maxDimension = 256, quality = 0.85): Promise<Blob> {
+    return new Promise((resolve) => {
+      const img = new Image();
+      let objectUrl = '';
+      try {
+        objectUrl = URL.createObjectURL(file);
+        img.src = objectUrl;
+      } catch {
+        resolve(file);
+        return;
+      }
+
+      img.onload = () => {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(width, 1);
+        canvas.height = Math.max(height, 1);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(file);
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(
+          (blob) => {
+            resolve(blob || file);
+          },
+          'image/jpeg',
+          quality
+        );
+      };
+
+      img.onerror = () => {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        resolve(file);
+      };
+    });
   }
 
   private compressImageToTinyThumbnail(file: File | string): Promise<string> {
