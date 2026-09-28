@@ -1,7 +1,7 @@
 import { Component, ElementRef, EventEmitter, HostListener, Input, OnChanges, Output, SimpleChanges, ViewChild, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { getLocalDateString, getOffsetDateString } from '../../core/utils/date.util';
+import { getLocalDateString, getOffsetDateString, parseYMDDate } from '../../core/utils/date.util';
 import { registerOpenPopover, unregisterOpenPopover } from './select';
 
 export interface DatePickerDay {
@@ -476,8 +476,8 @@ export class DatePickerComponent implements OnChanges {
 
   ngOnChanges(changes: SimpleChanges) {
     if (changes['value'] && this.value) {
-      const parsed = new Date(this.value);
-      if (!isNaN(parsed.getTime())) {
+      const parsed = parseYMDDate(this.value);
+      if (parsed) {
         this.viewDate.set(parsed);
       }
     }
@@ -534,15 +534,9 @@ export class DatePickerComponent implements OnChanges {
 
   displayLabel(): string {
     if (!this.value) return this.placeholder;
-    const parts = this.value.split('-');
-    if (parts.length === 3) {
-      const year = parseInt(parts[0], 10);
-      const month = parseInt(parts[1], 10) - 1;
-      const day = parseInt(parts[2], 10);
-      const d = new Date(year, month, day);
-      if (!isNaN(d.getTime())) {
-        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-      }
+    const parsed = parseYMDDate(this.value);
+    if (parsed) {
+      return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     }
     return this.value;
   }
@@ -555,13 +549,13 @@ export class DatePickerComponent implements OnChanges {
   prevMonth() {
     if (this.isPrevMonthDisabled()) return;
     const d = this.viewDate();
-    this.viewDate.set(new Date(d.getFullYear(), d.getMonth() - 1, 1));
+    this.viewDate.set(new Date(d.getFullYear(), d.getMonth() - 1, 1, 12, 0, 0));
   }
 
   nextMonth() {
     if (this.isNextMonthDisabled()) return;
     const d = this.viewDate();
-    this.viewDate.set(new Date(d.getFullYear(), d.getMonth() + 1, 1));
+    this.viewDate.set(new Date(d.getFullYear(), d.getMonth() + 1, 1, 12, 0, 0));
   }
 
   selectDate(dateStr: string) {
@@ -601,17 +595,17 @@ export class DatePickerComponent implements OnChanges {
     const month = curr.getMonth();
 
     const todayStr = getLocalDateString();
-    const firstDay = new Date(year, month, 1);
+    const firstDay = new Date(year, month, 1, 12, 0, 0);
     const startDayOfWeek = firstDay.getDay(); // 0 (Sun) - 6 (Sat)
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const daysInPrevMonth = new Date(year, month, 0).getDate();
+    const daysInMonth = new Date(year, month + 1, 0, 12, 0, 0).getDate();
+    const daysInPrevMonth = new Date(year, month, 0, 12, 0, 0).getDate();
 
     const days: DatePickerDay[] = [];
 
     // Leading days from previous month
     for (let i = startDayOfWeek - 1; i >= 0; i--) {
       const pDay = daysInPrevMonth - i;
-      const prevDate = new Date(year, month - 1, pDay);
+      const prevDate = new Date(year, month - 1, pDay, 12, 0, 0);
       const dateStr = this.formatYMD(prevDate);
       days.push({
         dayNumber: pDay,
@@ -625,7 +619,7 @@ export class DatePickerComponent implements OnChanges {
 
     // Days in current month
     for (let d = 1; d <= daysInMonth; d++) {
-      const cDate = new Date(year, month, d);
+      const cDate = new Date(year, month, d, 12, 0, 0);
       const dateStr = this.formatYMD(cDate);
       days.push({
         dayNumber: d,
@@ -641,7 +635,7 @@ export class DatePickerComponent implements OnChanges {
     const totalCells = days.length > 35 ? 42 : 35;
     const remaining = totalCells - days.length;
     for (let n = 1; n <= remaining; n++) {
-      const nDate = new Date(year, month + 1, n);
+      const nDate = new Date(year, month + 1, n, 12, 0, 0);
       const dateStr = this.formatYMD(nDate);
       days.push({
         dayNumber: n,

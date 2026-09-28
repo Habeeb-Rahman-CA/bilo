@@ -12,7 +12,7 @@ export function getLocalDateString(date: Date = new Date()): string {
 }
 
 export function getOffsetDateString(offsetDays: number, startDate: Date = new Date()): string {
-  const target = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + offsetDays);
+  const target = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + offsetDays, 12, 0, 0);
   return getLocalDateString(target);
 }
 
@@ -27,7 +27,7 @@ export function parseYMDDate(dateStr: string): Date | null {
   const day = parseInt(parts[2], 10);
 
   if (isNaN(year) || isNaN(month) || isNaN(day)) return null;
-  const d = new Date(year, month, day);
+  const d = new Date(year, month, day, 12, 0, 0);
   return isNaN(d.getTime()) ? null : d;
 }
 

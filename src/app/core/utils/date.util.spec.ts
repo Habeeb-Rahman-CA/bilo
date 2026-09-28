@@ -103,5 +103,15 @@ describe('Date Utilities', () => {
     expect(isSameLocalDate('2026-09-25', '2026-09-26')).toBe(false);
     expect(isSameLocalDate(null, '2026-09-25')).toBe(false);
   });
+
+  it('should accurately calculate tomorrow and offset dates across DST transitions without date shifting', () => {
+    // US Spring Forward DST transition date (March 8, 2026)
+    const springForwardDay = new Date(2026, 2, 8); // March 8, 2026
+    expect(getOffsetDateString(1, springForwardDay)).toBe('2026-03-09');
+
+    // US Fall Back DST transition date (November 1, 2026)
+    const fallBackDay = new Date(2026, 10, 1); // November 1, 2026
+    expect(getOffsetDateString(1, fallBackDay)).toBe('2026-11-02');
+  });
 });
 
