@@ -32,10 +32,10 @@ import { compressImageFile, MAX_ATTACHMENT_FILE_SIZE_BYTES, MAX_ATTACHMENTS_PER_
 
         <form (ngSubmit)="submitIssue()" class="modal-form">
           <div class="form-body">
-            @if (submitted && !title.trim()) {
+            @if (submitted && titleError) {
               <div class="form-error-banner font-mono">
                 <i class="fi fi-rr-triangle-warning"></i>
-                <span>Please enter a summary / title for the reported issue.</span>
+                <span>{{ titleError }}</span>
               </div>
             }
 
@@ -46,15 +46,16 @@ import { compressImageFile, MAX_ATTACHMENT_FILE_SIZE_BYTES, MAX_ATTACHMENTS_PER_
                 #titleInput
                 type="text"
                 class="form-input"
-                [class.input-error]="submitted && !title.trim()"
+                [class.input-error]="submitted && !!titleError"
                 [(ngModel)]="title"
                 name="title"
                 placeholder="e.g. Kanban board drag & drop issue or Notification permission reset"
+                maxlength="255"
                 required
               />
-              @if (submitted && !title.trim()) {
+              @if (submitted && titleError) {
                 <span class="field-error-text font-mono">
-                  <i class="fi fi-rr-exclamation"></i> Issue summary is required
+                  <i class="fi fi-rr-exclamation"></i> {{ titleError }}
                 </span>
               }
             </div>
@@ -530,9 +531,23 @@ export class ReportIssueModalComponent {
     this.attachments.update(list => list.filter((_, i) => i !== idx));
   }
 
+  get titleError(): string | null {
+    const trimmed = (this.title || '').trim();
+    if (!trimmed) {
+      return 'Please enter a summary / title for the reported issue.';
+    }
+    if (trimmed.length < 2) {
+      return 'Issue title must be at least 2 characters long.';
+    }
+    if (trimmed.length > 255) {
+      return 'Issue title cannot exceed 255 characters.';
+    }
+    return null;
+  }
+
   async submitIssue() {
     this.submitted = true;
-    if (!this.title.trim() || this.submitting()) return;
+    if (this.titleError || this.submitting()) return;
 
     this.submitting.set(true);
 
