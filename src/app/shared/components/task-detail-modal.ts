@@ -1982,8 +1982,16 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
         this.task?.project_id,
         currentAssignee
       );
-      this.assigneeOptions = opts as SelectOption[];
-      this.assigneeLoadError.set(false);
+      if (opts && opts.length > 0) {
+        this.assigneeOptions = opts as SelectOption[];
+        this.assigneeLoadError.set(false);
+      } else {
+        this.assigneeLoadError.set(true);
+        this.assigneeOptions = [
+          { value: 'Unassigned', label: 'Unassigned', icon: 'fi fi-rr-user-slash' },
+          ...(currentAssignee && currentAssignee !== 'Unassigned' ? [{ value: currentAssignee, label: currentAssignee, icon: 'fi fi-rr-user' }] : [])
+        ];
+      }
     } catch (e) {
       console.warn('Failed to load assignee options in detail modal:', e);
       this.assigneeLoadError.set(true);

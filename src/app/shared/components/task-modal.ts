@@ -706,8 +706,16 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
   async loadAssigneeOptions() {
     try {
       const opts = await this.projectService.getWorkspaceMemberOptions(this.projectId, this.assignee);
-      this.assigneeOptions = opts as SelectOption[];
-      this.assigneeLoadError.set(false);
+      if (opts && opts.length > 0) {
+        this.assigneeOptions = opts as SelectOption[];
+        this.assigneeLoadError.set(false);
+      } else {
+        this.assigneeLoadError.set(true);
+        this.assigneeOptions = [
+          { value: 'Unassigned', label: 'Unassigned', icon: 'fi fi-rr-user-slash' },
+          ...(this.assignee && this.assignee !== 'Unassigned' ? [{ value: this.assignee, label: this.assignee, icon: 'fi fi-rr-user' }] : [])
+        ];
+      }
     } catch (e) {
       console.warn('Failed to load workspace assignee options:', e);
       this.assigneeLoadError.set(true);
