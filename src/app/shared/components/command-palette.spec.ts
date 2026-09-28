@@ -9,6 +9,7 @@ describe('CommandPaletteComponent', () => {
   let mockWorkspaceService: any;
   let mockProjectService: any;
   let mockThemeService: any;
+  let mockElementRef: any;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -39,11 +40,16 @@ describe('CommandPaletteComponent', () => {
       toggleTheme: vi.fn()
     };
 
+    mockElementRef = {
+      nativeElement: document.createElement('div')
+    };
+
     component = new CommandPaletteComponent(
       mockWorkspaceService,
       mockTaskService,
       mockProjectService,
-      mockThemeService
+      mockThemeService,
+      mockElementRef
     );
   });
 
@@ -53,6 +59,49 @@ describe('CommandPaletteComponent', () => {
 
   it('should create component', () => {
     expect(component).toBeTruthy();
+  });
+
+  describe('Focus Trap & WCAG Accessibility', () => {
+    it('should close command palette on Escape keypress', () => {
+      const escapeEvent = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
+      const preventSpy = vi.spyOn(escapeEvent, 'preventDefault');
+
+      component.handleGlobalKeydown(escapeEvent);
+
+      expect(preventSpy).toHaveBeenCalled();
+      expect(mockWorkspaceService.commandPaletteOpen()).toBe(false);
+    });
+
+    it('should trap focus when Tab key is pressed', () => {
+      const container = document.createElement('div');
+      const input = document.createElement('input');
+      container.appendChild(input);
+
+      component.paletteCard = { nativeElement: container } as any;
+      component.searchInput = { nativeElement: input } as any;
+
+      const tabEvent = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true });
+      const preventSpy = vi.spyOn(tabEvent, 'preventDefault');
+
+      component.handleGlobalKeydown(tabEvent);
+
+      expect(preventSpy).toHaveBeenCalled();
+    });
+
+    it('should restore focus to previously focused element when component is destroyed', () => {
+      const dummyButton = document.createElement('button');
+      document.body.appendChild(dummyButton);
+      dummyButton.focus();
+
+      component.ngOnInit();
+      expect(component.previouslyFocusedElement).toBe(dummyButton);
+
+      const focusSpy = vi.spyOn(dummyButton, 'focus');
+      component.ngOnDestroy();
+
+      expect(focusSpy).toHaveBeenCalled();
+      document.body.removeChild(dummyButton);
+    });
   });
 
   describe('Search Scope & Fuzzy / Multi-field Matching', () => {

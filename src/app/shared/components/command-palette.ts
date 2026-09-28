@@ -1,4 +1,4 @@
-import { Component, signal, computed, ElementRef, ViewChild, AfterViewInit, OnDestroy } from '@angular/core';
+import { Component, signal, computed, ElementRef, ViewChild, AfterViewInit, OnDestroy, OnInit, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { WorkspaceService } from '../../core/services/workspace.service';
@@ -25,7 +25,7 @@ interface PaletteItem {
   imports: [CommonModule, FormsModule],
   template: `
     <div class="modal-overlay" (click)="close()" role="dialog" aria-modal="true" aria-label="Command Palette">
-      <div class="command-palette-card paper-panel" (click)="$event.stopPropagation()">
+      <div #paletteCard class="command-palette-card paper-panel" (click)="$event.stopPropagation()">
         <!-- Search Header -->
         <div class="palette-header">
           <i class="fi fi-rr-search search-icon" aria-hidden="true"></i>
@@ -198,18 +198,27 @@ interface PaletteItem {
     }
   `]
 })
-export class CommandPaletteComponent implements AfterViewInit, OnDestroy {
+export class CommandPaletteComponent implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild('searchInput') searchInput!: ElementRef<HTMLInputElement>;
   @ViewChild('paletteBody') paletteBody!: ElementRef<HTMLDivElement>;
+  @ViewChild('paletteCard') paletteCard!: ElementRef<HTMLDivElement>;
 
   selectedIndex = signal<number>(0);
+  previouslyFocusedElement: HTMLElement | null = null;
 
   constructor(
     public workspaceService: WorkspaceService,
     public taskService: TaskService,
     public projectService: ProjectService,
-    public themeService: ThemeService
+    public themeService: ThemeService,
+    private elementRef: ElementRef
   ) { }
+
+  ngOnInit() {
+    if (typeof document !== 'undefined') {
+      this.previouslyFocusedElement = document.activeElement as HTMLElement;
+    }
+  }
 
   ngAfterViewInit() {
     setTimeout(() => {
@@ -433,6 +442,55 @@ export class CommandPaletteComponent implements AfterViewInit, OnDestroy {
     if (this.searchDebounceTimer) {
       clearTimeout(this.searchDebounceTimer);
       this.searchDebounceTimer = null;
+    }
+    // Restore focus back to the element that had focus before command palette opened
+    if (this.previouslyFocusedElement && typeof this.previouslyFocusedElement.focus === 'function') {
+      try {
+        this.previouslyFocusedElement.focus();
+      } catch { }
+    }
+  }
+
+  @HostListener('keydown', ['$event'])
+  handleGlobalKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      this.close();
+      return;
+    }
+
+    if (e.key === 'Tab') {
+      this.trapFocus(e);
+    }
+  }
+
+  private trapFocus(e: KeyboardEvent) {
+    const cardContainer = this.paletteCard?.nativeElement || this.elementRef?.nativeElement;
+    if (!cardContainer) return;
+
+    const focusables = Array.from(
+      cardContainer.querySelectorAll<HTMLElement>(
+        'input:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"]), [role="option"]:not([disabled])'
+      )
+    ).filter(el => el.offsetWidth > 0 || el.offsetHeight > 0 || el === this.searchInput?.nativeElement);
+
+    if (focusables.length === 0) return;
+
+    const firstEl = focusables[0];
+    const lastEl = focusables[focusables.length - 1];
+    const activeEl = document.activeElement;
+
+    if (e.shiftKey) {
+      if (activeEl === firstEl || !cardContainer.contains(activeEl)) {
+        e.preventDefault();
+        lastEl.focus();
+      }
+    } else {
+      if (activeEl === lastEl || !cardContainer.contains(activeEl)) {
+        e.preventDefault();
+        firstEl.focus();
+      }
     }
   }
 
