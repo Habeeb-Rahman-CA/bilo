@@ -167,4 +167,52 @@ describe('RichEditorComponent XSS Security & Markdown Sanitization', () => {
       expect(component.value).toBe('- [x] Task 1\n- [ ] Task 2');
     });
   });
+
+  describe('Rich Text & HTML Paste Conversion', () => {
+    it('should convert MS Word / Docs HTML paste into clean Markdown', () => {
+      const wordHtml = `
+        <!--StartFragment-->
+        <p class="MsoNormal"><b>Project Requirements</b></p>
+        <p class="MsoNormal">Please review the <i>design spec</i> before <s>Friday</s>.</p>
+        <ul>
+          <li>Fix DST bug</li>
+          <li>Add min/max constraints</li>
+        </ul>
+        <a href="https://example.com">Documentation</a>
+        <!--EndFragment-->
+      `;
+
+      const markdown = (component as any).convertHtmlToMarkdown(wordHtml);
+      expect(markdown).toContain('**Project Requirements**');
+      expect(markdown).toContain('*design spec*');
+      expect(markdown).toContain('~~Friday~~');
+      expect(markdown).toContain('- Fix DST bug');
+      expect(markdown).toContain('[Documentation](https://example.com)');
+      expect(markdown).not.toContain('class="MsoNormal"');
+      expect(markdown).not.toContain('<!--StartFragment-->');
+    });
+
+    it('should intercept paste event and insert converted Markdown at cursor position', () => {
+      const mockTextarea = document.createElement('textarea');
+      mockTextarea.value = 'Before ';
+      mockTextarea.selectionStart = 7;
+      mockTextarea.selectionEnd = 7;
+      component.textareaEl = { nativeElement: mockTextarea } as any;
+      component.value = 'Before ';
+
+      const pasteEvent = {
+        preventDefault: () => {},
+        clipboardData: {
+          getData: (type: string) => {
+            if (type === 'text/html') return '<p><b>Bold Pasted</b></p>';
+            if (type === 'text/plain') return 'Bold Pasted';
+            return '';
+          }
+        }
+      } as unknown as ClipboardEvent;
+
+      component.handlePaste(pasteEvent);
+      expect(component.value).toBe('Before **Bold Pasted**');
+    });
+  });
 });

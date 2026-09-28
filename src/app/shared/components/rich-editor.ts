@@ -109,6 +109,7 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
             [ngModel]="value"
             (ngModelChange)="onTextChange($event)"
             (keydown)="handleKeydown($event)"
+            (paste)="handlePaste($event)"
           ></textarea>
         } @else {
           <div class="markdown-preview-render" [innerHTML]="renderedContent" (click)="onPreviewClick($event)"></div>
@@ -584,6 +585,112 @@ export class RichEditorComponent {
         this.applyFormat('italic');
       }
     }
+  }
+
+  handlePaste(event: ClipboardEvent) {
+    const clipboardData = event.clipboardData;
+    if (!clipboardData) return;
+
+    const htmlText = clipboardData.getData('text/html');
+    const plainText = clipboardData.getData('text/plain');
+
+    let textToInsert = '';
+
+    if (htmlText && htmlText.trim()) {
+      const containsRichHtml = /<(p|h[1-6]|b|i|strong|em|ul|ol|li|a|blockquote|code|pre|div|table|span|font|meta|!--StartFragment)/i.test(htmlText);
+      if (containsRichHtml) {
+        textToInsert = this.convertHtmlToMarkdown(htmlText);
+      }
+    }
+
+    if (!textToInsert && plainText) {
+      if (/<(p|h[1-6]|b|i|strong|em|ul|ol|li|a|blockquote|code|pre|div|span|html|body)[^>]*>/i.test(plainText)) {
+        textToInsert = this.convertHtmlToMarkdown(plainText);
+      } else {
+        textToInsert = plainText;
+      }
+    }
+
+    if (!textToInsert) return;
+
+    event.preventDefault();
+
+    const el = this.textareaEl?.nativeElement;
+    const currentVal = this.value || '';
+    let start = 0;
+    let end = 0;
+
+    if (el) {
+      start = el.selectionStart;
+      end = el.selectionEnd;
+    }
+
+    const newVal = currentVal.substring(0, start) + textToInsert + currentVal.substring(end);
+    this.onTextChange(newVal);
+
+    setTimeout(() => {
+      if (el) {
+        el.focus();
+        const newPos = start + textToInsert.length;
+        el.setSelectionRange(newPos, newPos);
+      }
+    }, 10);
+  }
+
+  private convertHtmlToMarkdown(html: string): string {
+    if (!html) return '';
+
+    // Isolate fragment if Word/Docs fragment comments exist
+    const fragmentMatch = html.match(/<!--StartFragment-->([\s\S]*?)<!--EndFragment-->/i);
+    let clean = fragmentMatch ? fragmentMatch[1] : html;
+
+    // Remove head, style, script, xml, and comments
+    clean = clean.replace(/<(head|style|script|xml|svg|object|embed)[\s\S]*?<\/\1>/gi, '');
+    clean = clean.replace(/<!--[\s\S]*?-->/g, '');
+
+    // Replace headings
+    clean = clean.replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, '\n# $1\n');
+    clean = clean.replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, '\n## $1\n');
+    clean = clean.replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, '\n### $1\n');
+    clean = clean.replace(/<h[4-6][^>]*>([\s\S]*?)<\/h[4-6]>/gi, '\n#### $1\n');
+
+    // Replace bold, italic, strikethrough, code
+    clean = clean.replace(/<(strong|b)[^>]*>([\s\S]*?)<\/\1>/gi, '**$2**');
+    clean = clean.replace(/<(em|i)[^>]*>([\s\S]*?)<\/\1>/gi, '*$2*');
+    clean = clean.replace(/<(del|strike|s)[^>]*>([\s\S]*?)<\/\1>/gi, '~~$2~~');
+    clean = clean.replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, '`$1`');
+    clean = clean.replace(/<pre[^>]*>([\s\S]*?)<\/pre>/gi, '\n```\n$1\n```\n');
+    clean = clean.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, '\n> $1\n');
+    clean = clean.replace(/<hr[^>]*>/gi, '\n---\n');
+
+    // Replace links
+    clean = clean.replace(/<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, '[$2]($1)');
+
+    // Replace list items
+    clean = clean.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '\n- $1');
+    clean = clean.replace(/<\/(ul|ol)>/gi, '\n');
+
+    // Replace paragraphs, divs, line breaks
+    clean = clean.replace(/<br\s*\/?>/gi, '\n');
+    clean = clean.replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '\n$1\n');
+    clean = clean.replace(/<div[^>]*>([\s\S]*?)<\/div>/gi, '\n$1\n');
+
+    // Strip any remaining HTML tags
+    clean = clean.replace(/<[^>]+>/g, '');
+
+    // Decode basic HTML entities
+    clean = clean
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'");
+
+    // Normalize multiple blank lines (max 2 consecutive newlines)
+    clean = clean.replace(/\n{3,}/g, '\n\n').trim();
+
+    return clean;
   }
 
   applyFormat(type: 'h1' | 'h2' | 'h3' | 'bold' | 'italic' | 'strike' | 'bullet' | 'number' | 'checklist' | 'quote' | 'code' | 'codeblock' | 'hr') {
