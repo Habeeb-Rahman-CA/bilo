@@ -36,6 +36,59 @@ export function canAddAttachment(currentAttachments: string[], newBase64: string
   return { allowed: true, currentBytes, newTotalBytes };
 }
 
+export function isRealImageFile(file: File): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (!file) {
+      resolve(false);
+      return;
+    }
+
+    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
+    const validExts = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif'];
+    const lowerType = (file.type || '').toLowerCase();
+    const fileName = (file.name || '').toLowerCase();
+
+    const hasValidExt = validExts.some(ext => fileName.endsWith(ext));
+    if (!hasValidExt || !allowedMimeTypes.includes(lowerType)) {
+      resolve(false);
+      return;
+    }
+
+    if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
+      resolve(true);
+      return;
+    }
+
+    let objectUrl = '';
+    try {
+      objectUrl = URL.createObjectURL(file);
+    } catch {
+      resolve(false);
+      return;
+    }
+
+    const img = new Image();
+    let timer: any = setTimeout(() => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(false);
+    }, 2500);
+
+    img.onload = () => {
+      clearTimeout(timer);
+      URL.revokeObjectURL(objectUrl);
+      resolve(img.width > 0 && img.height > 0);
+    };
+
+    img.onerror = () => {
+      clearTimeout(timer);
+      URL.revokeObjectURL(objectUrl);
+      resolve(false);
+    };
+
+    img.src = objectUrl;
+  });
+}
+
 export async function compressImageFile(
   file: File,
   maxWidth: number = 1200,

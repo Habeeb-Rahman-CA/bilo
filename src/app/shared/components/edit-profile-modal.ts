@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
 import { TaskShareService } from '../../core/services/task-share.service';
+import { isRealImageFile } from '../../core/utils/image-compressor.util';
 
 @Component({
   selector: 'app-edit-profile-modal',
@@ -436,24 +437,27 @@ export class EditProfileModalComponent implements OnInit {
     }
   }
 
-  private handleFiles(files: File[]) {
-    const imageFile = files.find(f => f.type.startsWith('image/'));
-    if (!imageFile) {
-      this.taskShareService.showToast('Please select a valid image file (PNG, JPG, WebP).');
+  private async handleFiles(files: File[]) {
+    if (!files || files.length === 0) return;
+
+    const candidate = files[0];
+    if (candidate.size > 10 * 1024 * 1024) {
+      this.taskShareService.showToast(`File "${candidate.name}" exceeds maximum size limit of 10MB.`);
       return;
     }
 
-    if (imageFile.size > 10 * 1024 * 1024) {
-      this.taskShareService.showToast(`File "${imageFile.name}" exceeds maximum size limit of 10MB.`);
+    const isValidImage = await isRealImageFile(candidate);
+    if (!isValidImage) {
+      this.taskShareService.showToast(`File "${candidate.name}" is not a valid or decodable image file.`);
       return;
     }
 
-    this.pendingFile = imageFile;
+    this.pendingFile = candidate;
     // Create instant local blob object URL for UI preview without heavy base64 strings
     if (this.avatarUrl && this.avatarUrl.startsWith('blob:')) {
       URL.revokeObjectURL(this.avatarUrl);
     }
-    this.avatarUrl = URL.createObjectURL(imageFile);
+    this.avatarUrl = URL.createObjectURL(candidate);
     this.taskShareService.showToast('Image selected. Click "Save Profile" to update.');
   }
 
