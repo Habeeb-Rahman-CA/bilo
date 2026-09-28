@@ -1,4 +1,4 @@
-import { Component, ElementRef, EventEmitter, HostListener, Input, OnChanges, Output, SimpleChanges, ViewChild, computed, signal } from '@angular/core';
+import { Component, ElementRef, EventEmitter, HostListener, Input, OnChanges, OnDestroy, Output, SimpleChanges, ViewChild, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { getLocalDateString, getOffsetDateString, parseYMDDate } from '../../core/utils/date.util';
@@ -54,6 +54,7 @@ export interface DatePickerDay {
       <!-- Viewport Fixed Popover Calendar Panel -->
       @if (isOpen()) {
         <div 
+          #popoverEl
           class="picker-popover paper-panel font-mono" 
           [ngStyle]="popoverStyles()"
           (click)="$event.stopPropagation()"
@@ -64,7 +65,7 @@ export interface DatePickerDay {
               type="button" 
               class="nav-btn" 
               [disabled]="isPrevMonthDisabled()" 
-              (click)="prevMonth()" 
+              (click)="prevMonth($event)" 
               title="Previous Month"
             >
               <i class="fi fi-rr-angle-left"></i>
@@ -76,7 +77,7 @@ export interface DatePickerDay {
               type="button" 
               class="nav-btn" 
               [disabled]="isNextMonthDisabled()" 
-              (click)="nextMonth()" 
+              (click)="nextMonth($event)" 
               title="Next Month"
             >
               <i class="fi fi-rr-angle-right"></i>
@@ -89,19 +90,19 @@ export interface DatePickerDay {
               type="button" 
               class="preset-btn" 
               [disabled]="isDateDisabled(todayStr)" 
-              (click)="selectToday()"
+              (click)="selectToday($event)"
             >Today</button>
             <button 
               type="button" 
               class="preset-btn" 
               [disabled]="isDateDisabled(tomorrowStr)" 
-              (click)="selectTomorrow()"
+              (click)="selectTomorrow($event)"
             >Tomorrow</button>
             <button 
               type="button" 
               class="preset-btn" 
               [disabled]="isDateDisabled(nextWeekStr)" 
-              (click)="selectNextWeek()"
+              (click)="selectNextWeek($event)"
             >+7 Days</button>
             @if (value) {
               <button type="button" class="preset-btn preset-clear" (click)="clearDate($event)">Clear</button>
@@ -130,7 +131,7 @@ export interface DatePickerDay {
                 [class.is-selected]="day.isSelected"
                 [class.is-disabled]="day.isDisabled"
                 [disabled]="day.isDisabled"
-                (click)="selectDate(day.dateStr)"
+                (click)="selectDate(day.dateStr, $event)"
               >
                 {{ day.dayNumber }}
               </button>
@@ -372,7 +373,7 @@ export interface DatePickerDay {
     }
   `]
 })
-export class DatePickerComponent implements OnChanges {
+export class DatePickerComponent implements OnChanges, OnDestroy {
   @Input() value: string = ''; // YYYY-MM-DD
   @Input() minDate?: string; // YYYY-MM-DD
   @Input() maxDate?: string; // YYYY-MM-DD
@@ -387,10 +388,14 @@ export class DatePickerComponent implements OnChanges {
   @Output() dateChange = new EventEmitter<string>();
 
   @ViewChild('triggerEl') triggerEl!: ElementRef<HTMLDivElement>;
+  @ViewChild('popoverEl') popoverEl?: ElementRef<HTMLDivElement>;
 
   isOpen = signal<boolean>(false);
   viewDate = signal<Date>(new Date());
   triggerRect = signal<{ top: number; left: number; right: number; bottom: number; width: number; height: number } | null>(null);
+
+  private openTimeoutId: any = null;
+  private appendedPopoverEl: HTMLElement | null = null;
 
   get effectiveMinDate(): string {
     return this.minDate || this.min || '1900-01-01';
@@ -422,7 +427,7 @@ export class DatePickerComponent implements OnChanges {
   isPrevMonthDisabled(): boolean {
     if (!this.effectiveMinDate) return false;
     const curr = this.viewDate();
-    const prevMonthLastDay = new Date(curr.getFullYear(), curr.getMonth(), 0);
+    const prevMonthLastDay = new Date(curr.getFullYear(), curr.getMonth(), 0, 12, 0, 0);
     const prevMonthLastDayStr = this.formatYMD(prevMonthLastDay);
     return prevMonthLastDayStr < this.effectiveMinDate;
   }
@@ -430,7 +435,7 @@ export class DatePickerComponent implements OnChanges {
   isNextMonthDisabled(): boolean {
     if (!this.effectiveMaxDate) return false;
     const curr = this.viewDate();
-    const nextMonthFirstDay = new Date(curr.getFullYear(), curr.getMonth() + 1, 1);
+    const nextMonthFirstDay = new Date(curr.getFullYear(), curr.getMonth() + 1, 1, 12, 0, 0);
     const nextMonthFirstDayStr = this.formatYMD(nextMonthFirstDay);
     return nextMonthFirstDayStr > this.effectiveMaxDate;
   }
@@ -483,31 +488,39 @@ export class DatePickerComponent implements OnChanges {
     }
   }
 
-  closePopover() {
-    unregisterOpenPopover(this);
-    this.isOpen.set(false);
-  }
-
-  openPopover() {
-    registerOpenPopover(this);
-    this.updateRect();
-    this.isOpen.set(true);
+  ngOnDestroy() {
+    this.closePopover();
   }
 
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent) {
-    if (!this.elementRef.nativeElement.contains(event.target)) {
+    const target = event.target as Node;
+    const isInsideTrigger = this.elementRef.nativeElement.contains(target);
+    const isInsidePopover = this.popoverEl?.nativeElement?.contains(target) || this.appendedPopoverEl?.contains(target);
+    if (!isInsideTrigger && !isInsidePopover) {
       this.closePopover();
     }
   }
 
-  @HostListener('window:scroll')
   @HostListener('window:resize')
-  onWindowChange() {
+  onWindowResize() {
     if (this.isOpen()) {
-      this.closePopover();
+      this.updateRect();
     }
   }
+
+  private onScrollCapture = (event: Event) => {
+    if (!this.isOpen()) return;
+
+    this.updateRect();
+
+    const rect = this.triggerRect();
+    if (rect) {
+      if (rect.bottom < 0 || rect.top > window.innerHeight || rect.right < 0 || rect.left > window.innerWidth) {
+        this.closePopover();
+      }
+    }
+  };
 
   toggleOpen(event?: Event) {
     if (event) event.stopPropagation();
@@ -516,6 +529,52 @@ export class DatePickerComponent implements OnChanges {
     } else {
       this.closePopover();
     }
+  }
+
+  openPopover() {
+    registerOpenPopover(this);
+    this.updateRect();
+    this.isOpen.set(true);
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('scroll', this.onScrollCapture, { capture: true, passive: true });
+
+      if (this.openTimeoutId) {
+        clearTimeout(this.openTimeoutId);
+      }
+
+      this.openTimeoutId = setTimeout(() => {
+        this.openTimeoutId = null;
+        if (!this.isOpen()) return;
+
+        if (this.popoverEl?.nativeElement && document.body) {
+          this.popoverEl.nativeElement.setAttribute('data-bilo-popover', 'true');
+          document.body.appendChild(this.popoverEl.nativeElement);
+          this.appendedPopoverEl = this.popoverEl.nativeElement;
+        }
+      }, 0);
+    }
+  }
+
+  closePopover() {
+    unregisterOpenPopover(this);
+    if (this.openTimeoutId) {
+      clearTimeout(this.openTimeoutId);
+      this.openTimeoutId = null;
+    }
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('scroll', this.onScrollCapture, true);
+      if (this.appendedPopoverEl) {
+        if (this.appendedPopoverEl.parentNode) {
+          this.appendedPopoverEl.remove();
+        }
+        this.appendedPopoverEl = null;
+      }
+      if (this.popoverEl?.nativeElement && this.popoverEl.nativeElement.parentNode) {
+        this.popoverEl.nativeElement.remove();
+      }
+    }
+    this.isOpen.set(false);
   }
 
   private updateRect() {
@@ -546,47 +605,73 @@ export class DatePickerComponent implements OnChanges {
     return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }).toUpperCase();
   }
 
-  prevMonth() {
+  prevMonth(event?: Event) {
+    if (event) {
+      event.stopPropagation();
+    }
     if (this.isPrevMonthDisabled()) return;
     const d = this.viewDate();
     this.viewDate.set(new Date(d.getFullYear(), d.getMonth() - 1, 1, 12, 0, 0));
   }
 
-  nextMonth() {
+  nextMonth(event?: Event) {
+    if (event) {
+      event.stopPropagation();
+    }
     if (this.isNextMonthDisabled()) return;
     const d = this.viewDate();
     this.viewDate.set(new Date(d.getFullYear(), d.getMonth() + 1, 1, 12, 0, 0));
   }
 
-  selectDate(dateStr: string) {
+  selectDate(dateStr: string, event?: Event) {
+    if (event) {
+      event.stopPropagation();
+    }
     if (this.isDateDisabled(dateStr)) return;
     this.value = dateStr;
     this.valueChange.emit(dateStr);
     this.dateChange.emit(dateStr);
-    this.isOpen.set(false);
+
+    setTimeout(() => {
+      this.closePopover();
+    }, 0);
   }
 
   clearDate(event?: Event) {
-    if (event) event.stopPropagation();
+    if (event) {
+      event.stopPropagation();
+    }
     this.value = '';
     this.valueChange.emit('');
     this.dateChange.emit('');
-    this.isOpen.set(false);
+
+    setTimeout(() => {
+      this.closePopover();
+    }, 0);
   }
 
-  selectToday() {
+  selectToday(event?: Event) {
+    if (event) {
+      event.stopPropagation();
+    }
     if (this.isDateDisabled(this.todayStr)) return;
-    this.selectDate(this.todayStr);
+    this.selectDate(this.todayStr, event);
   }
 
-  selectTomorrow() {
+  selectTomorrow(event?: Event) {
+    if (event) {
+      event.stopPropagation();
+    }
     if (this.isDateDisabled(this.tomorrowStr)) return;
-    this.selectDate(this.tomorrowStr);
+    this.selectDate(this.tomorrowStr, event);
   }
 
-  selectNextWeek() {
+  selectNextWeek(event?: Event) {
+    if (event) {
+      event.stopPropagation();
+    }
     if (this.isDateDisabled(this.nextWeekStr)) return;
-    this.selectDate(this.nextWeekStr);
+    this.selectDate(this.nextWeekStr, event);
   }
 
   calendarDays(): DatePickerDay[] {

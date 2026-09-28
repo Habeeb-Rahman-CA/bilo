@@ -100,4 +100,65 @@ describe('DatePickerComponent - Date Range Constraints', () => {
     component.nextMonth();
     expect(component.viewDate().getMonth()).toBe(initialMonth);
   });
+
+  describe('Click-Outside & Parent Modal Conflict Prevention', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('should stop propagation on selectDate click event and defer popover closure', () => {
+      const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
+      const stopSpy = vi.spyOn(clickEvent, 'stopPropagation');
+      const valueSpy = vi.fn();
+      component.valueChange.subscribe(valueSpy);
+
+      component.selectDate('2026-09-15', clickEvent);
+
+      expect(stopSpy).toHaveBeenCalled();
+      expect(component.value).toBe('2026-09-15');
+      expect(valueSpy).toHaveBeenCalledWith('2026-09-15');
+
+      // Popover closure deferred to next tick so parent modal contains() checks work on attached nodes
+      vi.advanceTimersByTime(0);
+      expect(component.isOpen()).toBe(false);
+    });
+
+    it('should stop propagation on clearDate click event', () => {
+      component.value = '2026-09-15';
+      const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
+      const stopSpy = vi.spyOn(clickEvent, 'stopPropagation');
+
+      component.clearDate(clickEvent);
+
+      expect(stopSpy).toHaveBeenCalled();
+      expect(component.value).toBe('');
+
+      vi.advanceTimersByTime(0);
+      expect(component.isOpen()).toBe(false);
+    });
+
+    it('should tag popover with data-bilo-popover attribute when appended to document.body', () => {
+      const mockTrigger = document.createElement('div');
+      const mockPopover = document.createElement('div');
+      vi.spyOn(mockTrigger, 'getBoundingClientRect').mockReturnValue({
+        top: 100, left: 100, bottom: 140, right: 200, width: 100, height: 40, x: 100, y: 100, toJSON: () => {}
+      });
+
+      component.triggerEl = { nativeElement: mockTrigger } as any;
+      component.popoverEl = { nativeElement: mockPopover } as any;
+
+      component.openPopover();
+      vi.advanceTimersByTime(0);
+
+      expect(mockPopover.getAttribute('data-bilo-popover')).toBe('true');
+      expect(document.body.contains(mockPopover)).toBe(true);
+
+      component.ngOnDestroy();
+      expect(document.body.contains(mockPopover)).toBe(false);
+    });
+  });
 });
