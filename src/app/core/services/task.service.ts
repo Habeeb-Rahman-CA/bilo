@@ -816,8 +816,28 @@ export class TaskService {
     return [...localList].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }
 
-  async deleteTask(id: string) {
+  async deleteTask(id: string): Promise<boolean> {
     const existing = this.tasks().find(t => t.id === id);
+    if (!existing) return false;
+
+    // Direct online Supabase deletion check
+    if (this.syncService.isOnline() && this.supabaseService.isConfigured && this.supabaseService.supabase) {
+      try {
+        const { error } = await this.supabaseService.supabase
+          .from('tasks')
+          .delete()
+          .eq('id', id);
+
+        if (error) {
+          console.error('[TaskService] Direct task deletion failed:', error.message);
+          return false;
+        }
+      } catch (e) {
+        console.error('[TaskService] Direct task deletion exception:', e);
+        return false;
+      }
+    }
+
     if (existing) {
       this.projectService.logActivity(existing.project_id, 'Task Deleted', `Deleted task "${existing.title}"`);
     }
@@ -843,6 +863,7 @@ export class TaskService {
 
     this.saveToStorage();
     this.syncService.enqueue('DELETE_TASK', { id });
+    return true;
   }
 
   async batchDeleteTasks(ids: string[]): Promise<void> {

@@ -2618,16 +2618,25 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
       title: 'Delete Task',
       message: `Are you sure you want to permanently delete issue "${this.task.title}"?`,
       action: async () => {
-        await this.taskService.deleteTask(this.task.id);
-        this.close.emit();
+        const success = await this.taskService.deleteTask(this.task.id);
+        if (success) {
+          this.taskShareService.showToast('Task deleted successfully.');
+          this.close.emit();
+        } else {
+          this.taskShareService.showToast('Failed to delete task from server. Deletion cancelled.');
+        }
       }
     });
   }
 
-  handleConfirm() {
+  async handleConfirm() {
     const current = this.confirmState();
     if (current && current.action) {
-      current.action();
+      try {
+        await current.action();
+      } catch (e) {
+        console.error('Error executing confirmed action:', e);
+      }
     }
     this.confirmState.set(null);
   }

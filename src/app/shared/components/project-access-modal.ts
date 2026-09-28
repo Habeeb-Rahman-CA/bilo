@@ -568,10 +568,14 @@ export class ProjectAccessModalComponent implements OnInit {
     });
   }
 
-  handleConfirm() {
+  async handleConfirm() {
     const current = this.confirmState();
     if (current && current.action) {
-      current.action();
+      try {
+        await current.action();
+      } catch (e) {
+        console.error('Error executing confirmed action:', e);
+      }
     }
     this.confirmState.set(null);
   }
