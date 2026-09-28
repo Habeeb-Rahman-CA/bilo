@@ -508,62 +508,137 @@ export class RichEditorComponent {
 
     const selectedText = currentVal.substring(start, end);
     let replacement = '';
-    let cursorOffset = 0;
+    let selStart = start;
+    let selEnd = start;
 
-    switch (type) {
-      case 'h1':
-        replacement = selectedText ? `# ${selectedText}` : '# Heading 1';
-        break;
-      case 'h2':
-        replacement = selectedText ? `## ${selectedText}` : '## Heading 2';
-        break;
-      case 'h3':
-        replacement = selectedText ? `### ${selectedText}` : '### Heading 3';
-        break;
-      case 'bold':
-        replacement = selectedText ? `**${selectedText}**` : '**bold text**';
-        cursorOffset = selectedText ? 0 : 2;
-        break;
-      case 'italic':
-        replacement = selectedText ? `*${selectedText}*` : '*italic text*';
-        cursorOffset = selectedText ? 0 : 1;
-        break;
-      case 'strike':
-        replacement = selectedText ? `~~${selectedText}~~` : '~~strikethrough~~';
-        break;
-      case 'bullet':
-        if (selectedText.includes('\n')) {
-          replacement = selectedText.split('\n').map(l => l.startsWith('- ') ? l : `- ${l}`).join('\n');
-        } else {
-          replacement = selectedText ? `- ${selectedText}` : '- List item';
-        }
-        break;
-      case 'number':
-        if (selectedText.includes('\n')) {
-          replacement = selectedText.split('\n').map((l, i) => `${i + 1}. ${l}`).join('\n');
-        } else {
-          replacement = selectedText ? `1. ${selectedText}` : '1. List item';
-        }
-        break;
-      case 'checklist':
-        if (selectedText.includes('\n')) {
-          replacement = selectedText.split('\n').map(l => `- [ ] ${l}`).join('\n');
-        } else {
-          replacement = selectedText ? `- [ ] ${selectedText}` : '- [ ] Task item';
-        }
-        break;
-      case 'quote':
-        replacement = selectedText ? `> ${selectedText}` : '> Blockquote';
-        break;
-      case 'code':
-        replacement = selectedText ? `\`${selectedText}\`` : '`code`';
-        break;
-      case 'codeblock':
-        replacement = selectedText ? `\`\`\`\n${selectedText}\n\`\`\`` : '```\ncode block\n```';
-        break;
-      case 'hr':
-        replacement = '\n---\n';
-        break;
+    if (selectedText) {
+      switch (type) {
+        case 'h1':
+          replacement = `# ${selectedText}`;
+          break;
+        case 'h2':
+          replacement = `## ${selectedText}`;
+          break;
+        case 'h3':
+          replacement = `### ${selectedText}`;
+          break;
+        case 'bold':
+          replacement = `**${selectedText}**`;
+          break;
+        case 'italic':
+          replacement = `*${selectedText}*`;
+          break;
+        case 'strike':
+          replacement = `~~${selectedText}~~`;
+          break;
+        case 'bullet':
+          if (selectedText.includes('\n')) {
+            replacement = selectedText.split('\n').map(l => l.startsWith('- ') ? l : `- ${l}`).join('\n');
+          } else {
+            replacement = `- ${selectedText}`;
+          }
+          break;
+        case 'number':
+          if (selectedText.includes('\n')) {
+            replacement = selectedText.split('\n').map((l, i) => `${i + 1}. ${l}`).join('\n');
+          } else {
+            replacement = `1. ${selectedText}`;
+          }
+          break;
+        case 'checklist':
+          if (selectedText.includes('\n')) {
+            replacement = selectedText.split('\n').map(l => `- [ ] ${l}`).join('\n');
+          } else {
+            replacement = `- [ ] ${selectedText}`;
+          }
+          break;
+        case 'quote':
+          replacement = `> ${selectedText}`;
+          break;
+        case 'code':
+          replacement = `\`${selectedText}\``;
+          break;
+        case 'codeblock':
+          replacement = `\`\`\`\n${selectedText}\n\`\`\``;
+          break;
+        case 'hr':
+          replacement = '\n---\n';
+          break;
+      }
+      selStart = start + replacement.length;
+      selEnd = start + replacement.length;
+    } else {
+      let prefix = '';
+      let placeholder = '';
+      let suffix = '';
+
+      switch (type) {
+        case 'h1':
+          prefix = '# ';
+          placeholder = 'Heading 1';
+          break;
+        case 'h2':
+          prefix = '## ';
+          placeholder = 'Heading 2';
+          break;
+        case 'h3':
+          prefix = '### ';
+          placeholder = 'Heading 3';
+          break;
+        case 'bold':
+          prefix = '**';
+          placeholder = 'bold text';
+          suffix = '**';
+          break;
+        case 'italic':
+          prefix = '*';
+          placeholder = 'italic text';
+          suffix = '*';
+          break;
+        case 'strike':
+          prefix = '~~';
+          placeholder = 'strikethrough';
+          suffix = '~~';
+          break;
+        case 'bullet':
+          prefix = '- ';
+          placeholder = 'List item';
+          break;
+        case 'number':
+          prefix = '1. ';
+          placeholder = 'List item';
+          break;
+        case 'checklist':
+          prefix = '- [ ] ';
+          placeholder = 'Task item';
+          break;
+        case 'quote':
+          prefix = '> ';
+          placeholder = 'Blockquote';
+          break;
+        case 'code':
+          prefix = '`';
+          placeholder = 'code';
+          suffix = '`';
+          break;
+        case 'codeblock':
+          prefix = '```\n';
+          placeholder = 'code block';
+          suffix = '\n```';
+          break;
+        case 'hr':
+          prefix = '\n---\n';
+          break;
+      }
+
+      replacement = `${prefix}${placeholder}${suffix}`;
+      if (placeholder) {
+        selStart = start + prefix.length;
+        selEnd = selStart + placeholder.length;
+      } else {
+        selStart = start + replacement.length;
+        selEnd = start + replacement.length;
+      }
     }
 
     const newVal = currentVal.substring(0, start) + replacement + currentVal.substring(end);
@@ -572,8 +647,7 @@ export class RichEditorComponent {
     setTimeout(() => {
       if (el) {
         el.focus();
-        const newPos = start + replacement.length - cursorOffset;
-        el.setSelectionRange(newPos, newPos);
+        el.setSelectionRange(selStart, selEnd);
       }
     }, 10);
   }

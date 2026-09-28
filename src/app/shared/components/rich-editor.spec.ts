@@ -107,4 +107,41 @@ describe('RichEditorComponent XSS Security & Markdown Sanitization', () => {
       expect(clean).not.toContain('<details');
     }
   });
+
+  describe('Toolbar Formatting & Placeholder Selection', () => {
+    it('should insert human-readable placeholder text when applying formatting with no text selected', () => {
+      component.value = '';
+      component.applyFormat('bold');
+      expect(component.value).toBe('**bold text**');
+
+      component.value = '';
+      component.applyFormat('italic');
+      expect(component.value).toBe('*italic text*');
+
+      component.value = '';
+      component.applyFormat('h1');
+      expect(component.value).toBe('# Heading 1');
+
+      component.value = '';
+      component.applyFormat('code');
+      expect(component.value).toBe('`code`');
+
+      component.value = '';
+      component.applyFormat('checklist');
+      expect(component.value).toBe('- [ ] Task item');
+    });
+
+    it('should wrap selected text when text is selected', () => {
+      const mockTextarea = document.createElement('textarea');
+      mockTextarea.value = 'Important';
+      mockTextarea.selectionStart = 0;
+      mockTextarea.selectionEnd = 9;
+
+      component.textareaEl = { nativeElement: mockTextarea } as any;
+      component.value = 'Important';
+
+      component.applyFormat('bold');
+      expect(component.value).toBe('**Important**');
+    });
+  });
 });
