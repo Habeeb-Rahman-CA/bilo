@@ -631,6 +631,7 @@ export class SelectComponent implements OnChanges, OnDestroy {
     if (this.disabled) return;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
+      event.stopPropagation();
       if (!this.isOpen()) {
         this.openPopover();
       }
@@ -642,37 +643,51 @@ export class SelectComponent implements OnChanges, OnDestroy {
   }
 
   private handleKeyNavigation(event: KeyboardEvent) {
-    const opts = this.filteredOptions();
-    if (opts.length === 0) return;
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      const opts = this.filteredOptions();
+      const idx = this.activeIndex();
+      if (idx >= 0 && idx < opts.length) {
+        this.selectOption(opts[idx], event);
+      }
+      return;
+    }
 
     if (event.key === 'ArrowDown') {
       event.preventDefault();
       event.stopPropagation();
-      this.isKeyboardNav = true;
-      const next = (this.activeIndex() + 1) % opts.length;
-      this.activeIndex.set(next);
-      this.scrollToFocusedOption();
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      event.stopPropagation();
-      this.isKeyboardNav = true;
-      const prev = (this.activeIndex() - 1 + opts.length) % opts.length;
-      this.activeIndex.set(prev);
-      this.scrollToFocusedOption();
-    } else if (event.key === 'Enter') {
-      event.preventDefault();
-      event.stopPropagation();
-      const idx = this.activeIndex();
-      if (idx >= 0 && idx < opts.length) {
-        this.selectOption(opts[idx]);
+      const opts = this.filteredOptions();
+      if (opts.length > 0) {
+        this.isKeyboardNav = true;
+        const next = (this.activeIndex() + 1) % opts.length;
+        this.activeIndex.set(next);
+        this.scrollToFocusedOption();
       }
-    } else if (event.key === 'Escape') {
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      event.stopPropagation();
+      const opts = this.filteredOptions();
+      if (opts.length > 0) {
+        this.isKeyboardNav = true;
+        const prev = (this.activeIndex() - 1 + opts.length) % opts.length;
+        this.activeIndex.set(prev);
+        this.scrollToFocusedOption();
+      }
+      return;
+    }
+
+    if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
       this.closePopover();
       if (this.triggerEl) {
         this.triggerEl.nativeElement.focus();
       }
+      return;
     }
   }
 

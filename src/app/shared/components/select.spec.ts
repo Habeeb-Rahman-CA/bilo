@@ -23,6 +23,51 @@ describe('SelectComponent', () => {
     expect(component).toBeTruthy();
   });
 
+  describe('Enter Key Handling & Form Submission Prevention', () => {
+    it('should call preventDefault and stopPropagation on trigger Enter keydown', () => {
+      const enterEvent = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true });
+      const preventSpy = vi.spyOn(enterEvent, 'preventDefault');
+      const stopSpy = vi.spyOn(enterEvent, 'stopPropagation');
+
+      component.onTriggerKeydown(enterEvent);
+
+      expect(preventSpy).toHaveBeenCalled();
+      expect(stopSpy).toHaveBeenCalled();
+    });
+
+    it('should intercept Enter key on popover even when options list is empty', () => {
+      component.options = [];
+      const enterEvent = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true });
+      const preventSpy = vi.spyOn(enterEvent, 'preventDefault');
+      const stopSpy = vi.spyOn(enterEvent, 'stopPropagation');
+
+      component.onPopoverKeydown(enterEvent);
+
+      expect(preventSpy).toHaveBeenCalled();
+      expect(stopSpy).toHaveBeenCalled();
+    });
+
+    it('should select active option on Enter keydown when popover is open', () => {
+      component.options = [
+        { value: 'opt-1', label: 'Option 1' },
+        { value: 'opt-2', label: 'Option 2' }
+      ];
+
+      const valueSpy = vi.fn();
+      component.valueChange.subscribe(valueSpy);
+
+      component.onSearchChange(''); // activeIndex set to 0
+      const enterEvent = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true });
+      component.onPopoverKeydown(enterEvent);
+
+      expect(component.valueSignal()).toBe('opt-1');
+      expect(valueSpy).toHaveBeenCalledWith('opt-1');
+
+      vi.advanceTimersByTime(0);
+      expect(component.isOpen()).toBe(false);
+    });
+  });
+
   describe('Click-Outside & Parent Modal Conflict Prevention', () => {
     it('should stop propagation on selectOption click event and defer popover closure', () => {
       component.options = [
