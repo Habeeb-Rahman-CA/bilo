@@ -1,6 +1,17 @@
 import { Task, Project, Workflow, ProjectActivity, TaskType, TaskPriority } from '../models/project.model';
 import { sanitizeLabels } from './label.util';
 
+export function sanitizePlainText(input?: string): string {
+  if (!input) return '';
+  return String(input)
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+    .replace(/<(script|style|iframe|object|embed)[\s\S]*?<\/\1>/gi, '')
+    .replace(/<[^>]*>?/g, '')
+    .replace(/javascript:/gi, '')
+    .replace(/on\w+\s*=/gi, '')
+    .trim();
+}
+
 /**
  * Validates and sanitizes a raw task object to enforce strict runtime type safety.
  * Protects against application crashes caused by corrupt imported data or malformed JSON payloads.
@@ -17,10 +28,8 @@ export function validateAndSanitizeTask(raw: any): Task | null {
   }
 
   // Sanitize Title
-  let title = typeof raw.title === 'string' ? raw.title.trim() : typeof raw.title === 'number' ? String(raw.title) : 'Untitled Task';
-  if (!title) {
-    title = 'Untitled Task';
-  }
+  let rawTitle = typeof raw.title === 'string' ? raw.title.trim() : typeof raw.title === 'number' ? String(raw.title) : 'Untitled Task';
+  let title = sanitizePlainText(rawTitle) || 'Untitled Task';
 
   // Sanitize Status
   let status = typeof raw.status === 'string' ? raw.status.trim() : 'Backlog';
@@ -130,10 +139,8 @@ export function validateAndSanitizeProject(raw: any): Project | null {
     id = `proj-recovered-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
   }
 
-  let name = typeof raw.name === 'string' ? raw.name.trim() : 'Untitled Project';
-  if (!name) {
-    name = 'Untitled Project';
-  }
+  let rawName = typeof raw.name === 'string' ? raw.name.trim() : 'Untitled Project';
+  let name = sanitizePlainText(rawName) || 'Untitled Project';
 
   let slug = typeof raw.slug === 'string' && raw.slug.trim() ? raw.slug.trim() : name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
   const validStatus = ['active', 'archived', 'completed'];
@@ -179,8 +186,8 @@ export function validateAndSanitizeWorkflow(raw: any): Workflow | null {
   if (!id) return null;
 
   let project_id = typeof raw.project_id === 'string' ? raw.project_id.trim() : 'global';
-  let name = typeof raw.name === 'string' ? raw.name.trim() : 'Column';
-  if (!name) name = 'Column';
+  let rawName = typeof raw.name === 'string' ? raw.name.trim() : 'Column';
+  let name = sanitizePlainText(rawName) || 'Column';
 
   let color = typeof raw.color === 'string' && /^#[0-9a-fA-F]{3,6}$/.test(raw.color.trim()) ? raw.color.trim() : '#64748b';
   let position = typeof raw.position === 'number' && !isNaN(raw.position) ? raw.position : 0;

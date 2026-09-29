@@ -3,7 +3,8 @@ import {
   validateAndSanitizeTask,
   validateAndSanitizeProject,
   validateAndSanitizeWorkflow,
-  validateAndSanitizeImportData
+  validateAndSanitizeImportData,
+  sanitizePlainText
 } from './data-validator.util';
 
 describe('DataValidatorUtil Runtime Type Protection', () => {
@@ -97,6 +98,27 @@ describe('DataValidatorUtil Runtime Type Protection', () => {
       expect(res.tasks[1].title).toBe('404');
       expect(res.projects.length).toBe(1);
       expect(res.errors.length).toBe(0);
+    });
+  });
+
+  describe('XSS Input Sanitization', () => {
+    it('should strip script tags and inline event handlers from user text inputs', () => {
+      const maliciousTitle = '<script>alert("XSS")</script>Fix auth bug';
+      expect(sanitizePlainText(maliciousTitle)).toBe('Fix auth bug');
+
+      const maliciousProjectName = '<img src=x onerror=alert(1)>Mobile App';
+      expect(sanitizePlainText(maliciousProjectName)).toBe('Mobile App');
+    });
+
+    it('should strip HTML tags from task titles, project names, and workflow column names during validation', () => {
+      const task = validateAndSanitizeTask({ title: '<b>Feature</b> Request <iframe src="evil.com"></iframe>' });
+      expect(task?.title).toBe('Feature Request');
+
+      const project = validateAndSanitizeProject({ name: '<a href="javascript:alert(1)">Project Alpha</a>' });
+      expect(project?.name).toBe('Project Alpha');
+
+      const workflow = validateAndSanitizeWorkflow({ id: 'wf-1', name: '<style>body{display:none}</style>In Progress' });
+      expect(workflow?.name).toBe('In Progress');
     });
   });
 });
