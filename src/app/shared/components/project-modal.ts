@@ -53,9 +53,13 @@ import { sanitizeLabels } from '../../core/utils/label.util';
                   <i class="fi fi-rr-exclamation"></i> Project Name is required
                 </span>
               } @else if (isDuplicateName) {
-                <span class="field-info-text font-mono text-amber" style="font-size: 0.7rem; margin-top: 0.2rem; display: flex; align-items: center; gap: 0.3rem;">
-                  <i class="fi fi-rr-info"></i> A workspace named "{{ name.trim() }}" already exists. Saving will use "{{ suggestedUniqueName }}" for unique identity.
-                </span>
+                <div class="duplicate-warning-box font-mono">
+                  <i class="fi fi-rr-info text-amber"></i>
+                  <span>A workspace named <strong>"{{ name.trim() }}"</strong> already exists.</span>
+                  <button type="button" class="btn btn-ghost btn-xs text-cyan apply-unique-btn" (click)="useSuggestedName()">
+                    Use "{{ suggestedUniqueName }}"
+                  </button>
+                </div>
               }
             </div>
 
@@ -414,6 +418,24 @@ import { sanitizeLabels } from '../../core/utils/label.util';
       font-weight: 600;
       margin-top: 0.25rem;
     }
+    .duplicate-warning-box {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.725rem;
+      margin-top: 0.35rem;
+      padding: 0.35rem 0.5rem;
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      border-radius: var(--radius-xs);
+      color: var(--text-main);
+    }
+    .apply-unique-btn {
+      padding: 0.1rem 0.4rem;
+      font-size: 0.7rem;
+      white-space: nowrap;
+      text-decoration: underline;
+    }
   `]
 })
 export class ProjectModalComponent implements OnInit, AfterViewInit {
@@ -454,6 +476,10 @@ export class ProjectModalComponent implements OnInit, AfterViewInit {
   get suggestedUniqueName(): string {
     const excludeId = this.projectToEdit?.id;
     return this.projectService.generateUniqueName(this.name.trim(), excludeId);
+  }
+
+  useSuggestedName() {
+    this.name = this.suggestedUniqueName;
   }
 
   async onFileSelected(event: Event) {
@@ -499,6 +525,10 @@ export class ProjectModalComponent implements OnInit, AfterViewInit {
   async saveProject() {
     this.submitted = true;
     if (!this.name.trim()) return;
+
+    if (this.isDuplicateName) {
+      this.name = this.suggestedUniqueName;
+    }
 
     const parsedLabels = sanitizeLabels(this.labelsInput.split(','));
 
