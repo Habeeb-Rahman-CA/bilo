@@ -284,22 +284,34 @@ export class PushNotificationService {
     return sent;
   }
 
-  async sendTestNotification() {
-    if (this.permissionStatus() !== 'granted') {
-      const granted = await this.requestPermission();
-      if (!granted) return;
-    }
+  isSendingTest = signal<boolean>(false);
 
-    const success = await this.sendNotification(
-      'bilo Push Notification Test',
-      'Push notifications active for task creation & status updates!',
-      'test'
-    );
+  async sendTestNotification(): Promise<boolean> {
+    if (this.isSendingTest()) return false;
+    this.isSendingTest.set(true);
 
-    if (success) {
-      this.showToast('Test Notification triggered successfully!');
-    } else {
-      this.showToast('Failed to trigger test notification. Check browser settings.');
+    try {
+      if (this.permissionStatus() !== 'granted') {
+        const granted = await this.requestPermission();
+        if (!granted) return false;
+      }
+
+      const success = await this.sendNotification(
+        'bilo Push Notification Test',
+        'Push notifications active for task creation & status updates!',
+        'test'
+      );
+
+      if (success) {
+        this.showToast('Test Notification triggered successfully!');
+      } else {
+        this.showToast('Failed to trigger test notification. Check browser settings.');
+      }
+      return success;
+    } finally {
+      setTimeout(() => {
+        this.isSendingTest.set(false);
+      }, 1500);
     }
   }
 

@@ -67,8 +67,16 @@ import { PushNotificationService } from '../../core/services/push-notification.s
                   <i class="fi fi-rr-bell-ring"></i> Grant Permission
                 </button>
               } @else if (pushService.permissionStatus() === 'granted') {
-                <button class="btn btn-secondary btn-sm" (click)="pushService.sendTestNotification()">
-                  <i class="fi fi-rr-paper-plane"></i> Send Test Notification
+                <button
+                  class="btn btn-secondary btn-sm"
+                  [disabled]="pushService.isSendingTest()"
+                  (click)="pushService.sendTestNotification()"
+                >
+                  @if (pushService.isSendingTest()) {
+                    <i class="fi fi-rr-spinner spinner font-mono"></i> Sending...
+                  } @else {
+                    <i class="fi fi-rr-paper-plane"></i> Send Test Notification
+                  }
                 </button>
               }
             </div>
@@ -163,8 +171,16 @@ import { PushNotificationService } from '../../core/services/push-notification.s
               <div class="empty-log-box font-mono">
                 <i class="fi fi-rr-bell-slash text-muted empty-icon"></i>
                 <p>No push notifications dispatched in this session yet.</p>
-                <button class="btn btn-secondary btn-xs" (click)="pushService.sendTestNotification()">
-                  <i class="fi fi-rr-paper-plane"></i> Send Test Notification
+                <button
+                  class="btn btn-secondary btn-xs"
+                  [disabled]="pushService.isSendingTest()"
+                  (click)="pushService.sendTestNotification()"
+                >
+                  @if (pushService.isSendingTest()) {
+                    <i class="fi fi-rr-spinner spinner font-mono"></i> Sending...
+                  } @else {
+                    <i class="fi fi-rr-paper-plane"></i> Send Test Notification
+                  }
                 </button>
               </div>
             } @else {
@@ -493,6 +509,12 @@ import { PushNotificationService } from '../../core/services/push-notification.s
       display: flex;
       align-items: center;
       gap: 0.45rem;
+    }
+    .spinner {
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
     }
   `]
 })

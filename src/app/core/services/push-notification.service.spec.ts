@@ -78,4 +78,18 @@ describe('PushNotificationService Permission Revocation Safeguards', () => {
     expect(service.notificationHistory().length).toBe(1);
     expect(service.notificationHistory()[0].title).toBe('User B Notif');
   });
+
+  it('should lock isSendingTest and block rapid duplicate test notification calls', async () => {
+    (window.Notification as any).permission = 'granted';
+    service.permissionStatus.set('granted');
+    service.notificationsEnabled.set(true);
+
+    const promise1 = service.sendTestNotification();
+    expect(service.isSendingTest()).toBe(true);
+
+    const promise2 = service.sendTestNotification();
+    expect(await promise2).toBe(false);
+
+    await promise1;
+  });
 });
