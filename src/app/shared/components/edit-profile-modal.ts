@@ -1,4 +1,4 @@
-import { Component, EventEmitter, HostListener, OnInit, OnDestroy, Output, signal } from '@angular/core';
+import { Component, EventEmitter, HostListener, ElementRef, OnInit, OnDestroy, Output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
@@ -401,7 +401,8 @@ export class EditProfileModalComponent implements OnInit, OnDestroy {
 
   constructor(
     public authService: AuthService,
-    private taskShareService: TaskShareService
+    private taskShareService: TaskShareService,
+    private elementRef: ElementRef
   ) {}
 
   ngOnInit() {
@@ -414,10 +415,45 @@ export class EditProfileModalComponent implements OnInit, OnDestroy {
     unregisterModal(this.modalId);
   }
 
-  @HostListener('document:keydown.escape')
-  onEscape() {
-    if (isTopModal(this.modalId)) {
+  @HostListener('window:keydown', ['$event'])
+  handleGlobalKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && isTopModal(this.modalId)) {
+      e.preventDefault();
       this.close.emit();
+      return;
+    }
+
+    if (e.key === 'Tab' && isTopModal(this.modalId)) {
+      this.trapFocus(e);
+    }
+  }
+
+  private trapFocus(e: KeyboardEvent) {
+    const container = this.elementRef?.nativeElement;
+    if (!container) return;
+
+    const focusables = (Array.from(
+      container.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ) as HTMLElement[]).filter(el => el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement);
+
+    if (focusables.length === 0) return;
+
+    const firstEl = focusables[0];
+    const lastEl = focusables[focusables.length - 1];
+    const activeEl = document.activeElement;
+
+    if (e.shiftKey) {
+      if (activeEl === firstEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        lastEl.focus();
+      }
+    } else {
+      if (activeEl === lastEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        firstEl.focus();
+      }
     }
   }
 

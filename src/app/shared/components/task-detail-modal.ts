@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, OnInit, OnDestroy, Output, HostListener, signal, computed } from '@angular/core';
+import { Component, EventEmitter, Input, OnInit, OnDestroy, Output, HostListener, ElementRef, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TaskService } from '../../core/services/task.service';
@@ -2016,13 +2016,50 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
     public projectService: ProjectService,
     public workflowService: WorkflowService,
     public taskShareService: TaskShareService,
-    public authService: AuthService
+    public authService: AuthService,
+    private elementRef: ElementRef
   ) { }
 
   get hasUnsavedTitleChanges(): boolean {
     return this.isEditingTitle() &&
       this.titleInputText.trim() !== '' &&
       this.titleInputText.trim() !== (this.task?.title || '');
+  }
+
+  @HostListener('window:keydown', ['$event'])
+  handleWindowKeydown(e: KeyboardEvent) {
+    if (e.key === 'Tab' && isTopModal(this.modalId)) {
+      this.trapFocus(e);
+    }
+  }
+
+  private trapFocus(e: KeyboardEvent) {
+    const container = this.elementRef?.nativeElement;
+    if (!container) return;
+
+    const focusables = (Array.from(
+      container.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ) as HTMLElement[]).filter(el => el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement);
+
+    if (focusables.length === 0) return;
+
+    const firstEl = focusables[0];
+    const lastEl = focusables[focusables.length - 1];
+    const activeEl = document.activeElement;
+
+    if (e.shiftKey) {
+      if (activeEl === firstEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        lastEl.focus();
+      }
+    } else {
+      if (activeEl === lastEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        firstEl.focus();
+      }
+    }
   }
 
   @HostListener('window:beforeunload', ['$event'])
