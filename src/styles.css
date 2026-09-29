@@ -610,19 +610,51 @@ pre,
    Accessibility (a11y) & Focus Ring Utilities (WCAG 2.1 AA)
    ========================================================================== */
 
-:focus-visible {
-  outline: 2px solid var(--accent-cyan, #06b6d4) !important;
-  outline-offset: 2px !important;
+/* Remove default focus outline on mouse clicks, but retain for keyboard navigation */
+:focus:not(:focus-visible),
+*:focus:not(:focus-visible) {
+  outline: none;
 }
 
+:focus-visible,
+*:focus-visible,
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
-[tabindex]:focus-visible {
+summary:focus-visible,
+[tabindex]:focus-visible,
+[role="button"]:focus-visible,
+[role="tab"]:focus-visible,
+[role="option"]:focus-visible,
+[role="checkbox"]:focus-visible,
+[role="menuitem"]:focus-visible,
+[contenteditable]:focus-visible {
   outline: 2px solid var(--accent-cyan, #06b6d4) !important;
   outline-offset: 2px !important;
+  box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.4) !important;
+  transition: outline-offset 0.15s ease, box-shadow 0.15s ease;
+}
+
+body.dark-theme :focus-visible,
+body.dark-theme *:focus-visible,
+body.dark-theme button:focus-visible,
+body.dark-theme a:focus-visible,
+body.dark-theme input:focus-visible,
+body.dark-theme select:focus-visible,
+body.dark-theme textarea:focus-visible,
+body.dark-theme summary:focus-visible,
+body.dark-theme [tabindex]:focus-visible,
+body.dark-theme [role="button"]:focus-visible,
+body.dark-theme [role="tab"]:focus-visible,
+body.dark-theme [role="option"]:focus-visible,
+body.dark-theme [role="checkbox"]:focus-visible,
+body.dark-theme [role="menuitem"]:focus-visible,
+body.dark-theme [contenteditable]:focus-visible {
+  outline: 2px solid var(--accent-cyan, #06b6d4) !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.6) !important;
 }
 
 .sr-only {
