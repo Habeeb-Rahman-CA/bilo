@@ -23,4 +23,8 @@ describe('BiloLogoComponent', () => {
     expect(component.themeService).toBe(themeService);
     expect(component.themeService.isDarkMode()).toBe(true);
   });
+
+  it('should execute ngOnInit and preload dark/light logo variants without throwing', () => {
+    expect(() => component.ngOnInit()).not.toThrow();
+  });
 });
