@@ -12,6 +12,12 @@ export interface WorkspaceItem {
   desc: string;
 }
 
+export interface GlobalShortcutItem {
+  title: string;
+  desc: string;
+  keys: string[];
+}
+
 const WORKSPACE_HASH_MAP: Record<string, WorkspaceSection> = {
   'today': '01 TODAY',
   'dashboard': '01 TODAY',
@@ -51,6 +57,21 @@ export class WorkspaceService {
     { id: '05 ARCHIVE', key: '5', name: 'ARCHIVE', code: '05', icon: 'fi fi-rr-box-alt', desc: 'Completed work history & exports' },
     { id: '06 SETTINGS', key: '6', name: 'SETTINGS', code: '06', icon: 'fi fi-rr-settings', desc: 'Workspace settings & status workflow' }
   ];
+
+  readonly globalShortcuts: GlobalShortcutItem[] = [
+    { title: 'Command Palette Search', desc: 'Search tasks, projects, or trigger actions', keys: ['⌘', 'K'] },
+    { title: 'Create New Task', desc: 'Open quick task creation modal in any workspace', keys: ['N'] },
+    { title: 'System Reference Guide', desc: 'Toggle this help & documentation overlay', keys: ['?'] },
+    { title: 'Toggle Dark / Light Theme', desc: 'Switch between Black & Grey Dark Theme and Light Theme', keys: ['T'] },
+    { title: 'Close Modal / Dismiss Overlay', desc: 'Exit open dialogs, drawers, or palettes', keys: ['ESC'] }
+  ];
+
+  get workspaceKeyRange(): string {
+    if (!this.workspaces || this.workspaces.length === 0) return '';
+    const firstKey = this.workspaces[0].key;
+    const lastKey = this.workspaces[this.workspaces.length - 1].key;
+    return firstKey === lastKey ? firstKey : `${firstKey}-${lastKey}`;
+  }
 
   constructor(public themeService: ThemeService) {
     this.initKeyboardListeners();
@@ -200,13 +221,11 @@ export class WorkspaceService {
         return;
       }
 
-      // Numeric shortcuts 1-6 for switching workspace
-      if (['1', '2', '3', '4', '5', '6'].includes(e.key)) {
-        const item = this.workspaces.find(w => w.key === e.key);
-        if (item) {
-          e.preventDefault();
-          this.setWorkspace(item.id);
-        }
+      // Numeric shortcuts for switching workspace based on workspaces array
+      const navItem = this.workspaces.find(w => w.key === e.key);
+      if (navItem && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        this.setWorkspace(navItem.id);
         return;
       }
 

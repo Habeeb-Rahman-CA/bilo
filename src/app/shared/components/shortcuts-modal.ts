@@ -58,7 +58,7 @@ import { WorkspaceService } from '../../core/services/workspace.service';
           @if (activeTab() === 'shortcuts') {
             <div class="tab-pane">
               <div class="shortcuts-grid">
-                <!-- Column 1: Workspace Navigation (1-6) -->
+                <!-- Column 1: Workspace Navigation (Dynamic from WorkspaceService) -->
                 <div class="shortcuts-column">
                   <div class="column-header">
                     <i class="fi fi-rr-layout-fluid text-cyan"></i>
@@ -66,57 +66,19 @@ import { WorkspaceService } from '../../core/services/workspace.service';
                   </div>
 
                   <div class="shortcut-list">
-                    <div class="shortcut-item">
-                      <div class="item-info">
-                        <span class="item-title"><i class="fi fi-rr-sun text-amber"></i> 01 DASHBOARD</span>
-                        <span class="item-desc">Focus view & 7-day velocity metrics</span>
+                    @for (ws of workspaceService.workspaces; track ws.id) {
+                      <div class="shortcut-item">
+                        <div class="item-info">
+                          <span class="item-title"><i [class]="ws.icon"></i> {{ ws.code }} {{ ws.name }}</span>
+                          <span class="item-desc">{{ ws.desc }}</span>
+                        </div>
+                        <span class="key-badge">{{ ws.key }}</span>
                       </div>
-                      <span class="key-badge">1</span>
-                    </div>
-
-                    <div class="shortcut-item">
-                      <div class="item-info">
-                        <span class="item-title"><i class="fi fi-rr-list-check text-emerald"></i> 02 BACKLOG</span>
-                        <span class="item-desc">Task backlog & multi-field filters</span>
-                      </div>
-                      <span class="key-badge">2</span>
-                    </div>
-
-                    <div class="shortcut-item">
-                      <div class="item-info">
-                        <span class="item-title"><i class="fi fi-rr-layout-fluid text-purple"></i> 03 BOARD</span>
-                        <span class="item-desc">Kanban drag & drop workflow tracker</span>
-                      </div>
-                      <span class="key-badge">3</span>
-                    </div>
-
-                    <div class="shortcut-item">
-                      <div class="item-info">
-                        <span class="item-title"><i class="fi fi-rr-calendar text-cyan"></i> 04 CALENDAR</span>
-                        <span class="item-desc">Monthly timeline & drag-to-schedule</span>
-                      </div>
-                      <span class="key-badge">4</span>
-                    </div>
-
-                    <div class="shortcut-item">
-                      <div class="item-info">
-                        <span class="item-title"><i class="fi fi-rr-box-alt text-rose"></i> 05 ARCHIVE</span>
-                        <span class="item-desc">Completed task history & Excel export</span>
-                      </div>
-                      <span class="key-badge">5</span>
-                    </div>
-
-                    <div class="shortcut-item">
-                      <div class="item-info">
-                        <span class="item-title"><i class="fi fi-rr-settings text-amber"></i> 06 SETTINGS</span>
-                        <span class="item-desc">Project workflow & status configuration</span>
-                      </div>
-                      <span class="key-badge">6</span>
-                    </div>
+                    }
                   </div>
                 </div>
 
-                <!-- Column 2: Global Controls -->
+                <!-- Column 2: Global Controls (Dynamic from WorkspaceService) -->
                 <div class="shortcuts-column">
                   <div class="column-header">
                     <i class="fi fi-rr-bolt text-amber"></i>
@@ -124,47 +86,19 @@ import { WorkspaceService } from '../../core/services/workspace.service';
                   </div>
 
                   <div class="shortcut-list">
-                    <div class="shortcut-item">
-                      <div class="item-info">
-                        <span class="item-title">Command Palette Search</span>
-                        <span class="item-desc">Search tasks, projects, or trigger actions</span>
+                    @for (shortcut of workspaceService.globalShortcuts; track shortcut.title) {
+                      <div class="shortcut-item">
+                        <div class="item-info">
+                          <span class="item-title">{{ shortcut.title }}</span>
+                          <span class="item-desc">{{ shortcut.desc }}</span>
+                        </div>
+                        <div class="keys-inline">
+                          @for (k of shortcut.keys; track $index) {
+                            <span class="key-badge">{{ k }}</span>
+                          }
+                        </div>
                       </div>
-                      <div class="keys-inline">
-                        <span class="key-badge">⌘</span> <span class="key-badge">K</span>
-                      </div>
-                    </div>
-
-                    <div class="shortcut-item">
-                      <div class="item-info">
-                        <span class="item-title">Create New Task</span>
-                        <span class="item-desc">Open quick task creation modal in any workspace</span>
-                      </div>
-                      <span class="key-badge">N</span>
-                    </div>
-
-                    <div class="shortcut-item">
-                      <div class="item-info">
-                        <span class="item-title">System Reference Guide</span>
-                        <span class="item-desc">Toggle this help & documentation overlay</span>
-                      </div>
-                      <span class="key-badge">?</span>
-                    </div>
-
-                    <div class="shortcut-item">
-                      <div class="item-info">
-                        <span class="item-title">Toggle Dark / Light Theme</span>
-                        <span class="item-desc">Switch between Black & Grey Dark Theme and Light Theme</span>
-                      </div>
-                      <span class="key-badge">T</span>
-                    </div>
-
-                    <div class="shortcut-item">
-                      <div class="item-info">
-                        <span class="item-title">Close Modal / Dismiss Overlay</span>
-                        <span class="item-desc">Exit open dialogs, drawers, or palettes</span>
-                      </div>
-                      <span class="key-badge">ESC</span>
-                    </div>
+                    }
                   </div>
                 </div>
               </div>
@@ -412,7 +346,7 @@ import { WorkspaceService } from '../../core/services/workspace.service';
         <div class="modal-footer">
           <div class="footer-left">
             <span class="status-dot dot-emerald"></span>
-            <span>PRESS <strong>1-6</strong> FOR WORKSPACES • PRESS <strong>⌘K</strong> FOR SEARCH • PRESS <strong>N</strong> FOR TASK</span>
+            <span>PRESS <strong>{{ workspaceService.workspaceKeyRange }}</strong> FOR WORKSPACES • PRESS <strong>⌘K</strong> FOR SEARCH • PRESS <strong>N</strong> FOR TASK</span>
           </div>
           <div class="footer-right-actions">
             <button class="btn btn-ghost btn-xs text-rose" (click)="close(); workspaceService.openReportIssueModal()">
