@@ -33,6 +33,7 @@ import { AuthPageComponent } from './features/auth/auth-page';
 import { TaskService } from './core/services/task.service';
 import { Task, ProjectRole, Project } from './core/models/project.model';
 import { verifySecureInviteToken, VerifiedInvitePayload } from './core/utils/invite-token.util';
+import { registerOpenPopover, unregisterOpenPopover, ClosablePopover } from './shared/components/select';
 
 import { MaintenanceComponent } from './features/maintenance/maintenance';
 
@@ -76,6 +77,14 @@ export class App implements OnInit {
   userMenuOpen = signal<boolean>(false);
   notificationMenuOpen = signal<boolean>(false);
   retryingConnection = signal<boolean>(false);
+
+  private userMenuPopoverInstance: ClosablePopover = {
+    closePopover: () => this.closeUserMenu()
+  };
+
+  private notificationMenuPopoverInstance: ClosablePopover = {
+    closePopover: () => this.closeNotificationMenu()
+  };
 
   // Incoming Invite Link State
   incomingInviteProjectId = signal<string | null>(null);
@@ -208,32 +217,62 @@ export class App implements OnInit {
   onDocumentClick(event: MouseEvent) {
     const target = event.target as HTMLElement;
     if (this.userMenuOpen() && !target.closest('.user-menu-container')) {
-      this.userMenuOpen.set(false);
+      this.closeUserMenu();
     }
     if (this.notificationMenuOpen() && !target.closest('.notification-menu-container')) {
-      this.notificationMenuOpen.set(false);
+      this.closeNotificationMenu();
+    }
+  }
+
+  openUserMenu() {
+    registerOpenPopover(this.userMenuPopoverInstance);
+    this.userMenuOpen.set(true);
+  }
+
+  closeUserMenu() {
+    if (this.userMenuOpen()) {
+      unregisterOpenPopover(this.userMenuPopoverInstance);
+      this.userMenuOpen.set(false);
     }
   }
 
   toggleUserMenu(event: MouseEvent) {
     event.stopPropagation();
-    this.notificationMenuOpen.set(false);
-    this.userMenuOpen.update(v => !v);
+    if (this.userMenuOpen()) {
+      this.closeUserMenu();
+    } else {
+      this.openUserMenu();
+    }
+  }
+
+  openNotificationMenu() {
+    registerOpenPopover(this.notificationMenuPopoverInstance);
+    this.notificationMenuOpen.set(true);
+  }
+
+  closeNotificationMenu() {
+    if (this.notificationMenuOpen()) {
+      unregisterOpenPopover(this.notificationMenuPopoverInstance);
+      this.notificationMenuOpen.set(false);
+    }
   }
 
   toggleNotificationMenu(event: MouseEvent) {
     event.stopPropagation();
-    this.userMenuOpen.set(false);
-    this.notificationMenuOpen.update(v => !v);
+    if (this.notificationMenuOpen()) {
+      this.closeNotificationMenu();
+    } else {
+      this.openNotificationMenu();
+    }
   }
 
   openNotificationSettings() {
-    this.notificationMenuOpen.set(false);
+    this.closeNotificationMenu();
     this.selectWorkspace('06 SETTINGS');
   }
 
   signOutUser() {
-    this.userMenuOpen.set(false);
+    this.closeUserMenu();
     this.authService.signOut();
   }
 

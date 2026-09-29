@@ -1,6 +1,7 @@
-import { Component, EventEmitter, Input, Output, ElementRef, HostListener, signal } from '@angular/core';
+import { Component, EventEmitter, Input, Output, ElementRef, HostListener, signal, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { registerOpenPopover, unregisterOpenPopover } from './select';
 
 export const DEFAULT_PRESET_COLORS = [
   '#64748b', // Slate
@@ -295,13 +296,27 @@ export class ColorPickerComponent {
     return this.color.replace(/^#/, '');
   }
 
-  togglePopover(event: MouseEvent) {
-    event.stopPropagation();
-    this.isOpen.update(v => !v);
+  openPopover() {
+    registerOpenPopover(this);
+    this.isOpen.set(true);
   }
 
   closePopover() {
+    unregisterOpenPopover(this);
     this.isOpen.set(false);
+  }
+
+  togglePopover(event: MouseEvent) {
+    event.stopPropagation();
+    if (!this.isOpen()) {
+      this.openPopover();
+    } else {
+      this.closePopover();
+    }
+  }
+
+  ngOnDestroy() {
+    this.closePopover();
   }
 
   selectColor(newColor: string) {
