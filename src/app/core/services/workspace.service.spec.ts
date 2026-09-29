@@ -130,6 +130,24 @@ describe('WorkspaceService', () => {
     expect(window.location.hash).toBe('#today');
   });
 
+  it('should initialize active workspace correctly when URL contains slashes or parameters in hash (e.g. #/tasks, #/board)', () => {
+    window.location.hash = '#/tasks';
+    const s1 = new WorkspaceService(themeService);
+    expect(s1.activeWorkspace()).toBe('03 TASKS');
+
+    window.location.hash = '#/board';
+    const s2 = new WorkspaceService(themeService);
+    expect(s2.activeWorkspace()).toBe('03 TASKS');
+
+    window.location.hash = '#/calendar';
+    const s3 = new WorkspaceService(themeService);
+    expect(s3.activeWorkspace()).toBe('04 CALENDAR');
+
+    window.location.hash = '#/backlog';
+    const s4 = new WorkspaceService(themeService);
+    expect(s4.activeWorkspace()).toBe('02 BACKLOG');
+  });
+
   it('should sanitize invalid hashchange event and reset active workspace to valid route', () => {
     service.setWorkspace('03 TASKS');
     expect(window.location.hash).toBe('#tasks');

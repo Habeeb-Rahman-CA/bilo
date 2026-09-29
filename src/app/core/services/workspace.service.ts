@@ -78,6 +78,18 @@ export class WorkspaceService {
     this.initHashListener();
   }
 
+  private cleanHash(hashOrHref: string): string {
+    if (!hashOrHref) return '';
+    let hash = hashOrHref;
+    if (hash.includes('#')) {
+      hash = hash.split('#').pop() || '';
+    }
+    if (hash.includes('?')) {
+      hash = hash.split('?')[0];
+    }
+    return hash.replace(/^\/+/, '').replace(/\/+$/, '').toLowerCase().trim();
+  }
+
   private getSavedOrDefaultWorkspace(): WorkspaceSection {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('bilo_active_workspace') as WorkspaceSection;
@@ -90,7 +102,7 @@ export class WorkspaceService {
 
   private getInitialWorkspace(): WorkspaceSection {
     if (typeof window !== 'undefined') {
-      const rawHash = window.location.hash.replace('#', '').toLowerCase().trim();
+      const rawHash = this.cleanHash(window.location.hash || window.location.href);
       if (rawHash) {
         if (WORKSPACE_HASH_MAP[rawHash]) {
           return WORKSPACE_HASH_MAP[rawHash];
@@ -125,7 +137,7 @@ export class WorkspaceService {
   private initHashListener() {
     if (typeof window === 'undefined') return;
     window.addEventListener('hashchange', () => {
-      const hash = window.location.hash.replace('#', '').toLowerCase().trim();
+      const hash = this.cleanHash(window.location.hash);
       if (hash && WORKSPACE_HASH_MAP[hash]) {
         this.setWorkspace(WORKSPACE_HASH_MAP[hash], false);
       } else {
