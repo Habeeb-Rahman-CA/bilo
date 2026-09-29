@@ -183,22 +183,31 @@ body.dark-theme .day-cell.drag-over {
   border-color: var(--accent-purple) !important;
 }
 
-/* Sleek Dark Scrollbar */
-body.dark-theme ::-webkit-scrollbar {
+/* ==========================================================================
+   Cross-Browser Custom Scrollbar System (Firefox, Safari, Chrome, Edge)
+   ========================================================================== */
+html,
+body,
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-medium) var(--bg-canvas);
+}
+
+::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
-body.dark-theme ::-webkit-scrollbar-track {
+::-webkit-scrollbar-track {
   background: var(--bg-canvas);
 }
 
-body.dark-theme ::-webkit-scrollbar-thumb {
+::-webkit-scrollbar-thumb {
   background: var(--border-medium);
   border-radius: var(--radius-xs);
 }
 
-body.dark-theme ::-webkit-scrollbar-thumb:hover {
+::-webkit-scrollbar-thumb:hover {
   background: var(--text-subtle);
 }
 

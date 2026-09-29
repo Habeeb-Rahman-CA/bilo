@@ -411,6 +411,11 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
       white-space: pre;
     }
 
+    :host ::ng-deep .markdown-preview-render pre {
+      scrollbar-width: thin;
+      scrollbar-color: var(--border-medium, #30363d) transparent;
+    }
+
     :host ::ng-deep .markdown-preview-render pre::-webkit-scrollbar {
       height: 6px;
     }
