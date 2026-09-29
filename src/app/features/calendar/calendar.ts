@@ -9,6 +9,7 @@ import { TaskDetailModalComponent } from '../../shared/components/task-detail-mo
 import { TaskModalComponent } from '../../shared/components/task-modal';
 import { DatePickerComponent } from '../../shared/components/date-picker';
 import { getLocalDateString, isoToLocalDateString } from '../../core/utils/date.util';
+import { ScrollingModule } from '@angular/cdk/scrolling';
 
 export type WeekStartDay = 'sunday' | 'monday' | 'saturday';
 
@@ -32,7 +33,7 @@ export interface CalendarCellEvent {
 @Component({
   selector: 'app-calendar',
   standalone: true,
-  imports: [CommonModule, FormsModule, TaskDetailModalComponent, TaskModalComponent, DatePickerComponent],
+  imports: [CommonModule, FormsModule, ScrollingModule, TaskDetailModalComponent, TaskModalComponent, DatePickerComponent],
   template: `
     <div class="calendar-workspace font-mono">
       <!-- Calendar Header Strip -->

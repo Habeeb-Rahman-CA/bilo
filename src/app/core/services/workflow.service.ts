@@ -238,6 +238,28 @@ export class WorkflowService {
     return updatedWf;
   }
 
+  getTaskCountForWorkflow(workflowId: string, projectId?: string): number {
+    if (!this.injector) return 0;
+    try {
+      const taskService = this.injector.get(TaskService);
+      if (!taskService) return 0;
+
+      const list = this.workflowsByProject()[projectId || 'global'] || [];
+      const targetWf = list.find(w => w.id === workflowId);
+      const targetNameLower = targetWf?.name?.trim().toLowerCase();
+
+      return taskService.tasks().filter(t => {
+        const matchesWfId = t.workflow_id === workflowId;
+        const matchesStatusId = t.status === workflowId;
+        const matchesStatusName = !!(targetNameLower && t.status?.trim().toLowerCase() === targetNameLower);
+        const matchesProject = !projectId || projectId === 'global' || t.project_id === projectId;
+        return (matchesWfId || matchesStatusId || matchesStatusName) && matchesProject;
+      }).length;
+    } catch {
+      return 0;
+    }
+  }
+
   async deleteWorkflow(id: string, projectId?: string, fallbackWorkflowId?: string) {
     let targetProjectId = projectId;
     let deletedWf: Workflow | undefined;

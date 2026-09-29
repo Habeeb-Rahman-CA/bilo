@@ -171,4 +171,22 @@ describe('WorkflowService', () => {
       status: 'In Progress'
     }));
   });
+
+  it('should accurately return task count for a workflow column via getTaskCountForWorkflow', () => {
+    const mockTaskService = {
+      tasks: vi.fn().mockReturnValue([
+        { id: 'task-1', project_id: 'proj-count', workflow_id: 'wf-target', status: 'Target Stage' },
+        { id: 'task-2', project_id: 'proj-count', workflow_id: 'wf-target', status: 'Target Stage' },
+        { id: 'task-3', project_id: 'proj-count', workflow_id: 'wf-other', status: 'Other Stage' }
+      ])
+    };
+
+    const mockInjector = {
+      get: vi.fn().mockReturnValue(mockTaskService)
+    };
+
+    const serviceWithInjector = new WorkflowService(mockSupabaseService as SupabaseService, mockInjector as any);
+    const count = serviceWithInjector.getTaskCountForWorkflow('wf-target', 'proj-count');
+    expect(count).toBe(2);
+  });
 });

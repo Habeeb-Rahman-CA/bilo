@@ -9,6 +9,7 @@ import { TaskShareService } from '../../core/services/task-share.service';
 import { Task } from '../../core/models/project.model';
 import { getTaskKey } from '../../core/utils/task-key.util';
 import { compareDueDates, getLocalDateString, getOffsetDateString } from '../../core/utils/date.util';
+import { ScrollingModule } from '@angular/cdk/scrolling';
 import { TaskDetailModalComponent } from '../../shared/components/task-detail-modal';
 import { TaskModalComponent } from '../../shared/components/task-modal';
 import { SelectComponent, SelectOption } from '../../shared/components/select';
@@ -17,7 +18,7 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
 @Component({
   selector: 'app-backlog',
   standalone: true,
-  imports: [CommonModule, FormsModule, TaskDetailModalComponent, TaskModalComponent, SelectComponent, ConfirmModalComponent],
+  imports: [CommonModule, FormsModule, ScrollingModule, TaskDetailModalComponent, TaskModalComponent, SelectComponent, ConfirmModalComponent],
   template: `
     <div class="backlog-workspace font-mono">
       <!-- Restricted Transition Toast Notification -->

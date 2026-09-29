@@ -7,11 +7,12 @@ import { ProjectService } from '../../core/services/project.service';
 import { Task, Project } from '../../core/models/project.model';
 import { getTaskKey } from '../../core/utils/task-key.util';
 import { getLocalDateString } from '../../core/utils/date.util';
+import { ScrollingModule } from '@angular/cdk/scrolling';
 
 @Component({
   selector: 'app-archive',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ScrollingModule],
   template: `
     <div class="archive-workspace">
       <!-- Header -->
