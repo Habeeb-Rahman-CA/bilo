@@ -1170,4 +1170,47 @@
   }
 }
 
+/* ==========================================================================
+   Form Controls & Ultra-wide (4K) Layout Constraints
+   ========================================================================== */
+.form-input,
+.form-select,
+.form-textarea,
+.form-control,
+input[type="text"].form-input,
+input[type="email"].form-input,
+input[type="password"].form-input,
+input[type="number"].form-input,
+textarea.form-input,
+textarea.form-textarea {
+  width: 100%;
+  max-width: 640px;
+  box-sizing: border-box;
+}
+
+.form-group,
+.form-row {
+  max-width: 640px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Modals & paper panels retain full internal responsive card width */
+.modal-card .form-input,
+.modal-card .form-select,
+.modal-card .form-textarea,
+.modal-card .form-control,
+.modal-card .form-group,
+.modal-card .form-row,
+.paper-panel .form-input,
+.paper-panel .form-select,
+.paper-panel .form-textarea,
+.paper-panel .form-control,
+.paper-panel .form-group,
+.paper-panel .form-row,
+.form-group.full-width,
+.form-input.full-width {
+  max-width: 100%;
+}
+
 
