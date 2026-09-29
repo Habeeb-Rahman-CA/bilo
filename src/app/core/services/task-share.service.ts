@@ -5,6 +5,7 @@ import { copyToClipboard } from '../utils/clipboard.util';
 import { TaskService } from './task.service';
 import { ProjectService } from './project.service';
 import { WorkspaceService } from './workspace.service';
+import { ToastService } from './toast.service';
 
 @Injectable({
   providedIn: 'root'
@@ -20,7 +21,8 @@ export class TaskShareService {
   constructor(
     private taskService: TaskService,
     private projectService: ProjectService,
-    private workspaceService: WorkspaceService
+    private workspaceService: WorkspaceService,
+    private toastService: ToastService
   ) {
     // Reactive effect: fires automatically whenever tasks() update/load
     effect(() => {
@@ -75,6 +77,9 @@ export class TaskShareService {
   }
 
   showToast(msg: string) {
+    if (this.toastService) {
+      this.toastService.show(msg, { type: 'success', icon: 'fi fi-rr-check-circle text-emerald' });
+    }
     this.toastMessage.set(msg);
     setTimeout(() => {
       if (this.toastMessage() === msg) {

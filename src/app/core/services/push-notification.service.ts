@@ -1,4 +1,5 @@
 import { Injectable, signal, computed } from '@angular/core';
+import { ToastService } from './toast.service';
 
 export interface PushNotificationLog {
   id: string;
@@ -28,7 +29,7 @@ export class PushNotificationService {
 
   private currentUserId: string | null = null;
 
-  constructor() {
+  constructor(private toastService: ToastService) {
     this.init();
   }
 
@@ -343,6 +344,9 @@ export class PushNotificationService {
   }
 
   showToast(message: string) {
+    if (this.toastService) {
+      this.toastService.show(message, { type: 'info', icon: 'fi fi-rr-bell text-amber' });
+    }
     this.toastMessage.set(message);
     setTimeout(() => {
       if (this.toastMessage() === message) {

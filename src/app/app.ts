@@ -15,6 +15,7 @@ import { TaskModalComponent } from './shared/components/task-modal';
 
 import { TaskShareService } from './core/services/task-share.service';
 import { PushNotificationService } from './core/services/push-notification.service';
+import { ToastService } from './core/services/toast.service';
 import { ThemeService } from './core/services/theme.service';
 import { AuthService } from './core/services/auth.service';
 import { SupabaseService } from './core/services/supabase.service';
@@ -112,6 +113,7 @@ export class App implements OnInit {
     public updateService: UpdateService,
     public taskShareService: TaskShareService,
     public pushService: PushNotificationService,
+    public toastService: ToastService,
     public themeService: ThemeService,
     public authService: AuthService,
     public projectService: ProjectService,

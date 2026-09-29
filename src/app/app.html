@@ -415,18 +415,18 @@
     (cancel)="clearInviteState()"
   />
 
-  <!-- Toast Notification for Copy Share Link & Push Service -->
-  @if (taskShareService.toastMessage(); as msg) {
-  <div class="task-share-toast paper-panel font-mono" role="status" aria-live="polite">
-    <i class="fi fi-rr-check-circle text-emerald"></i>
-    <span>{{ msg }}</span>
-  </div>
-  }
-
-  @if (pushService.toastMessage(); as pushMsg) {
-  <div class="task-share-toast paper-panel font-mono" role="status" aria-live="polite">
-    <i class="fi fi-rr-bell text-amber"></i>
-    <span>{{ pushMsg }}</span>
+  <!-- Toast Queue Container -->
+  @if (toastService.toasts().length > 0) {
+  <div class="toast-queue-container" role="status" aria-live="polite">
+    @for (toast of toastService.toasts(); track toast.id) {
+    <div class="toast-item paper-panel font-mono" [class]="'toast-' + toast.type">
+      <i [class]="toast.icon || 'fi fi-rr-info text-cyan'"></i>
+      <span class="toast-msg">{{ toast.message }}</span>
+      <button type="button" class="btn btn-ghost btn-xs toast-close-btn" (click)="toastService.remove(toast.id)" title="Dismiss toast">
+        <i class="fi fi-rr-cross"></i>
+      </button>
+    </div>
+    }
   </div>
   }
 </div>
