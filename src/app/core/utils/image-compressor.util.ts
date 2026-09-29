@@ -6,10 +6,59 @@
  * Includes timeout safeguards to prevent infinite spinners on corrupt files.
  */
 
-export const MAX_ATTACHMENT_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+export const MAX_ATTACHMENT_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB per image file limit
 export const MAX_ATTACHMENTS_PER_TASK = 10;
-export const MAX_TOTAL_TASK_ATTACHMENT_BYTES = 1.5 * 1024 * 1024; // 1.5MB total base64 payload per task
+export const MAX_TOTAL_TASK_ATTACHMENT_BYTES = 20 * 1024 * 1024; // 20MB total task attachment limit
 const DECODE_TIMEOUT_MS = 3000; // 3 seconds safety timeout for corrupt image decoders
+
+/**
+ * Validates file binary header magic bytes to prevent spoofed/renamed executable or script files.
+ * Supported signatures: JPEG (FF D8 FF), PNG (89 50 4E 47), GIF (47 49 46), WebP (RIFF....WEBP), AVIF (ftyp)
+ */
+export async function verifyMagicBytes(file: File): Promise<boolean> {
+  if (!file || file.size < 4) return false;
+
+  try {
+    const buffer = await file.slice(0, 12).arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+
+    // JPEG: FF D8 FF
+    if (bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) {
+      return true;
+    }
+
+    // PNG: 89 50 4E 47 0D 0A 1A 0A
+    if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) {
+      return true;
+    }
+
+    // GIF: 47 49 46 ("GIF87a" or "GIF89a")
+    if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) {
+      return true;
+    }
+
+    // WebP: RIFF (bytes 0-3: 52 49 46 46) ... WEBP (bytes 8-11: 57 45 42 50)
+    if (
+      bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+      bytes.length >= 12 &&
+      bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+    ) {
+      return true;
+    }
+
+    // AVIF: ftyp (bytes 4-7: 66 74 79 70)
+    if (
+      bytes.length >= 8 &&
+      bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70
+    ) {
+      return true;
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
 
 export function calculateTotalAttachmentsSize(attachments: string[]): number {
   if (!attachments || !Array.isArray(attachments)) return 0;
@@ -36,29 +85,30 @@ export function canAddAttachment(currentAttachments: string[], newBase64: string
   return { allowed: true, currentBytes, newTotalBytes };
 }
 
-export function isRealImageFile(file: File): Promise<boolean> {
+export async function isRealImageFile(file: File): Promise<boolean> {
+  if (!file) return false;
+
+  const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
+  const validExts = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif'];
+  const lowerType = (file.type || '').toLowerCase();
+  const fileName = (file.name || '').toLowerCase();
+
+  const hasValidExt = validExts.some(ext => fileName.endsWith(ext));
+  if (!hasValidExt || !allowedMimeTypes.includes(lowerType)) {
+    return false;
+  }
+
+  // Magic bytes binary signature check
+  const validMagic = await verifyMagicBytes(file);
+  if (!validMagic) {
+    return false;
+  }
+
+  if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
+    return true;
+  }
+
   return new Promise((resolve) => {
-    if (!file) {
-      resolve(false);
-      return;
-    }
-
-    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
-    const validExts = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif'];
-    const lowerType = (file.type || '').toLowerCase();
-    const fileName = (file.name || '').toLowerCase();
-
-    const hasValidExt = validExts.some(ext => fileName.endsWith(ext));
-    if (!hasValidExt || !allowedMimeTypes.includes(lowerType)) {
-      resolve(false);
-      return;
-    }
-
-    if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
-      resolve(true);
-      return;
-    }
-
     let objectUrl = '';
     try {
       objectUrl = URL.createObjectURL(file);
@@ -95,17 +145,22 @@ export async function compressImageFile(
   maxHeight: number = 1200,
   quality: number = 0.75
 ): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
-    if (!file || !allowedMimeTypes.includes(file.type.toLowerCase())) {
-      reject(new Error('Invalid or untrusted image file type. Vector images (SVG) are rejected for security.'));
-      return;
-    }
+  const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
+  if (!file || !allowedMimeTypes.includes(file.type.toLowerCase())) {
+    throw new Error('Invalid or untrusted image file type. Vector images (SVG) are rejected for security.');
+  }
 
-    if (file.size > MAX_ATTACHMENT_FILE_SIZE_BYTES) {
-      reject(new Error(`File "${file.name || 'image'}" exceeds maximum size limit of 10MB.`));
-      return;
-    }
+  if (file.size > MAX_ATTACHMENT_FILE_SIZE_BYTES) {
+    const limitMb = Math.round(MAX_ATTACHMENT_FILE_SIZE_BYTES / (1024 * 1024));
+    throw new Error(`File "${file.name || 'image'}" exceeds maximum size limit of ${limitMb}MB.`);
+  }
+
+  const validMagic = await verifyMagicBytes(file);
+  if (!validMagic) {
+    throw new Error(`File "${file.name || 'image'}" binary header signature (magic bytes) does not match valid image formats. Unrecognized or executable binary content rejected.`);
+  }
+
+  return new Promise((resolve, reject) => {
 
     let timeoutTimer: any = null;
     const cleanupTimeout = () => {
