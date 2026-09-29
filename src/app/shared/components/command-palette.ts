@@ -370,7 +370,7 @@ export class CommandPaletteComponent implements OnInit, AfterViewInit, OnDestroy
   });
 
   readonly MAX_RESULTS = 50;
-  readonly DEBOUNCE_MS = 200;
+  readonly DEBOUNCE_MS = 300;
 
   filteredItems = computed<PaletteItem[]>(() => {
     const rawQ = this.searchQuery().trim().toLowerCase();

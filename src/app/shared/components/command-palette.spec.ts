@@ -223,7 +223,7 @@ describe('CommandPaletteComponent', () => {
 
     it('should match tasks by ID / key prefix (e.g. #task-101 or 101)', () => {
       component.onSearchInput('#task-101');
-      vi.advanceTimersByTime(200);
+      vi.advanceTimersByTime(300);
 
       const matches = component.filteredItems();
       expect(matches.length).toBe(1);
@@ -232,7 +232,7 @@ describe('CommandPaletteComponent', () => {
 
     it('should match tasks by description text', () => {
       component.onSearchInput('OAuth token');
-      vi.advanceTimersByTime(200);
+      vi.advanceTimersByTime(300);
 
       const matches = component.filteredItems();
       expect(matches.length).toBe(1);
@@ -241,7 +241,7 @@ describe('CommandPaletteComponent', () => {
 
     it('should match tasks by labels', () => {
       component.onSearchInput('security');
-      vi.advanceTimersByTime(200);
+      vi.advanceTimersByTime(300);
 
       const matches = component.filteredItems();
       expect(matches.length).toBe(1);
@@ -250,7 +250,7 @@ describe('CommandPaletteComponent', () => {
 
     it('should match multi-word tokens out of order (e.g. "compression setup")', () => {
       component.onSearchInput('compression setup');
-      vi.advanceTimersByTime(200);
+      vi.advanceTimersByTime(300);
 
       const matches = component.filteredItems();
       expect(matches.length).toBe(1);
@@ -282,7 +282,7 @@ describe('CommandPaletteComponent', () => {
       ]);
 
       component.onSearchInput('Database');
-      vi.advanceTimersByTime(200);
+      vi.advanceTimersByTime(300);
 
       const matches = component.filteredItems();
       expect(matches.length).toBe(2);
@@ -291,7 +291,7 @@ describe('CommandPaletteComponent', () => {
   });
 
   describe('Search Debounce', () => {
-    it('should debounce search input changes by 200ms', () => {
+    it('should debounce search input changes by 300ms', () => {
       component.onSearchInput('t');
       expect(component.rawSearchQuery()).toBe('t');
       expect(component.searchQuery()).toBe('');
@@ -299,15 +299,15 @@ describe('CommandPaletteComponent', () => {
       vi.advanceTimersByTime(100);
       component.onSearchInput('task');
       expect(component.rawSearchQuery()).toBe('task');
-      expect(component.searchQuery()).toBe(''); // Still empty before 200ms
+      expect(component.searchQuery()).toBe(''); // Still empty before 300ms
 
-      vi.advanceTimersByTime(200);
+      vi.advanceTimersByTime(300);
       expect(component.searchQuery()).toBe('task');
     });
 
     it('should update query immediately when search input is cleared', () => {
       component.onSearchInput('query');
-      vi.advanceTimersByTime(200);
+      vi.advanceTimersByTime(300);
       expect(component.searchQuery()).toBe('query');
 
       component.onSearchInput('');
@@ -371,7 +371,7 @@ describe('CommandPaletteComponent', () => {
       mockTaskService.tasks.set(mockTasks);
 
       component.onSearchInput('Performance');
-      vi.advanceTimersByTime(200);
+      vi.advanceTimersByTime(300);
 
       const matches = component.filteredItems();
       expect(matches.length).toBe(50);

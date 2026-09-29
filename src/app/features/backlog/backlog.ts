@@ -1093,7 +1093,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
     }
     this.searchDebounceTimer = setTimeout(() => {
       this.searchQuery.set(val);
-    }, 200);
+    }, 300);
   }
 
   clearSearch(): void {

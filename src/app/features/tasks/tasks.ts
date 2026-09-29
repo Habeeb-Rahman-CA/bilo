@@ -972,7 +972,7 @@ export class TasksComponent implements OnInit, OnDestroy, AfterViewInit {
     }
     this.searchDebounceTimer = setTimeout(() => {
       this.searchQuery.set(val);
-    }, 200);
+    }, 300);
   }
 
   clearSearch(): void {

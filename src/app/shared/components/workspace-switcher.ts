@@ -53,11 +53,12 @@ import { registerOpenPopover, unregisterOpenPopover } from './select';
               type="text"
               class="search-input font-mono"
               placeholder="Filter workspaces..."
-              [(ngModel)]="searchQuery"
+              [ngModel]="rawSearchQuery()"
+              (ngModelChange)="onSearchInput($event)"
               (click)="$event.stopPropagation()"
             />
-            @if (searchQuery()) {
-              <button class="btn-clear" (click)="searchQuery.set('')">
+            @if (rawSearchQuery()) {
+              <button class="btn-clear" (click)="clearSearch()">
                 <i class="fi fi-rr-cross"></i>
               </button>
             }
@@ -409,7 +410,27 @@ export class WorkspaceSwitcherComponent {
   @ViewChild('containerEl') containerEl!: ElementRef;
 
   isOpen = signal<boolean>(false);
+  rawSearchQuery = signal<string>('');
   searchQuery = signal<string>('');
+  private searchDebounceTimer: any = null;
+
+  onSearchInput(val: string): void {
+    this.rawSearchQuery.set(val);
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+    this.searchDebounceTimer = setTimeout(() => {
+      this.searchQuery.set(val);
+    }, 300);
+  }
+
+  clearSearch(): void {
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+    this.rawSearchQuery.set('');
+    this.searchQuery.set('');
+  }
 
   activeProject = computed(() => this.projectService.activeProject());
 
