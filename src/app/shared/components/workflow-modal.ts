@@ -61,7 +61,13 @@ import { ColorPickerComponent } from './color-picker';
                       <i class="fi fi-rr-angle-down"></i>
                     </button>
                   }
-                  <button type="button" class="btn btn-ghost btn-sm btn-icon btn-danger" (click)="removeColumn(col, i)">
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-sm btn-icon btn-danger"
+                    [disabled]="columns.length <= 1"
+                    [title]="columns.length <= 1 ? 'A workflow requires at least one status column' : 'Delete status column'"
+                    (click)="removeColumn(col, i)"
+                  >
                     <i class="fi fi-rr-trash"></i>
                   </button>
                 </div>
@@ -256,6 +262,13 @@ export class WorkflowModalComponent implements OnInit {
 
   async saveWorkflowChanges() {
     const projId = this.project?.id || 'global';
+    if (!this.columns || this.columns.length === 0) {
+      alert('A workflow must have at least one status column. Resetting to default columns.');
+      await this.workflowService.resetToDefaultWorkflows(projId);
+      this.close.emit();
+      return;
+    }
+
     for (const delId of this.deletedColumnIds) {
       await this.workflowService.deleteWorkflow(delId, projId);
     }
