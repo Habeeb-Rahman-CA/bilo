@@ -141,8 +141,8 @@ export async function isRealImageFile(file: File): Promise<boolean> {
 
 export async function compressImageFile(
   file: File,
-  maxWidth: number = 1200,
-  maxHeight: number = 1200,
+  maxWidth: number = 800,
+  maxHeight: number = 800,
   quality: number = 0.75
 ): Promise<string> {
   const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
