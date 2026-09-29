@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Project, ProjectRole } from '../../core/models/project.model';
 
@@ -18,7 +18,7 @@ import { Project, ProjectRole } from '../../core/models/project.model';
                 <span class="subtext">You've been invited to join a workspace</span>
               </div>
             </div>
-            <button type="button" class="btn btn-ghost btn-xs" (click)="onCancel()" title="Decline & Close">
+            <button type="button" class="btn btn-ghost btn-xs" (click)="onCancel()" [disabled]="isSubmitting" title="Decline & Close">
               <i class="fi fi-rr-cross"></i>
             </button>
           </div>
@@ -70,11 +70,15 @@ import { Project, ProjectRole } from '../../core/models/project.model';
           </div>
 
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary btn-sm" (click)="onCancel()">
+            <button type="button" class="btn btn-secondary btn-sm" (click)="onCancel()" [disabled]="isSubmitting">
               Decline
             </button>
-            <button type="button" class="btn btn-primary btn-sm" [disabled]="!project || !!validationError" (click)="onJoin()">
-              <i class="fi fi-rr-check"></i> Accept & Join Workspace
+            <button type="button" class="btn btn-primary btn-sm" [disabled]="!project || !!validationError || isSubmitting" (click)="onJoin()">
+              @if (isSubmitting) {
+                <i class="fi fi-rr-spinner spinner"></i> Joining...
+              } @else {
+                <i class="fi fi-rr-check"></i> Accept & Join Workspace
+              }
             </button>
           </div>
         </div>
@@ -248,7 +252,7 @@ import { Project, ProjectRole } from '../../core/models/project.model';
     }
   `]
 })
-export class JoinWorkspaceModalComponent {
+export class JoinWorkspaceModalComponent implements OnChanges {
   @Input() isOpen = false;
   @Input() project: Project | null = null;
   @Input() role: ProjectRole = 'member';
@@ -257,12 +261,23 @@ export class JoinWorkspaceModalComponent {
   @Output() join = new EventEmitter<void>();
   @Output() cancel = new EventEmitter<void>();
 
+  isSubmitting = false;
+
+  ngOnChanges(changes: SimpleChanges) {
+    if (changes['isOpen']) {
+      this.isSubmitting = false;
+    }
+  }
+
   onJoin() {
-    if (this.validationError) return;
+    if (this.isSubmitting || !this.project || !!this.validationError) return;
+    this.isSubmitting = true;
     this.join.emit();
   }
 
   onCancel() {
+    if (this.isSubmitting) return;
     this.cancel.emit();
   }
 }
+
