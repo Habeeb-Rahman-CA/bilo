@@ -1,4 +1,14 @@
-@if (authService.isAuthenticated()) {
+@if (authService.authLoading()) {
+<div class="initial-auth-screen font-mono">
+  <div class="auth-loading-card paper-panel">
+    <app-bilo-logo size="md" [showText]="true"></app-bilo-logo>
+    <div class="loading-status-wrap">
+      <i class="fi fi-rr-spinner spinner text-cyan"></i>
+      <span>Loading workspace session...</span>
+    </div>
+  </div>
+</div>
+} @else if (authService.isAuthenticated()) {
 <div class="app-shell">
   <!-- Top Bar Header: System Name (Left), Command Palette Search (Middle), Help Icon (Right) -->
   <header class="app-header paper-panel">

@@ -40,6 +40,7 @@ describe('App Popover Management', () => {
       userAvatar: signal(null),
       userEmail: signal('user@example.com'),
       authModalOpen: signal(false),
+      authLoading: signal(false),
       signOut: vi.fn(),
       closeAuthModal: vi.fn()
     };
