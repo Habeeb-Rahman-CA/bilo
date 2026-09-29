@@ -16,13 +16,13 @@
   --bg-surface-active: #dfd9c8;
   /* Active state tone */
 
-  /* Text & Contrast Scale */
+  /* Text & Contrast Scale (WCAG 2.1 AA Compliant > 4.5:1 ratio) */
   --text-main: #1c1917;
-  /* Near black for maximum contrast */
-  --text-muted: #57534e;
-  /* Warm charcoal for secondary labels */
-  --text-subtle: #78716c;
-  /* Soft neutral for metadata */
+  /* Near black for maximum contrast (~18:1) */
+  --text-muted: #44403c;
+  /* Dark warm charcoal (~9.2:1 contrast against surface) */
+  --text-subtle: #57534e;
+  /* Warm slate charcoal (~6.7:1 contrast against surface, ~5.8:1 on subtle surface) */
 
   /* Precision Crisp Borders (1px rule) */
   --border-subtle: #e7e2d4;
@@ -78,13 +78,13 @@ body.dark-theme,
   --bg-surface-active: #3f3f46;
   /* Active / pressed state tone */
 
-  /* Text & Contrast Scale */
-  --text-main: #f4f4f5;
-  /* Crisp bright off-white for main text */
-  --text-muted: #a1a1aa;
-  /* Refined neutral grey for labels */
-  --text-subtle: #71717a;
-  /* Soft neutral grey for metadata */
+  /* Text & Contrast Scale (WCAG 2.1 AA Compliant > 4.5:1 ratio) */
+  --text-main: #fafafa;
+  /* Crisp bright off-white for main text (~17:1 contrast) */
+  --text-muted: #d4d4d8;
+  /* Refined light zinc grey for labels (~11.5:1 contrast) */
+  --text-subtle: #a1a1aa;
+  /* High-contrast slate zinc grey for metadata (~6.8:1 on dark surface, ~5.5:1 on hover cards) */
 
   /* Precision Crisp Metallic Dark Borders (1px rule) */
   --border-subtle: #27272a;
