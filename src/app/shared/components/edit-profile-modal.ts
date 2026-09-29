@@ -1,16 +1,17 @@
-import { Component, EventEmitter, HostListener, OnInit, Output, signal } from '@angular/core';
+import { Component, EventEmitter, HostListener, OnInit, OnDestroy, Output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
 import { TaskShareService } from '../../core/services/task-share.service';
 import { isRealImageFile } from '../../core/utils/image-compressor.util';
+import { registerModal, unregisterModal, isTopModal, getModalZIndex } from '../../core/utils/modal-stack.util';
 
 @Component({
   selector: 'app-edit-profile-modal',
   standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
-    <div class="modal-overlay" (click)="close.emit()">
+    <div class="modal-overlay" [style.z-index]="modalZIndex" (click)="close.emit()">
       <div class="modal-card paper-panel font-mono" (click)="$event.stopPropagation()">
         <!-- Modal Header -->
         <div class="modal-header">
@@ -169,7 +170,6 @@ import { isRealImageFile } from '../../core/utils/image-compressor.util';
       bottom: 0;
       background: rgba(0, 0, 0, 0.65);
       backdrop-filter: blur(4px);
-      z-index: 9999;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -381,8 +381,14 @@ import { isRealImageFile } from '../../core/utils/image-compressor.util';
     }
   `]
 })
-export class EditProfileModalComponent implements OnInit {
+export class EditProfileModalComponent implements OnInit, OnDestroy {
   @Output() close = new EventEmitter<void>();
+
+  private readonly modalId = 'edit-profile-modal-' + Math.random().toString(36).substring(2, 9);
+
+  get modalZIndex(): number {
+    return getModalZIndex(this.modalId);
+  }
 
   displayName: string = '';
   avatarUrl: string | null = null;
@@ -399,13 +405,20 @@ export class EditProfileModalComponent implements OnInit {
   ) {}
 
   ngOnInit() {
+    registerModal(this.modalId);
     this.displayName = this.authService.userName();
     this.avatarUrl = this.authService.userAvatar();
   }
 
+  ngOnDestroy() {
+    unregisterModal(this.modalId);
+  }
+
   @HostListener('document:keydown.escape')
   onEscape() {
-    this.close.emit();
+    if (isTopModal(this.modalId)) {
+      this.close.emit();
+    }
   }
 
   onDragOver(e: DragEvent) {

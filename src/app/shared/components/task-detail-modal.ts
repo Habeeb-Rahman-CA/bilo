@@ -14,13 +14,14 @@ import { SelectComponent, SelectOption } from './select';
 import { DatePickerComponent } from './date-picker';
 import { ConfirmModalComponent } from './confirm-modal';
 import { RichEditorComponent } from './rich-editor';
+import { registerModal, unregisterModal, isTopModal } from '../../core/utils/modal-stack.util';
 
 @Component({
   selector: 'app-task-detail-modal',
   standalone: true,
   imports: [CommonModule, FormsModule, SelectComponent, DatePickerComponent, ConfirmModalComponent, RichEditorComponent],
   template: `
-    <div class="task-detail-overlay" (click)="handleCloseAttempt()">
+    <div class="task-detail-overlay" [style.z-index]="modalZIndex" (click)="handleCloseAttempt()">
       <div class="task-detail-panel font-mono" (click)="$event.stopPropagation()">
         <!-- Restricted Transition Toast Notification -->
         @if (restrictedToastMessage()) {
@@ -1932,6 +1933,9 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
   @Output() close = new EventEmitter<void>();
   @Output() editTask = new EventEmitter<Task>();
 
+  modalZIndex = 2000;
+  private readonly modalId = 'task-detail-modal-' + Math.random().toString(36).substring(2, 9);
+
   comments = signal<TaskComment[]>([]);
   commentsLimit = signal<number>(20);
   displayedComments = computed(() => this.comments().slice(0, this.commentsLimit()));
@@ -2046,7 +2050,7 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
 
   @HostListener('window:keydown.escape')
   async onEscapePress() {
-    if (this.previewImageModal()) return;
+    if (!isTopModal(this.modalId) || this.previewImageModal()) return;
 
     if (this.hasUnsavedTitleChanges) {
       await this.saveTitle();
@@ -2099,6 +2103,7 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
   }
 
   async ngOnInit() {
+    this.modalZIndex = registerModal(this.modalId);
     this.conflictError.set(null);
     if (this.task) {
       this.loadAssigneeOptions();
@@ -2110,6 +2115,7 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
       this.statusHistory.set(historyList);
     }
   }
+
 
   async loadAssigneeOptions() {
     const currentAssignee = (!this.task?.assignee || this.task?.assignee === 'Self') ? 'Unassigned' : this.task.assignee;
@@ -2351,6 +2357,7 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    unregisterModal(this.modalId);
     this.clearRestrictedToast();
   }
 

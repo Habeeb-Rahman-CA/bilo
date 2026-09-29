@@ -1,4 +1,4 @@
-import { Component, Input, signal, OnInit, Output, EventEmitter } from '@angular/core';
+import { Component, Input, signal, OnInit, OnDestroy, Output, EventEmitter, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ProjectService } from '../../core/services/project.service';
@@ -7,13 +7,14 @@ import { Project, ProjectMember, ProjectRole } from '../../core/models/project.m
 import { copyToClipboard } from '../../core/utils/clipboard.util';
 import { ConfirmModalComponent } from './confirm-modal';
 import { SelectComponent, SelectOption } from './select';
+import { registerModal, unregisterModal, isTopModal, getModalZIndex } from '../../core/utils/modal-stack.util';
 
 @Component({
   selector: 'app-project-access-modal',
   standalone: true,
   imports: [CommonModule, FormsModule, ConfirmModalComponent, SelectComponent],
   template: `
-    <div class="modal-overlay" (click)="closeModal()">
+    <div class="modal-overlay" [style.z-index]="modalZIndex" (click)="closeModal()">
       <div class="modal-card access-modal-card paper-panel" (click)="$event.stopPropagation()">
         <!-- Header -->
         <div class="modal-header">
@@ -399,9 +400,22 @@ import { SelectComponent, SelectOption } from './select';
     }
   `]
 })
-export class ProjectAccessModalComponent implements OnInit {
+export class ProjectAccessModalComponent implements OnInit, OnDestroy {
   @Input() project!: Project;
   @Output() close = new EventEmitter<void>();
+
+  private readonly modalId = 'project-access-modal-' + Math.random().toString(36).substring(2, 9);
+
+  get modalZIndex(): number {
+    return getModalZIndex(this.modalId);
+  }
+
+  @HostListener('window:keydown.escape')
+  onEscape() {
+    if (isTopModal(this.modalId)) {
+      this.closeModal();
+    }
+  }
 
   members = signal<ProjectMember[]>([]);
   loading = signal<boolean>(true);
@@ -477,8 +491,13 @@ export class ProjectAccessModalComponent implements OnInit {
   ) {}
 
   async ngOnInit() {
+    registerModal(this.modalId);
     this.loadMembers();
     await this.updateInviteLink();
+  }
+
+  ngOnDestroy() {
+    unregisterModal(this.modalId);
   }
 
   isOwner(): boolean {

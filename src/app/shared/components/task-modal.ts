@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, OnInit, Output, AfterViewInit, ViewChild, ElementRef, signal } from '@angular/core';
+import { Component, EventEmitter, Input, OnInit, Output, AfterViewInit, ViewChild, ElementRef, signal, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TaskService } from '../../core/services/task.service';
@@ -11,13 +11,14 @@ import { SelectComponent, SelectOption } from './select';
 import { RichEditorComponent } from './rich-editor';
 import { compressImageFile, canAddAttachment, MAX_ATTACHMENT_FILE_SIZE_BYTES, MAX_ATTACHMENTS_PER_TASK } from '../../core/utils/image-compressor.util';
 import { sanitizeLabels } from '../../core/utils/label.util';
+import { registerModal, unregisterModal, isTopModal } from '../../core/utils/modal-stack.util';
 
 @Component({
   selector: 'app-task-modal',
   standalone: true,
   imports: [CommonModule, FormsModule, DatePickerComponent, SelectComponent, RichEditorComponent],
   template: `
-    <div class="modal-overlay" (click)="close.emit()">
+    <div class="modal-overlay" [style.z-index]="modalZIndex" (click)="close.emit()">
       <div class="modal-card paper-panel font-mono" (click)="$event.stopPropagation()">
         <!-- Header Strip -->
         <div class="modal-header">
@@ -566,7 +567,7 @@ import { sanitizeLabels } from '../../core/utils/label.util';
     }
   `]
 })
-export class TaskModalComponent implements OnInit, AfterViewInit {
+export class TaskModalComponent implements OnInit, AfterViewInit, OnDestroy {
   @Input() taskToEdit: Task | null = null;
   @Input() defaultProjectId: string = '';
   @Input() defaultStatus: string = '';
@@ -591,6 +592,8 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
   initialUpdatedAt: string = '';
   conflictError = signal<string | null>(null);
   assigneeLoadError = signal<boolean>(false);
+  modalZIndex = 2000;
+  private readonly modalId = 'task-modal-' + Math.random().toString(36).substring(2, 9);
 
   attachments = signal<string[]>([]);
   uploadingAttachments = signal<boolean>(false);
@@ -709,6 +712,7 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
   ) { }
 
   async ngOnInit() {
+    this.modalZIndex = registerModal(this.modalId);
     this.conflictError.set(null);
     if (this.taskToEdit) {
       this.initialUpdatedAt = this.taskToEdit.updated_at || '';
@@ -741,6 +745,10 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
       if (this.defaultDueDate) this.dueDate = this.defaultDueDate;
     }
     await this.loadAssigneeOptions();
+  }
+
+  ngOnDestroy() {
+    unregisterModal(this.modalId);
   }
 
   async loadAssigneeOptions() {

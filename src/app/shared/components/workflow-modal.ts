@@ -1,17 +1,18 @@
-import { Component, EventEmitter, Input, OnInit, Output } from '@angular/core';
+import { Component, EventEmitter, Input, OnInit, OnDestroy, HostListener, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { WorkflowService } from '../../core/services/workflow.service';
 import { TaskService } from '../../core/services/task.service';
 import { Project, Workflow } from '../../core/models/project.model';
 import { ColorPickerComponent } from './color-picker';
+import { registerModal, unregisterModal, isTopModal, getModalZIndex } from '../../core/utils/modal-stack.util';
 
 @Component({
   selector: 'app-workflow-modal',
   standalone: true,
   imports: [CommonModule, FormsModule, ColorPickerComponent],
   template: `
-    <div class="modal-overlay" (click)="close.emit()">
+    <div class="modal-overlay" [style.z-index]="modalZIndex" (click)="close.emit()">
       <div class="modal-card" (click)="$event.stopPropagation()">
         <div class="modal-header">
           <h3>
@@ -185,9 +186,22 @@ import { ColorPickerComponent } from './color-picker';
     }
   `]
 })
-export class WorkflowModalComponent implements OnInit {
+export class WorkflowModalComponent implements OnInit, OnDestroy {
   @Input() project: Project | null = null;
   @Output() close = new EventEmitter<void>();
+
+  private readonly modalId = 'workflow-modal-' + Math.random().toString(36).substring(2, 9);
+
+  get modalZIndex(): number {
+    return getModalZIndex(this.modalId);
+  }
+
+  @HostListener('window:keydown.escape')
+  onEscape() {
+    if (isTopModal(this.modalId)) {
+      this.close.emit();
+    }
+  }
 
   columns: Workflow[] = [];
   deletedColumnIds: string[] = [];
@@ -199,9 +213,14 @@ export class WorkflowModalComponent implements OnInit {
   ) {}
 
   ngOnInit() {
+    registerModal(this.modalId);
     const projId = this.project?.id || 'global';
     const existing = this.workflowService.getWorkflowsForProject(projId);
     this.columns = JSON.parse(JSON.stringify(existing));
+  }
+
+  ngOnDestroy() {
+    unregisterModal(this.modalId);
   }
 
   async addNewWorkflowColumn() {

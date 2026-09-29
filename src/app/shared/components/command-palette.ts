@@ -5,6 +5,7 @@ import { WorkspaceService } from '../../core/services/workspace.service';
 import { TaskService } from '../../core/services/task.service';
 import { ProjectService } from '../../core/services/project.service';
 import { ThemeService } from '../../core/services/theme.service';
+import { registerModal, unregisterModal, isTopModal } from '../../core/utils/modal-stack.util';
 
 interface PaletteItem {
   id: string;
@@ -24,7 +25,7 @@ interface PaletteItem {
   standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
-    <div class="modal-overlay" (click)="close()" role="dialog" aria-modal="true" aria-label="Command Palette">
+    <div class="modal-overlay" [style.z-index]="modalZIndex" (click)="close()" role="dialog" aria-modal="true" aria-label="Command Palette">
       <div #paletteCard class="command-palette-card paper-panel" (click)="$event.stopPropagation()">
         <!-- Search Header -->
         <div class="palette-header">
@@ -205,6 +206,8 @@ export class CommandPaletteComponent implements OnInit, AfterViewInit, OnDestroy
 
   selectedIndex = signal<number>(0);
   previouslyFocusedElement: HTMLElement | null = null;
+  modalZIndex = 2000;
+  private readonly modalId = 'command-palette';
 
   constructor(
     public workspaceService: WorkspaceService,
@@ -215,6 +218,7 @@ export class CommandPaletteComponent implements OnInit, AfterViewInit, OnDestroy
   ) { }
 
   ngOnInit() {
+    this.modalZIndex = registerModal(this.modalId);
     if (typeof document !== 'undefined') {
       this.previouslyFocusedElement = document.activeElement as HTMLElement;
     }
@@ -227,6 +231,7 @@ export class CommandPaletteComponent implements OnInit, AfterViewInit, OnDestroy
   }
 
   close() {
+    unregisterModal(this.modalId);
     this.workspaceService.commandPaletteOpen.set(false);
   }
 
@@ -439,6 +444,7 @@ export class CommandPaletteComponent implements OnInit, AfterViewInit, OnDestroy
   private searchDebounceTimer: any = null;
 
   ngOnDestroy() {
+    unregisterModal(this.modalId);
     if (this.searchDebounceTimer) {
       clearTimeout(this.searchDebounceTimer);
       this.searchDebounceTimer = null;
@@ -453,7 +459,7 @@ export class CommandPaletteComponent implements OnInit, AfterViewInit, OnDestroy
 
   @HostListener('keydown', ['$event'])
   handleGlobalKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') {
+    if (e.key === 'Escape' && isTopModal(this.modalId)) {
       e.preventDefault();
       e.stopPropagation();
       this.close();

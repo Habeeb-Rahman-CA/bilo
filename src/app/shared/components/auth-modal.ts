@@ -1,15 +1,16 @@
-import { Component, signal, Output, EventEmitter, OnDestroy } from '@angular/core';
+import { Component, signal, Output, EventEmitter, OnInit, OnDestroy, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
 import { formatAuthError } from '../../core/utils/auth-error.util';
+import { registerModal, unregisterModal, isTopModal, getModalZIndex } from '../../core/utils/modal-stack.util';
 
 @Component({
   selector: 'app-auth-modal',
   standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
-    <div class="modal-overlay" (click)="closeModal()">
+    <div class="modal-overlay" [style.z-index]="modalZIndex" (click)="closeModal()">
       <div class="modal-card auth-modal-card paper-panel" (click)="$event.stopPropagation()">
         <!-- Header Strip -->
         <div class="modal-header">
@@ -247,8 +248,21 @@ import { formatAuthError } from '../../core/utils/auth-error.util';
     }
   `]
 })
-export class AuthModalComponent implements OnDestroy {
+export class AuthModalComponent implements OnInit, OnDestroy {
   @Output() close = new EventEmitter<void>();
+
+  private readonly modalId = 'auth-modal-' + Math.random().toString(36).substring(2, 9);
+
+  get modalZIndex(): number {
+    return getModalZIndex(this.modalId);
+  }
+
+  @HostListener('window:keydown.escape')
+  onEscape() {
+    if (isTopModal(this.modalId)) {
+      this.closeModal();
+    }
+  }
 
   mode = signal<'login' | 'signup'>('login');
   email = '';
@@ -260,6 +274,10 @@ export class AuthModalComponent implements OnDestroy {
   private pwdVisibilityTimer: any = null;
 
   constructor(public authService: AuthService) {}
+
+  ngOnInit(): void {
+    registerModal(this.modalId);
+  }
 
   togglePasswordVisibility(): void {
     const nextState = !this.showPassword();
@@ -280,6 +298,7 @@ export class AuthModalComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    unregisterModal(this.modalId);
     if (this.pwdVisibilityTimer) {
       clearTimeout(this.pwdVisibilityTimer);
       this.pwdVisibilityTimer = null;

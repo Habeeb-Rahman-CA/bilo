@@ -1,13 +1,14 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { WorkspaceService } from '../../core/services/workspace.service';
+import { registerModal, unregisterModal, isTopModal } from '../../core/utils/modal-stack.util';
 
 @Component({
   selector: 'app-shortcuts-modal',
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="modal-overlay" (click)="close()" role="dialog" aria-modal="true" aria-labelledby="shortcuts-modal-title">
+    <div class="modal-overlay" [style.z-index]="modalZIndex" (click)="close()" role="dialog" aria-modal="true" aria-labelledby="shortcuts-modal-title">
       <div class="help-modal-card paper-panel font-mono" (click)="$event.stopPropagation()">
         <!-- Modal Header Strip -->
         <div class="modal-header">
@@ -681,12 +682,23 @@ import { WorkspaceService } from '../../core/services/workspace.service';
     }
   `]
 })
-export class ShortcutsModalComponent {
+export class ShortcutsModalComponent implements OnInit, OnDestroy {
   activeTab = signal<'shortcuts' | 'features' | 'markdown' | 'workflows'>('shortcuts');
+  modalZIndex = 2000;
+  private readonly modalId = 'shortcuts-modal';
 
   constructor(public workspaceService: WorkspaceService) { }
 
+  ngOnInit() {
+    this.modalZIndex = registerModal(this.modalId);
+  }
+
+  ngOnDestroy() {
+    unregisterModal(this.modalId);
+  }
+
   close() {
+    unregisterModal(this.modalId);
     this.workspaceService.shortcutsModalOpen.set(false);
   }
 }

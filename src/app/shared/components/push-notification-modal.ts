@@ -1,13 +1,14 @@
-import { Component, EventEmitter, Output } from '@angular/core';
+import { Component, EventEmitter, Output, OnInit, OnDestroy, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { PushNotificationService } from '../../core/services/push-notification.service';
+import { registerModal, unregisterModal, isTopModal, getModalZIndex } from '../../core/utils/modal-stack.util';
 
 @Component({
   selector: 'app-push-notification-modal',
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="modal-overlay" (click)="close.emit()">
+    <div class="modal-overlay" [style.z-index]="modalZIndex" (click)="close.emit()">
       <div class="push-modal-card paper-panel font-mono" (click)="$event.stopPropagation()">
         <!-- Modal Header -->
         <div class="modal-header">
@@ -518,8 +519,29 @@ import { PushNotificationService } from '../../core/services/push-notification.s
     }
   `]
 })
-export class PushNotificationModalComponent {
+export class PushNotificationModalComponent implements OnInit, OnDestroy {
   @Output() close = new EventEmitter<void>();
 
+  private readonly modalId = 'push-notification-modal-' + Math.random().toString(36).substring(2, 9);
+
+  get modalZIndex(): number {
+    return getModalZIndex(this.modalId);
+  }
+
   constructor(public pushService: PushNotificationService) {}
+
+  ngOnInit() {
+    registerModal(this.modalId);
+  }
+
+  ngOnDestroy() {
+    unregisterModal(this.modalId);
+  }
+
+  @HostListener('window:keydown.escape')
+  onEscape() {
+    if (isTopModal(this.modalId)) {
+      this.close.emit();
+    }
+  }
 }

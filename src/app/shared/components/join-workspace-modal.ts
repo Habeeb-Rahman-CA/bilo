@@ -1,6 +1,7 @@
-import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges, OnInit, OnDestroy, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Project, ProjectRole } from '../../core/models/project.model';
+import { registerModal, unregisterModal, isTopModal, getModalZIndex } from '../../core/utils/modal-stack.util';
 
 @Component({
   selector: 'app-join-workspace-modal',
@@ -8,7 +9,7 @@ import { Project, ProjectRole } from '../../core/models/project.model';
   imports: [CommonModule],
   template: `
     @if (isOpen) {
-      <div class="modal-overlay" (click)="onCancel()">
+      <div class="modal-overlay" [style.z-index]="modalZIndex" (click)="onCancel()">
         <div class="modal-card join-card paper-panel font-mono" (click)="$event.stopPropagation()">
           <div class="modal-header">
             <div class="header-left">
@@ -252,7 +253,7 @@ import { Project, ProjectRole } from '../../core/models/project.model';
     }
   `]
 })
-export class JoinWorkspaceModalComponent implements OnChanges {
+export class JoinWorkspaceModalComponent implements OnChanges, OnInit, OnDestroy {
   @Input() isOpen = false;
   @Input() project: Project | null = null;
   @Input() role: ProjectRole = 'member';
@@ -261,7 +262,28 @@ export class JoinWorkspaceModalComponent implements OnChanges {
   @Output() join = new EventEmitter<void>();
   @Output() cancel = new EventEmitter<void>();
 
+  private readonly modalId = 'join-workspace-modal-' + Math.random().toString(36).substring(2, 9);
+
+  get modalZIndex(): number {
+    return getModalZIndex(this.modalId);
+  }
+
   isSubmitting = false;
+
+  ngOnInit() {
+    registerModal(this.modalId);
+  }
+
+  ngOnDestroy() {
+    unregisterModal(this.modalId);
+  }
+
+  @HostListener('window:keydown.escape')
+  onEscape() {
+    if (this.isOpen && isTopModal(this.modalId)) {
+      this.onCancel();
+    }
+  }
 
   ngOnChanges(changes: SimpleChanges) {
     if (changes['isOpen']) {

@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, OnInit, Output, AfterViewInit, ViewChild, ElementRef } from '@angular/core';
+import { Component, EventEmitter, Input, OnInit, Output, AfterViewInit, ViewChild, ElementRef, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ProjectService } from '../../core/services/project.service';
@@ -6,13 +6,14 @@ import { Project } from '../../core/models/project.model';
 import { SelectComponent, SelectOption } from './select';
 import { ConfirmModalComponent } from './confirm-modal';
 import { sanitizeLabels } from '../../core/utils/label.util';
+import { registerModal, unregisterModal, isTopModal } from '../../core/utils/modal-stack.util';
 
 @Component({
   selector: 'app-project-modal',
   standalone: true,
   imports: [CommonModule, FormsModule, SelectComponent, ConfirmModalComponent],
   template: `
-    <div class="modal-overlay" (click)="close.emit()">
+    <div class="modal-overlay" [style.z-index]="modalZIndex" (click)="close.emit()">
       <div class="modal-card paper-panel font-mono" (click)="$event.stopPropagation()">
         <!-- Header Strip -->
         <div class="modal-header">
@@ -443,7 +444,7 @@ import { sanitizeLabels } from '../../core/utils/label.util';
     }
   `]
 })
-export class ProjectModalComponent implements OnInit, AfterViewInit {
+export class ProjectModalComponent implements OnInit, AfterViewInit, OnDestroy {
   @Input() projectToEdit: Partial<Project> | null = null;
   @Output() close = new EventEmitter<Project | undefined>();
 
@@ -459,6 +460,8 @@ export class ProjectModalComponent implements OnInit, AfterViewInit {
   imageUrl = '';
   uploadingImage = false;
   imageError = '';
+  modalZIndex = 2000;
+  private readonly modalId = 'project-modal-' + Math.random().toString(36).substring(2, 9);
 
   projectStatusOptions: SelectOption[] = [
     { value: 'active', label: 'Active Workspace' },
@@ -536,6 +539,7 @@ export class ProjectModalComponent implements OnInit, AfterViewInit {
   constructor(private projectService: ProjectService) { }
 
   ngOnInit() {
+    this.modalZIndex = registerModal(this.modalId);
     if (this.projectToEdit) {
       this.name = this.projectToEdit.name || '';
       this.description = this.projectToEdit.description || '';
@@ -544,6 +548,10 @@ export class ProjectModalComponent implements OnInit, AfterViewInit {
       this.color = this.projectToEdit.color || '#06b6d4';
       this.imageUrl = this.projectToEdit.image_url || this.projectToEdit.icon || '';
     }
+  }
+
+  ngOnDestroy() {
+    unregisterModal(this.modalId);
   }
 
   ngAfterViewInit() {

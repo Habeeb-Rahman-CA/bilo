@@ -1,6 +1,7 @@
-import { Component, EventEmitter, Input, Output, OnChanges, SimpleChanges, ElementRef, ViewChild, HostListener } from '@angular/core';
+import { Component, EventEmitter, Input, Output, OnChanges, SimpleChanges, ElementRef, ViewChild, HostListener, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { registerModal, unregisterModal, isTopModal } from '../../core/utils/modal-stack.util';
 
 @Component({
   selector: 'app-confirm-modal',
@@ -8,7 +9,7 @@ import { FormsModule } from '@angular/forms';
   imports: [CommonModule, FormsModule],
   template: `
     @if (isOpen) {
-      <div class="confirm-overlay" (click)="onCancel()" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-desc">
+      <div class="confirm-overlay" [style.z-index]="modalZIndex" (click)="onCancel()" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-desc">
         <div #modalCard class="confirm-card paper-panel font-mono" (click)="$event.stopPropagation()">
           <div class="confirm-header" [class.header-danger]="type === 'danger'" [class.header-warning]="type === 'warning'">
             <div class="header-icon" aria-hidden="true">
@@ -214,7 +215,7 @@ import { FormsModule } from '@angular/forms';
     }
   `]
 })
-export class ConfirmModalComponent implements OnChanges {
+export class ConfirmModalComponent implements OnChanges, OnDestroy {
   @Input() isOpen = false;
   @Input() title = 'Confirm Action';
   @Input() message = 'Are you sure you want to proceed?';
@@ -231,22 +232,30 @@ export class ConfirmModalComponent implements OnChanges {
 
   typedText = '';
   isSubmitting = false;
+  modalZIndex = 2000;
+  private readonly modalId = 'confirm-modal-' + Math.random().toString(36).substring(2, 9);
 
   ngOnChanges(changes: SimpleChanges) {
     if (changes['isOpen']) {
       if (changes['isOpen'].currentValue) {
+        this.modalZIndex = registerModal(this.modalId);
         this.typedText = '';
         this.isSubmitting = false;
         setTimeout(() => this.focusInitialElement(), 50);
       } else {
+        unregisterModal(this.modalId);
         this.isSubmitting = false;
       }
     }
   }
 
+  ngOnDestroy() {
+    unregisterModal(this.modalId);
+  }
+
   @HostListener('window:keydown', ['$event'])
   handleKeyDown(event: KeyboardEvent) {
-    if (!this.isOpen) return;
+    if (!this.isOpen || !isTopModal(this.modalId)) return;
 
     if (event.key === 'Escape') {
       event.preventDefault();
