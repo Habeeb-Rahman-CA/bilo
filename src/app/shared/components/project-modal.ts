@@ -138,7 +138,7 @@ import { sanitizeLabels } from '../../core/utils/label.util';
                     <button
                       type="button"
                       class="btn btn-ghost btn-xs text-rose"
-                      (click)="imageUrl = ''"
+                      (click)="removeImage()"
                       [disabled]="uploadingImage"
                       title="Remove image"
                     >
@@ -147,6 +147,11 @@ import { sanitizeLabels } from '../../core/utils/label.util';
                   }
                 </div>
               </div>
+              @if (imageError) {
+                <span class="field-error-text font-mono">
+                  <i class="fi fi-rr-exclamation"></i> {{ imageError }}
+                </span>
+              }
             </div>
 
             <!-- Color Accent Picker -->
@@ -453,6 +458,7 @@ export class ProjectModalComponent implements OnInit, AfterViewInit {
   color = '#06b6d4';
   imageUrl = '';
   uploadingImage = false;
+  imageError = '';
 
   projectStatusOptions: SelectOption[] = [
     { value: 'active', label: 'Active Workspace' },
@@ -482,18 +488,44 @@ export class ProjectModalComponent implements OnInit, AfterViewInit {
     this.name = this.suggestedUniqueName;
   }
 
+  removeImage() {
+    this.imageUrl = '';
+    this.imageError = '';
+  }
+
   async onFileSelected(event: Event) {
     const input = event.target as HTMLInputElement;
+    this.imageError = '';
+
     if (input.files && input.files[0]) {
       const file = input.files[0];
+
+      const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
+      if (!allowedMimeTypes.includes((file.type || '').toLowerCase())) {
+        this.imageError = 'Invalid file type. Please select a JPEG, PNG, WebP, or GIF image.';
+        input.value = '';
+        return;
+      }
+
+      const MAX_PROJECT_IMAGE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+      if (file.size > MAX_PROJECT_IMAGE_SIZE_BYTES) {
+        this.imageError = `Image file size (${(file.size / (1024 * 1024)).toFixed(1)}MB) exceeds 5MB limit.`;
+        input.value = '';
+        return;
+      }
+
       this.uploadingImage = true;
       try {
         const uploadedUrl = await this.projectService.uploadProjectImage(file);
         if (uploadedUrl) {
           this.imageUrl = uploadedUrl;
+          this.imageError = '';
+        } else {
+          this.imageError = 'Failed to process image. File may be corrupt or invalid.';
         }
-      } catch (e) {
+      } catch (e: any) {
         console.error('Image upload failed:', e);
+        this.imageError = e?.message || 'Failed to upload project image.';
       } finally {
         this.uploadingImage = false;
         input.value = '';

@@ -371,13 +371,14 @@ export class ProjectService {
 
   async uploadProjectImage(file: File): Promise<string> {
     const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
-    if (!file || !allowedMimeTypes.includes(file.type.toLowerCase())) {
+    if (!file || !allowedMimeTypes.includes((file.type || '').toLowerCase())) {
       console.warn('[ProjectService] Invalid or untrusted image file type:', file?.type);
       return '';
     }
 
-    if (file.size > MAX_ATTACHMENT_FILE_SIZE_BYTES) {
-      console.warn(`[ProjectService] Image size (${(file.size / 1024 / 1024).toFixed(1)}MB) exceeds 10MB limit`);
+    const MAX_PROJECT_IMAGE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB limit for project logos
+    if (file.size > MAX_PROJECT_IMAGE_SIZE_BYTES) {
+      console.warn(`[ProjectService] Image size (${(file.size / 1024 / 1024).toFixed(1)}MB) exceeds 5MB limit`);
       return '';
     }
 
@@ -415,9 +416,13 @@ export class ProjectService {
       }
     }
 
-    // Compressed Fallback: Downscale and compress image to lightweight base64 Data URL (max 600x600, ~30-50KB)
+    // Lightweight Compressed Fallback: Downscale project avatar to 300x300, 0.70 quality (~15-30KB)
     try {
-      return await compressImageFile(file, 600, 600, 0.75);
+      const compressed = await compressImageFile(file, 300, 300, 0.70);
+      if (compressed && compressed.length > 150000) {
+        return await compressImageFile(file, 150, 150, 0.50);
+      }
+      return compressed;
     } catch (e) {
       console.warn('Failed to compress project image fallback:', e);
       return '';
