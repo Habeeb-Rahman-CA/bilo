@@ -237,9 +237,14 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
         <!-- Table Body -->
         <div class="table-body">
           @if (filteredTasks().length === 0) {
-            <div class="empty-backlog font-mono">
-              <i class="fi fi-rr-search text-muted"></i>
-              <span>No tasks found matching current filters.</span>
+            <div class="empty-state-card font-mono">
+              <div class="empty-state-icon-badge">
+                <i class="fi fi-rr-folder-open text-purple"></i>
+              </div>
+              <h4 class="empty-state-title">{{ hasActiveFilters() ? 'No Matching Backlog Tasks' : 'Backlog is Empty' }}</h4>
+              <p class="empty-state-subtitle">
+                {{ hasActiveFilters() ? 'No tasks matched your active status, priority, or search criteria. Try clearing filters or searching for another term.' : 'Your backlog workspace currently has no tasks. Add user stories, bug reports, or feature requests to build your product roadmap.' }}
+              </p>
               @if (hasActiveFilters()) {
                 <div class="active-filter-summary font-mono">
                   <span class="active-filter-title">ACTIVE FILTERS:</span>
@@ -249,9 +254,17 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
                   @if (selectedDueDateFilter() !== 'ALL') { <span class="filter-chip">Due: {{ selectedDueDateFilter() }}</span> }
                   @if (searchQuery()) { <span class="filter-chip">Search: "{{ searchQuery() }}"</span> }
                 </div>
-                <button class="btn btn-secondary btn-xs margin-top" (click)="resetFilters()">
-                  <i class="fi fi-rr-cross-small"></i> Clear Active / Stale Filters
-                </button>
+                <div class="empty-state-actions">
+                  <button class="btn btn-secondary btn-xs" (click)="resetFilters()">
+                    <i class="fi fi-rr-cross-small"></i> Clear Active Filters
+                  </button>
+                </div>
+              } @else {
+                <div class="empty-state-actions">
+                  <button class="btn btn-primary btn-xs" (click)="showCreateModal.set(true)">
+                    <i class="fi fi-rr-plus"></i> Add Task to Backlog
+                  </button>
+                </div>
               }
             </div>
           } @else {

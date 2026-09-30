@@ -45,8 +45,12 @@ interface PaletteItem {
         <!-- Results List Container -->
         <div #paletteBody class="palette-body">
           @if (filteredItems().length === 0) {
-            <div class="empty-results font-mono" role="status">
-              <p>No matching commands found for "{{ searchQuery() }}"</p>
+            <div class="empty-state-card font-mono" role="status" style="border: none; padding: 2.5rem 1rem;">
+              <div class="empty-state-icon-badge">
+                <i class="fi fi-rr-search-alt text-rose"></i>
+              </div>
+              <h4 class="empty-state-title">No Matching Results</h4>
+              <p class="empty-state-subtitle">We couldn't find any commands or tasks matching "<strong>{{ searchQuery() }}</strong>". Check for typos or try searching with different keywords.</p>
             </div>
           } @else {
             <div class="results-list" role="listbox" aria-label="Command palette results" (mousemove)="onMouseMove()">

@@ -167,11 +167,17 @@ import { TaskModalComponent } from '../../shared/components/task-modal';
               </div>
 
               @if (filteredStatusTasksCount() === 0) {
-                <div class="empty-legend font-mono">
-                  <div class="empty-legend-title">
-                    <i class="fi fi-rr-chart-pie text-cyan"></i> No tasks recorded
+                <div class="empty-state-card font-mono">
+                  <div class="empty-state-icon-badge">
+                    <i class="fi fi-rr-sparkles text-cyan"></i>
                   </div>
-                  <p class="empty-legend-desc">Create tasks or select a project with tasks to view status overview.</p>
+                  <h4 class="empty-state-title">All Clear for Today!</h4>
+                  <p class="empty-state-subtitle">No tasks scheduled or recorded for today. Take a break or create a new task to stay ahead of your pipeline.</p>
+                  <div class="empty-state-actions">
+                    <button type="button" class="btn btn-primary btn-xs" (click)="showNewTaskModal.set(true)">
+                      <i class="fi fi-rr-plus"></i> Create New Task
+                    </button>
+                  </div>
                 </div>
               } @else {
                 <!-- Donut Legend -->

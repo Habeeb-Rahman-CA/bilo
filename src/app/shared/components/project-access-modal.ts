@@ -126,8 +126,12 @@ import { registerModal, unregisterModal, isTopModal, getModalZIndex } from '../.
               <i class="fi fi-rr-spinner spinner-icon"></i> Loading project members...
             </div>
           } @else if (members().length === 0) {
-            <div class="empty-state">
-              <p>No explicit team members added. Only project owner has default access.</p>
+            <div class="empty-state-card compact">
+              <div class="empty-state-icon-badge warning">
+                <i class="fi fi-rr-users-slash"></i>
+              </div>
+              <h4 class="empty-state-title">Solo Workspace</h4>
+              <p class="empty-state-subtitle">No explicit team members added yet. Invite team members using the invite link or User ID / Email above to collaborate.</p>
             </div>
           } @else {
             <div class="members-list">

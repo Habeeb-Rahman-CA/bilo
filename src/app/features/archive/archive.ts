@@ -119,9 +119,14 @@ import { ScrollingModule } from '@angular/cdk/scrolling';
 
             <div class="box-body">
               @if (filteredCompletedTasks().length === 0) {
-                <div class="empty-archive font-mono">
-                  <i class="fi fi-rr-box-alt text-muted"></i>
-                  <span>{{ taskSearchQuery() ? 'No completed tasks matching search query.' : 'No completed tasks in archive yet.' }}</span>
+                <div class="empty-state-card font-mono">
+                  <div class="empty-state-icon-badge">
+                    <i class="fi fi-rr-box-alt text-amber"></i>
+                  </div>
+                  <h4 class="empty-state-title">{{ taskSearchQuery() ? 'No Matching Archive Items' : 'Archive Vault is Empty' }}</h4>
+                  <p class="empty-state-subtitle">
+                    {{ taskSearchQuery() ? 'No completed tasks matched your search query. Try searching with different keywords.' : 'Completed tasks and closed workspace items will automatically accumulate here for historical tracking & audit logs.' }}
+                  </p>
                 </div>
               } @else {
                 <div class="archive-list">
@@ -240,9 +245,14 @@ import { ScrollingModule } from '@angular/cdk/scrolling';
 
             <div class="box-body">
               @if (filteredActivities().length === 0) {
-                <div class="empty-archive font-mono">
-                  <i class="fi fi-rr-box-alt text-muted"></i>
-                  <span>{{ (activitySearchQuery() || activityStartDate() || activityEndDate()) ? 'No activities match the search / date range criteria.' : 'No activities recorded yet.' }}</span>
+                <div class="empty-state-card font-mono">
+                  <div class="empty-state-icon-badge">
+                    <i class="fi fi-rr-time-past text-amber"></i>
+                  </div>
+                  <h4 class="empty-state-title">{{ (activitySearchQuery() || activityStartDate() || activityEndDate()) ? 'No Matching Activity Logs' : 'No Activity History' }}</h4>
+                  <p class="empty-state-subtitle">
+                    {{ (activitySearchQuery() || activityStartDate() || activityEndDate()) ? 'No activities matched your search or date range filters. Try clearing filter criteria.' : 'System activities, task updates, and workspace modifications will be logged here in chronological order.' }}
+                  </p>
                 </div>
               } @else {
                 <div class="activity-timeline font-mono">

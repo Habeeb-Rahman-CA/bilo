@@ -67,9 +67,13 @@ import { registerOpenPopover, unregisterOpenPopover } from './select';
           <!-- Workspaces List -->
           <div class="popover-list">
             @if (filteredProjects().length === 0) {
-              <div class="empty-list font-mono">
-                <i class="fi fi-rr-folder-open text-subtle"></i>
-                <span>No matching workspace found</span>
+              <div class="empty-state-card compact font-mono" style="padding: 1.25rem 0.75rem;">
+                <div class="empty-state-icon-badge warning" style="width: 36px; height: 36px; font-size: 1rem; margin-bottom: 0.5rem;">
+                  <i class="fi fi-rr-search"></i>
+                </div>
+                <h4 class="empty-state-title" style="font-size: 0.85rem;">No Workspaces Found</h4>
+                <p class="empty-state-subtitle" style="font-size: 0.75rem; margin-bottom: 0.5rem;">No workspace matches "{{ rawSearchQuery() }}"</p>
+                <button type="button" class="btn btn-ghost btn-xs text-cyan" (click)="clearSearch()">Clear Search</button>
               </div>
             } @else {
               @for (p of filteredProjects(); track p.id) {
