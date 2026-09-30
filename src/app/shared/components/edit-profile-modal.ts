@@ -104,7 +104,12 @@ import { registerModal, unregisterModal, isTopModal, getModalZIndex } from '../.
 
             <!-- Display Name -->
             <div class="form-group">
-              <label class="form-label">DISPLAY NAME <span class="text-rose">*</span></label>
+              <div class="label-with-hint">
+                <label class="form-label">DISPLAY NAME <span class="text-rose">*</span></label>
+                <span class="desc-hint font-mono" [class.text-rose]="displayName.length > 20">
+                  {{ displayName.length }}/20
+                </span>
+              </div>
               <input
                 type="text"
                 class="form-input font-mono"

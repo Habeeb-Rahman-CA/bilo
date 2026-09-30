@@ -58,7 +58,12 @@ import { registerModal, unregisterModal, isTopModal, getModalZIndex } from '../.
 
               <!-- Issue Title / Summary -->
               <div class="form-group">
-                <label class="form-label">ISSUE SUMMARY / TITLE <span class="text-rose">*</span></label>
+                <div class="label-with-hint">
+                  <label class="form-label">ISSUE SUMMARY / TITLE <span class="text-rose">*</span></label>
+                  <span class="desc-hint font-mono" [class.text-rose]="title.length > 255">
+                    {{ title.length }}/255
+                  </span>
+                </div>
                 <input
                   #titleInput
                   type="text"

@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, OnInit, Output, AfterViewInit, ViewChild, ElementRef, OnDestroy, HostListener } from '@angular/core';
+import { Component, EventEmitter, Input, OnInit, Output, AfterViewInit, ViewChild, ElementRef, OnDestroy, HostListener, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ProjectService } from '../../core/services/project.service';
@@ -38,7 +38,12 @@ import { registerModal, unregisterModal, isTopModal } from '../../core/utils/mod
 
             <!-- Project Name -->
             <div class="form-group">
-              <label class="form-label">PROJECT NAME <span class="text-rose">*</span></label>
+              <div class="label-with-hint">
+                <label class="form-label">PROJECT NAME <span class="text-rose">*</span></label>
+                <span class="desc-hint font-mono" [class.text-rose]="name.length > 50">
+                  {{ name.length }}/50
+                </span>
+              </div>
               <input
                 #nameInput
                 type="text"
@@ -47,6 +52,7 @@ import { registerModal, unregisterModal, isTopModal } from '../../core/utils/mod
                 [(ngModel)]="name"
                 name="name"
                 placeholder="e.g. Tokio Async Microservice or bilo Core Engine"
+                maxlength="50"
                 required
               />
               @if (submitted && !name.trim()) {
@@ -191,9 +197,18 @@ import { registerModal, unregisterModal, isTopModal } from '../../core/utils/mod
               <button type="button" class="btn btn-secondary btn-sm" (click)="close.emit()">
                 Cancel
               </button>
-              <button type="submit" class="btn btn-primary btn-sm">
-                <i class="fi fi-rr-check"></i>
-                <span>{{ isEditMode ? 'Save Changes' : 'Create Project' }}</span>
+              <button
+                type="submit"
+                class="btn btn-primary btn-sm"
+                [disabled]="submitting() || (submitted && !name.trim())"
+              >
+                @if (submitting()) {
+                  <i class="fi fi-rr-spinner spinner font-mono"></i>
+                  <span>Saving...</span>
+                } @else {
+                  <i class="fi fi-rr-check"></i>
+                  <span>{{ isEditMode ? 'Save Changes' : 'Create Project' }}</span>
+                }
               </button>
             </div>
           </div>
@@ -604,41 +619,50 @@ export class ProjectModalComponent implements OnInit, AfterViewInit, OnDestroy {
     }, 50);
   }
 
+  submitting = signal<boolean>(false);
+
   async saveProject() {
     this.submitted = true;
     if (!this.name.trim()) return;
 
-    if (this.isDuplicateName) {
-      this.name = this.suggestedUniqueName;
+    this.submitting.set(true);
+    try {
+      if (this.isDuplicateName) {
+        this.name = this.suggestedUniqueName;
+      }
+
+      const parsedLabels = sanitizeLabels(this.labelsInput.split(','));
+
+      let resultProject: Project | undefined = undefined;
+
+      if (this.isEditMode && this.projectToEdit && this.projectToEdit.id) {
+        const updated = await this.projectService.updateProject(this.projectToEdit.id, {
+          name: this.name,
+          description: this.description,
+          status: this.status,
+          labels: parsedLabels,
+          color: this.color,
+          image_url: this.imageUrl
+        });
+        resultProject = updated || undefined;
+      } else {
+        const created = await this.projectService.createProject({
+          name: this.name,
+          description: this.description,
+          status: 'active',
+          labels: parsedLabels,
+          color: this.color,
+          image_url: this.imageUrl
+        });
+        resultProject = created;
+      }
+
+      this.close.emit(resultProject);
+    } catch (e) {
+      console.error('Error saving project:', e);
+    } finally {
+      this.submitting.set(false);
     }
-
-    const parsedLabels = sanitizeLabels(this.labelsInput.split(','));
-
-    let resultProject: Project | undefined = undefined;
-
-    if (this.isEditMode && this.projectToEdit && this.projectToEdit.id) {
-      const updated = await this.projectService.updateProject(this.projectToEdit.id, {
-        name: this.name,
-        description: this.description,
-        status: this.status,
-        labels: parsedLabels,
-        color: this.color,
-        image_url: this.imageUrl
-      });
-      resultProject = updated || undefined;
-    } else {
-      const created = await this.projectService.createProject({
-        name: this.name,
-        description: this.description,
-        status: 'active',
-        labels: parsedLabels,
-        color: this.color,
-        image_url: this.imageUrl
-      });
-      resultProject = created;
-    }
-
-    this.close.emit(resultProject);
   }
 
   showConfirmDelete = false;

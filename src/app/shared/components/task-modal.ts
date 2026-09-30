@@ -243,9 +243,18 @@ import { registerModal, unregisterModal, isTopModal } from '../../core/utils/mod
               <button type="button" class="btn btn-secondary btn-sm" (click)="close.emit()">
                 Cancel
               </button>
-              <button type="submit" class="btn btn-primary btn-sm">
-                <i class="fi fi-rr-check"></i>
-                <span>{{ isEditMode ? 'Save Changes' : 'Create Task' }}</span>
+              <button
+                type="submit"
+                class="btn btn-primary btn-sm"
+                [disabled]="submitting() || uploadingAttachments() || (submitted && !!titleError)"
+              >
+                @if (submitting()) {
+                  <i class="fi fi-rr-spinner spinner font-mono"></i>
+                  <span>Saving...</span>
+                } @else {
+                  <i class="fi fi-rr-check"></i>
+                  <span>{{ isEditMode ? 'Save Changes' : 'Create Task' }}</span>
+                }
               </button>
             </div>
           </div>
@@ -932,11 +941,15 @@ export class TaskModalComponent implements OnInit, AfterViewInit, OnDestroy {
     this.attachments.update(curr => curr.filter((_, i) => i !== index));
   }
 
+  submitting = signal<boolean>(false);
+
   async saveTask() {
     this.submitted = true;
     if (this.titleError) return;
 
-    this.title = this.title.trim();
+    this.submitting.set(true);
+    try {
+      this.title = this.title.trim();
 
     if (!this.projectId) {
       this.projectId = this.projectService.activeProject()?.id || (this.projectService.projects()[0]?.id || '');
@@ -1003,7 +1016,13 @@ export class TaskModalComponent implements OnInit, AfterViewInit, OnDestroy {
       }
     }
 
-    this.close.emit(resTask);
+      this.close.emit(resTask);
+    } catch (err: any) {
+      console.error('Error saving task:', err);
+      this.taskShareService.showToast(err?.message || 'Failed to save task.');
+    } finally {
+      this.submitting.set(false);
+    }
   }
 }
 

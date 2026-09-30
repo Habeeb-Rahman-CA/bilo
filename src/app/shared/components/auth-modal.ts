@@ -58,7 +58,7 @@ import { registerModal, unregisterModal, isTopModal, getModalZIndex } from '../.
         <!-- Auth Form -->
         <form (ngSubmit)="onSubmit()" class="auth-form">
           <div class="form-group">
-            <label class="form-label font-mono">EMAIL ADDRESS</label>
+            <label class="form-label font-mono">EMAIL ADDRESS <span class="text-rose">*</span></label>
             <div class="input-with-icon">
               <i class="fi fi-rr-envelope input-icon"></i>
               <input
@@ -75,7 +75,7 @@ import { registerModal, unregisterModal, isTopModal, getModalZIndex } from '../.
           </div>
 
           <div class="form-group">
-            <label class="form-label font-mono">PASSWORD</label>
+            <label class="form-label font-mono">PASSWORD <span class="text-rose">*</span></label>
             <div class="input-with-icon">
               <i class="fi fi-rr-lock input-icon"></i>
               <input
@@ -85,6 +85,7 @@ import { registerModal, unregisterModal, isTopModal, getModalZIndex } from '../.
                 [(ngModel)]="password"
                 name="password"
                 required
+                minlength="6"
                 autocomplete="current-password"
                 [disabled]="submitting()"
               />
@@ -98,6 +99,11 @@ import { registerModal, unregisterModal, isTopModal, getModalZIndex } from '../.
                 <i [class]="showPassword() ? 'fi fi-rr-eye-crossed' : 'fi fi-rr-eye'"></i>
               </button>
             </div>
+            @if (mode() === 'signup' && password.length > 0 && password.length < 6) {
+              <span class="field-error-text font-mono text-rose" style="font-size: 0.7rem; margin-top: 0.25rem;">
+                <i class="fi fi-rr-exclamation"></i> Password must be at least 6 characters long
+              </span>
+            }
           </div>
 
           <div class="form-actions">
