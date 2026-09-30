@@ -276,7 +276,7 @@ import { registerModal, unregisterModal, isTopModal } from '../../core/utils/mod
                     (click)="activeTab.set('comments')"
                   >
                     <i class="fi fi-rr-comment-alt-middle"></i> Comments
-                    <span class="activity-badge">{{ comments().length }}</span>
+                    <span class="activity-badge">{{ totalCommentsCount() }}</span>
                   </button>
 
                   <button
@@ -368,13 +368,18 @@ import { registerModal, unregisterModal, isTopModal } from '../../core/utils/mod
 
                     <!-- Comments List -->
                     <div class="comments-list">
-                      @if (comments().length === 0) {
+                      @if (loadingComments() && comments().length === 0) {
+                        <div class="empty-activity font-mono">
+                          <i class="fi fi-rr-spinner spinner text-cyan"></i>
+                          <span>Loading comments (20 per page)...</span>
+                        </div>
+                      } @else if (comments().length === 0) {
                         <div class="empty-activity font-mono">
                           <i class="fi fi-rr-comment-slash text-subtle"></i>
                           <span>No comments yet. Post the first update above!</span>
                         </div>
                       } @else {
-                        @for (c of displayedComments(); track c.id) {
+                        @for (c of comments(); track c.id) {
                           <div class="comment-item glass-panel">
                             <div class="comment-avatar">
                               <i class="fi fi-rr-user"></i>
@@ -474,14 +479,18 @@ import { registerModal, unregisterModal, isTopModal } from '../../core/utils/mod
                         @if (hasMoreComments()) {
                           <div class="load-more-comments-bar font-mono glass-panel">
                             <span class="comments-count-info">
-                              Showing {{ displayedComments().length }} of {{ comments().length }} comments ({{ remainingCommentsCount() }} remaining)
+                              Showing {{ comments().length }} of {{ totalCommentsCount() }} comments ({{ remainingCommentsCount() }} remaining)
                             </span>
                             <div class="load-more-actions">
-                              <button type="button" class="btn btn-secondary btn-xs load-more-btn" (click)="loadMoreComments()">
-                                <i class="fi fi-rr-angle-down"></i> Load 20 More
+                              <button type="button" class="btn btn-secondary btn-xs load-more-btn" [disabled]="loadingComments()" (click)="loadMoreComments()">
+                                @if (loadingComments()) {
+                                  <i class="fi fi-rr-spinner spinner text-cyan"></i> Loading...
+                                } @else {
+                                  <i class="fi fi-rr-angle-down"></i> Load 20 More
+                                }
                               </button>
-                              <button type="button" class="btn btn-ghost btn-xs show-all-btn" (click)="showAllComments()">
-                                Show All ({{ comments().length }})
+                              <button type="button" class="btn btn-ghost btn-xs show-all-btn" [disabled]="loadingComments()" (click)="showAllComments()">
+                                Show All ({{ totalCommentsCount() }})
                               </button>
                             </div>
                           </div>
@@ -1938,17 +1947,56 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
   private readonly modalId = 'task-detail-modal-' + Math.random().toString(36).substring(2, 9);
 
   comments = signal<TaskComment[]>([]);
-  commentsLimit = signal<number>(20);
-  displayedComments = computed(() => this.comments().slice(0, this.commentsLimit()));
-  hasMoreComments = computed(() => this.comments().length > this.commentsLimit());
-  remainingCommentsCount = computed(() => Math.max(0, this.comments().length - this.commentsLimit()));
+  commentsPage = signal<number>(1);
+  commentsPageSize = signal<number>(20);
+  totalCommentsCount = signal<number>(0);
+  hasMoreComments = signal<boolean>(false);
+  loadingComments = signal<boolean>(false);
+  remainingCommentsCount = computed(() => Math.max(0, this.totalCommentsCount() - this.comments().length));
 
-  loadMoreComments(): void {
-    this.commentsLimit.update(l => l + 20);
+  async loadComments(page: number = 1, append: boolean = false): Promise<void> {
+    if (!this.task?.id) return;
+    this.loadingComments.set(true);
+    try {
+      const res = await this.taskService.loadCommentsPaginated(this.task.id, page, this.commentsPageSize());
+      if (append) {
+        this.comments.update(list => {
+          const existingIds = new Set(list.map(c => c.id));
+          const newItems = res.comments.filter(c => !existingIds.has(c.id));
+          return [...list, ...newItems];
+        });
+      } else {
+        this.comments.set(res.comments);
+      }
+      this.commentsPage.set(res.page);
+      this.totalCommentsCount.set(res.totalCount);
+      this.hasMoreComments.set(res.hasMore);
+    } catch (err) {
+      console.error('[TaskDetailModal] Error loading comments:', err);
+    } finally {
+      this.loadingComments.set(false);
+    }
   }
 
-  showAllComments(): void {
-    this.commentsLimit.set(this.comments().length);
+  async loadMoreComments(): Promise<void> {
+    if (this.loadingComments() || !this.hasMoreComments()) return;
+    await this.loadComments(this.commentsPage() + 1, true);
+  }
+
+  async showAllComments(): Promise<void> {
+    if (this.loadingComments() || !this.hasMoreComments()) return;
+    this.loadingComments.set(true);
+    try {
+      const res = await this.taskService.loadCommentsPaginated(this.task.id, 1, 1000, true);
+      this.comments.set(res.comments);
+      this.commentsPage.set(1);
+      this.totalCommentsCount.set(res.totalCount);
+      this.hasMoreComments.set(false);
+    } catch (err) {
+      console.error('[TaskDetailModal] Error showing all comments:', err);
+    } finally {
+      this.loadingComments.set(false);
+    }
   }
 
   statusHistory = signal<TaskStatusHistory[]>([]);
@@ -2146,12 +2194,13 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
     this.conflictError.set(null);
     if (this.task) {
       this.loadAssigneeOptions();
-      const [commList, historyList] = await Promise.all([
-        this.taskService.loadCommentsForTask(this.task.id),
-        this.taskService.loadStatusHistoryForTask(this.task.id)
+      await Promise.all([
+        this.loadComments(1, false),
+        (async () => {
+          const historyList = await this.taskService.loadStatusHistoryForTask(this.task.id);
+          this.statusHistory.set(historyList || []);
+        })()
       ]);
-      this.comments.set(commList);
-      this.statusHistory.set(historyList);
     }
   }
 
@@ -2518,7 +2567,7 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
     );
     if (added) {
       this.comments.update(list => [...list, added]);
-      this.commentsLimit.update(l => Math.max(l + 1, 20));
+      this.totalCommentsCount.update(c => c + 1);
     }
     this.newCommentText = '';
     this.commentAttachments.set([]);
@@ -2693,6 +2742,7 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
       action: async () => {
         await this.taskService.deleteComment(commentId, this.task.id);
         this.comments.update(list => list.filter(c => c.id !== commentId));
+        this.totalCommentsCount.update(c => Math.max(0, c - 1));
       }
     });
   }

@@ -5,7 +5,7 @@ import { ProjectService } from './project.service';
 import { PushNotificationService } from './push-notification.service';
 import { AuthService } from './auth.service';
 import { WorkflowService } from './workflow.service';
-import { Task, TaskComment, TaskStatusHistory, Workflow } from '../models/project.model';
+import { Task, TaskComment, TaskStatusHistory, Workflow, PaginatedCommentsResult } from '../models/project.model';
 import { sanitizeLabels } from '../utils/label.util';
 import { validateAndSanitizeTask } from '../utils/data-validator.util';
 
@@ -1181,23 +1181,68 @@ export class TaskService {
 
   // --- Task Comments / Notes ---
 
-  async loadCommentsForTask(taskId: string, forceFetch: boolean = false): Promise<TaskComment[]> {
-    const cachedComments = this.taskComments()[taskId];
+  async loadCommentsPaginated(
+    taskId: string,
+    page: number = 1,
+    pageSize: number = 20,
+    forceFetch: boolean = false
+  ): Promise<PaginatedCommentsResult> {
+    const from = (page - 1) * pageSize;
+    const to = page * pageSize - 1;
 
-    if (!forceFetch && cachedComments !== undefined) {
-      if (this.syncService.isOnline()) {
-        this.fetchCommentsFromRemote(taskId).catch(err =>
-          console.warn('[TaskService] Background comment refresh failed:', err)
-        );
+    if (this.syncService.isOnline() && (forceFetch || this.supabaseService.isConfigured)) {
+      try {
+        const { data, error, count } = await this.supabaseService.supabase
+          .from('task_comments')
+          .select('*', { count: 'exact' })
+          .eq('task_id', taskId)
+          .order('created_at', { ascending: true })
+          .range(from, to);
+
+        if (!error && data) {
+          const remoteComments = data as TaskComment[];
+          const totalCount = count ?? remoteComments.length;
+
+          this.taskComments.update(map => {
+            const currentList = map[taskId] || [];
+            const mergedMap = new Map<string, TaskComment>();
+            currentList.forEach(c => mergedMap.set(c.id, c));
+            remoteComments.forEach(c => mergedMap.set(c.id, c));
+            const updatedList = Array.from(mergedMap.values())
+              .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+            return { ...map, [taskId]: updatedList };
+          });
+          this.saveToStorage();
+
+          return {
+            comments: remoteComments,
+            totalCount,
+            page,
+            pageSize,
+            hasMore: (from + remoteComments.length) < totalCount
+          };
+        }
+      } catch (e) {
+        console.warn('[TaskService] Paginated comment fetch error:', e);
       }
-      return cachedComments;
     }
 
-    if (this.syncService.isOnline()) {
-      return await this.fetchCommentsFromRemote(taskId);
-    }
+    const allLocal = this.taskComments()[taskId] || [];
+    const totalCount = allLocal.length;
+    const pageComments = allLocal.slice(from, from + pageSize);
 
-    return cachedComments || [];
+    return {
+      comments: pageComments,
+      totalCount,
+      page,
+      pageSize,
+      hasMore: (from + pageComments.length) < totalCount
+    };
+  }
+
+  async loadCommentsForTask(taskId: string, forceFetch: boolean = false): Promise<TaskComment[]> {
+    const res = await this.loadCommentsPaginated(taskId, 1, 1000, forceFetch);
+    return res.comments;
   }
 
   private async fetchCommentsFromRemote(taskId: string): Promise<TaskComment[]> {

@@ -106,6 +106,14 @@ export interface TaskComment {
   updated_at?: string;
 }
 
+export interface PaginatedCommentsResult {
+  comments: TaskComment[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+}
+
 export interface TaskStatusHistory {
   id: string;
   task_id: string;

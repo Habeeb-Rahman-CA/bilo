@@ -754,3 +754,25 @@ textarea:focus-visible,
   outline: 2px solid var(--accent-cyan, #06b6d4) !important;
   outline-offset: 2px !important;
 }
+
+/* ==========================================================================
+   Image Lazy Loading & Intersection Observer Transitions
+   ========================================================================== */
+.lazy-image-init {
+  transition: opacity 0.3s ease-out, filter 0.3s ease-out;
+}
+
+.lazy-loading {
+  opacity: 0.4;
+  filter: blur(4px);
+}
+
+.lazy-loaded {
+  opacity: 1;
+  filter: blur(0);
+}
+
+.lazy-error {
+  opacity: 0.6;
+  filter: grayscale(100%);
+}
