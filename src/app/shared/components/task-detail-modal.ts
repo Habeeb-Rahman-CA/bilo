@@ -16,11 +16,12 @@ import { DatePickerComponent } from './date-picker';
 import { ConfirmModalComponent } from './confirm-modal';
 import { RichEditorComponent } from './rich-editor';
 import { registerModal, unregisterModal, isTopModal } from '../../core/utils/modal-stack.util';
+import { LazyImageDirective } from '../directives/lazy-image.directive';
 
 @Component({
   selector: 'app-task-detail-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectComponent, DatePickerComponent, ConfirmModalComponent, RichEditorComponent],
+  imports: [CommonModule, FormsModule, SelectComponent, DatePickerComponent, ConfirmModalComponent, RichEditorComponent, LazyImageDirective],
   template: `
     <div class="task-detail-overlay" [style.z-index]="modalZIndex" (click)="handleCloseAttempt()">
       <div class="task-detail-panel font-mono" (click)="$event.stopPropagation()">
@@ -237,7 +238,7 @@ import { registerModal, unregisterModal, isTopModal } from '../../core/utils/mod
                     @if (task.attachments) {
                       @for (img of task.attachments; track $index) {
                         <div class="detail-thumb-card" (click)="previewImageModal.set(img)">
-                          <img [src]="img" alt="Attachment" />
+                          <img [appLazyImage]="img" alt="Attachment" />
                           <div class="detail-thumb-overlay">
                             <i class="fi fi-rr-eye zoom-icon"></i>
                             <button
@@ -463,7 +464,7 @@ import { registerModal, unregisterModal, isTopModal } from '../../core/utils/mod
                                   <div class="comment-attached-images">
                                     @for (img of c.attachments; track $index) {
                                       <div class="comment-img-card" (click)="previewImageModal.set(img)" title="Click to view full image">
-                                        <img [src]="img" alt="Attached image" />
+                                        <img [appLazyImage]="img" alt="Attached image" />
                                         <div class="img-hover-overlay">
                                           <i class="fi fi-rr-search-alt"></i>
                                         </div>

@@ -10,6 +10,7 @@ import { isDueSoon, isOverdue } from '../../core/utils/date.util';
 import { ProjectModalComponent } from '../../shared/components/project-modal';
 import { WorkflowModalComponent } from '../../shared/components/workflow-modal';
 import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
+import { LazyImageDirective } from '../../shared/directives/lazy-image.directive';
 
 @Component({
   selector: 'app-projects',
@@ -19,7 +20,8 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
     FormsModule,
     ProjectModalComponent,
     WorkflowModalComponent,
-    ConfirmModalComponent
+    ConfirmModalComponent,
+    LazyImageDirective
   ],
   template: `
     <div class="projects-workspace font-mono">
@@ -106,7 +108,7 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
               <div class="title-group">
                 @let projImg = p.image_url || p.icon;
                 @if (isImageIcon(projImg)) {
-                  <img [src]="projImg" class="project-icon-avatar" alt="Project Image" />
+                  <img [appLazyImage]="projImg" class="project-icon-avatar" alt="Project Image" />
                 } @else if (projImg) {
                   <i [class]="projImg" class="project-icon-symbol" [style.color]="p.color || 'var(--accent-cyan)'"></i>
                 } @else {

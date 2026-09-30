@@ -12,11 +12,12 @@ import { RichEditorComponent } from './rich-editor';
 import { compressImageFile, canAddAttachment, MAX_ATTACHMENT_FILE_SIZE_BYTES, MAX_ATTACHMENTS_PER_TASK } from '../../core/utils/image-compressor.util';
 import { sanitizeLabels } from '../../core/utils/label.util';
 import { registerModal, unregisterModal, isTopModal } from '../../core/utils/modal-stack.util';
+import { LazyImageDirective } from '../directives/lazy-image.directive';
 
 @Component({
   selector: 'app-task-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule, DatePickerComponent, SelectComponent, RichEditorComponent],
+  imports: [CommonModule, FormsModule, DatePickerComponent, SelectComponent, RichEditorComponent, LazyImageDirective],
   template: `
     <div class="modal-overlay" [style.z-index]="modalZIndex" (click)="close.emit()">
       <div class="modal-card paper-panel font-mono" (click)="$event.stopPropagation()">
@@ -215,7 +216,7 @@ import { registerModal, unregisterModal, isTopModal } from '../../core/utils/mod
                 <div class="attachment-grid">
                   @for (img of attachments(); track $index) {
                     <div class="attachment-thumb-card" (click)="previewImage.set(img)">
-                      <img [src]="img" alt="Attachment" />
+                      <img [appLazyImage]="img" alt="Attachment" />
                       <div class="thumb-overlay">
                         <i class="fi fi-rr-eye zoom-icon"></i>
                         <button

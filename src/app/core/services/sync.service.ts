@@ -29,6 +29,18 @@ export interface PendingSyncOp {
 export class SyncService {
   readonly MAX_RETRIES = 3;
   readonly MAX_QUEUE_SIZE = 500;
+  readonly MAX_BATCH_SIZE = 25;
+
+  // Op types that can be safely batched into a single multi-row upsert.
+  // DELETEs and cascading ops remain individual for safety.
+  private readonly BATCHABLE_TYPES: ReadonlySet<PendingSyncOp['type']> = new Set([
+    'CREATE_TASK',
+    'UPDATE_TASK',
+    'CREATE_PROJECT',
+    'ADD_COMMENT',
+    'ADD_STATUS_HISTORY',
+    'ADD_PROJECT_ACTIVITY',
+  ]);
 
   isOnline = signal<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
   connectionStatus = signal<'online' | 'degraded' | 'offline'>(
@@ -557,6 +569,75 @@ export class SyncService {
     }
   }
 
+  /**
+   * Attempts to execute a batch of same-type ops as a single multi-row upsert.
+   * Returns the IDs of ops that succeeded, and those that failed (to be retried individually).
+   */
+  private async executeBatch(
+    ops: PendingSyncOp[],
+    currentUserId: string
+  ): Promise<{ succeededIds: string[]; failedIds: string[]; rateLimited: boolean; error?: string }> {
+    if (ops.length === 0) return { succeededIds: [], failedIds: [], rateLimited: false };
+
+    const type = ops[0].type;
+    const sb = this.supabaseService.supabase;
+
+    try {
+      let error: any = null;
+
+      switch (type) {
+        case 'CREATE_TASK':
+        case 'UPDATE_TASK': {
+          const payloads = ops.map(op => {
+            const clean = this.sanitizeTaskPayload(op.payload);
+            clean.user_id = currentUserId;
+            return clean;
+          });
+          ({ error } = await sb.from('tasks').upsert(payloads));
+          break;
+        }
+        case 'CREATE_PROJECT': {
+          const payloads = ops.map(op => ({ ...op.payload, user_id: currentUserId }));
+          ({ error } = await sb.from('projects').upsert(payloads));
+          break;
+        }
+        case 'ADD_COMMENT': {
+          const payloads = ops.map(op => ({ ...op.payload, user_id: currentUserId }));
+          ({ error } = await sb.from('task_comments').upsert(payloads));
+          break;
+        }
+        case 'ADD_STATUS_HISTORY': {
+          const payloads = ops.map(op => ({ ...op.payload, user_id: currentUserId }));
+          ({ error } = await sb.from('task_status_history').upsert(payloads));
+          break;
+        }
+        case 'ADD_PROJECT_ACTIVITY': {
+          const payloads = ops.map(op => ({ ...op.payload, user_id: currentUserId }));
+          ({ error } = await sb.from('project_activities').upsert(payloads));
+          break;
+        }
+        default:
+          // Non-batchable type — caller should not have called this
+          return { succeededIds: [], failedIds: ops.map(o => o.id), rateLimited: false, error: `Non-batchable type: ${type}` };
+      }
+
+      if (error) {
+        console.warn(`[bilo Sync] Batch of ${ops.length} ${type} ops failed (${error.code}): ${error.message}. Falling back to individual execution.`);
+        return {
+          succeededIds: [],
+          failedIds: ops.map(o => o.id),
+          rateLimited: this.isRateLimitError(error),
+          error: error.message
+        };
+      }
+
+      console.log(`[bilo Sync] Batch of ${ops.length} ${type} ops synced successfully.`);
+      return { succeededIds: ops.map(o => o.id), failedIds: [], rateLimited: false };
+    } catch (e: any) {
+      return { succeededIds: [], failedIds: ops.map(o => o.id), rateLimited: false, error: e?.message };
+    }
+  }
+
   async processQueue() {
     const now = Date.now();
     if (this.syncing()) {
@@ -607,6 +688,49 @@ export class SyncService {
         }
 
         attemptedIds.add(op.id);
+
+        // --- Batch path: collect consecutive same-type batchable ops from the front of the queue ---
+        const batchOps: PendingSyncOp[] = [];
+        if (this.BATCHABLE_TYPES.has(op.type)) {
+          for (const qOp of queue) {
+            if (batchOps.length >= this.MAX_BATCH_SIZE) break;
+            if (qOp.type !== op.type) break;
+            if (qOp.user_id && qOp.user_id !== 'guest' && qOp.user_id !== currentUserId) break;
+            if (attemptedIds.has(qOp.id) && qOp.id !== op.id) break;
+            batchOps.push(qOp);
+            attemptedIds.add(qOp.id);
+          }
+        }
+
+        if (batchOps.length > 1) {
+          // --- Execute as batch ---
+          const batchResult = await this.executeBatch(batchOps, currentUserId);
+
+          if (batchResult.rateLimited) {
+            console.warn(`[bilo Sync] Rate limit hit during batch of ${batchOps.length} ${op.type} ops. Backing off 3s.`);
+            await new Promise(res => setTimeout(res, 3000));
+            break;
+          }
+
+          if (batchResult.succeededIds.length > 0) {
+            const succeededSet = new Set(batchResult.succeededIds);
+            this.pendingSyncQueue.update(q => q.filter(o => !succeededSet.has(o.id)));
+            await this.saveQueueToStorage(currentUserId);
+            completedOpsCount += batchResult.succeededIds.length;
+            const pct = Math.min(100, Math.round((completedOpsCount / totalInitial) * 100));
+            this.progressService?.update(syncProgressId, pct, {
+              message: `Synced ${completedOpsCount} of ${totalInitial} operations (${pct}%)`,
+              currentStep: completedOpsCount,
+              totalSteps: totalInitial
+            });
+          }
+
+          // Failed ops: fall back to individual execution in the next loop iteration
+          // (they remain in queue with retryCount intact)
+          continue;
+        }
+
+        // --- Individual execution (fallback / non-batchable / single op) ---
         const result = await this.executeOpWithTimeout(op, currentUserId, 15000);
 
         if (result.success) {

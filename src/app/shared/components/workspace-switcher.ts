@@ -5,11 +5,12 @@ import { ProjectService } from '../../core/services/project.service';
 import { AuthService } from '../../core/services/auth.service';
 import { Project } from '../../core/models/project.model';
 import { registerOpenPopover, unregisterOpenPopover } from './select';
+import { LazyImageDirective } from '../directives/lazy-image.directive';
 
 @Component({
   selector: 'app-workspace-switcher',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, LazyImageDirective],
   template: `
     <div class="workspace-switcher font-mono" #containerEl>
       <!-- Trigger Pill Button -->
@@ -88,7 +89,7 @@ import { registerOpenPopover, unregisterOpenPopover } from './select';
                   <div class="item-left">
                     <div class="ws-item-avatar" [style.background]="p.image_url ? 'transparent' : (p.color || '#06b6d4')">
                       @if (p.image_url) {
-                        <img [src]="p.image_url" class="ws-icon-img" alt="Workspace Icon" />
+                        <img [appLazyImage]="p.image_url" class="ws-icon-img" alt="Workspace Icon" />
                       } @else if (p.icon) {
                         <i [class]="p.icon"></i>
                       } @else {

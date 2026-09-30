@@ -8,7 +8,7 @@ const TRANSPARENT_PIXEL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org
   standalone: true
 })
 export class LazyImageDirective implements OnInit, OnDestroy, OnChanges {
-  @Input() appLazyImage!: string;
+  @Input() appLazyImage: string | undefined | null;
   @Input() fallbackSrc?: string;
 
   private observer?: IntersectionObserver;
