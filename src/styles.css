@@ -719,3 +719,38 @@ body.dark-theme [contenteditable]:focus-visible {
   gap: 0.65rem;
   margin-top: 0.5rem;
 }
+
+/* ==========================================================================
+   Comprehensive Accessible Keyboard Navigation (:focus-visible System)
+   ========================================================================== */
+*:focus-visible {
+  outline: 2px solid var(--accent-cyan, #06b6d4) !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.25) !important;
+}
+
+body.dark-theme *:focus-visible,
+[data-theme="dark"] *:focus-visible {
+  outline: 2px solid var(--accent-cyan, #06b6d4) !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.35) !important;
+}
+
+button:focus-visible,
+.btn:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible,
+.select-trigger:focus-visible,
+.ws-item-btn:focus-visible,
+.sidebar-tab-btn:focus-visible,
+.bottom-tab-btn:focus-visible,
+.task-card:focus-visible,
+.project-card:focus-visible,
+.option-item:focus-visible,
+.palette-item:focus-visible {
+  outline: 2px solid var(--accent-cyan, #06b6d4) !important;
+  outline-offset: 2px !important;
+}

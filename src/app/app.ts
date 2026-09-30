@@ -38,12 +38,15 @@ import { registerOpenPopover, unregisterOpenPopover, ClosablePopover } from './s
 
 import { MaintenanceComponent } from './features/maintenance/maintenance';
 
+import { ProgressOverlayComponent } from './shared/components/progress-overlay';
+
 @Component({
   selector: 'app-root',
   standalone: true,
   imports: [
     CommonModule,
     BiloLogoComponent,
+    ProgressOverlayComponent,
     WorkspaceSwitcherComponent,
     ProjectModalComponent,
     JoinWorkspaceModalComponent,

@@ -40,7 +40,7 @@ import { registerOpenPopover, unregisterOpenPopover } from './select';
 
       <!-- Dropdown Popover Menu -->
       @if (isOpen()) {
-        <div class="switcher-popover paper-panel font-mono" (click)="$event.stopPropagation()">
+        <div class="switcher-popover paper-panel font-mono" (click)="$event.stopPropagation()" (keydown)="onKeydown($event)">
           <div class="popover-header">
             <span class="header-title">WORKSPACES</span>
             <span class="badge-mono">{{ filteredProjects().length }} AVAILABLE</span>
@@ -65,7 +65,7 @@ import { registerOpenPopover, unregisterOpenPopover } from './select';
           </div>
 
           <!-- Workspaces List -->
-          <div class="popover-list">
+          <div class="popover-list" #popoverListEl>
             @if (filteredProjects().length === 0) {
               <div class="empty-state-card compact font-mono" style="padding: 1.25rem 0.75rem;">
                 <div class="empty-state-icon-badge warning" style="width: 36px; height: 36px; font-size: 1rem; margin-bottom: 0.5rem;">
@@ -76,12 +76,14 @@ import { registerOpenPopover, unregisterOpenPopover } from './select';
                 <button type="button" class="btn btn-ghost btn-xs text-cyan" (click)="clearSearch()">Clear Search</button>
               </div>
             } @else {
-              @for (p of filteredProjects(); track p.id) {
+              @for (p of filteredProjects(); track p.id; let i = $index) {
                 <button
                   type="button"
                   class="ws-item-btn"
                   [class.active]="p.id === activeProject()?.id"
+                  [class.focused]="i === activeIndex()"
                   (click)="selectWorkspace(p)"
+                  (mouseenter)="activeIndex.set(i)"
                 >
                   <div class="item-left">
                     <div class="ws-item-avatar" [style.background]="p.image_url ? 'transparent' : (p.color || '#06b6d4')">
@@ -457,9 +459,47 @@ export class WorkspaceSwitcherComponent {
     private authService: AuthService
   ) {}
 
+  @ViewChild('popoverListEl') popoverListEl?: ElementRef<HTMLDivElement>;
+  activeIndex = signal<number>(0);
+
+  onKeydown(e: KeyboardEvent) {
+    const list = this.filteredProjects();
+    if (list.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      this.activeIndex.update(i => (i + 1) % list.length);
+      this.scrollToActive();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      this.activeIndex.update(i => (i - 1 + list.length) % list.length);
+      this.scrollToActive();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const current = list[this.activeIndex()];
+      if (current) {
+        this.selectWorkspace(current);
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      this.closePopover();
+    }
+  }
+
+  private scrollToActive() {
+    setTimeout(() => {
+      if (!this.popoverListEl?.nativeElement) return;
+      const focusedEl = this.popoverListEl.nativeElement.querySelector('.ws-item-btn.focused') as HTMLElement;
+      if (focusedEl) {
+        focusedEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }, 0);
+  }
+
   openPopover() {
     registerOpenPopover(this);
     this.isOpen.set(true);
+    this.activeIndex.set(0);
   }
 
   closePopover() {

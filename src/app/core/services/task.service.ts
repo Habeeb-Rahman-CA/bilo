@@ -9,6 +9,8 @@ import { Task, TaskComment, TaskStatusHistory, Workflow } from '../models/projec
 import { sanitizeLabels } from '../utils/label.util';
 import { validateAndSanitizeTask } from '../utils/data-validator.util';
 
+import { ProgressService } from './progress.service';
+
 export interface BatchOperationProgress {
   active: boolean;
   current: number;
@@ -56,6 +58,7 @@ export class TaskService {
     private projectService: ProjectService,
     private pushNotificationService: PushNotificationService,
     private authService: AuthService,
+    private progressService: ProgressService,
     private injector?: Injector
   ) {
     this.loadFromStorage();
@@ -874,6 +877,11 @@ export class TaskService {
     if (existingTasks.length === 0) return;
 
     const total = existingTasks.length;
+    const progressId = `batch-delete-${Date.now()}`;
+    this.progressService.start(progressId, 'batch', `Batch Delete Tasks`, {
+      message: `Deleting ${total} task${total > 1 ? 's' : ''}...`,
+      totalSteps: total
+    });
     this.batchProgress.set({
       active: true,
       current: 0,
@@ -935,6 +943,11 @@ export class TaskService {
 
         const current = Math.min(i + chunkSize, total);
         const percentage = Math.round((current / total) * 100);
+        this.progressService.update(progressId, percentage, {
+          message: `Deleting item ${current} of ${total} (${percentage}%)`,
+          currentStep: current,
+          totalSteps: total
+        });
         this.batchProgress.set({
           active: true,
           current,
@@ -951,6 +964,10 @@ export class TaskService {
 
       // 5) Save to localStorage after batch delete completes
       this.saveToStorage();
+      this.progressService.complete(progressId, `Batch deleted ${total} task${total > 1 ? 's' : ''}`);
+    } catch (err) {
+      this.progressService.fail(progressId, `Batch delete failed`);
+      throw err;
     } finally {
       this.batchProgress.set(null);
     }
@@ -964,6 +981,11 @@ export class TaskService {
     if (existingTasks.length === 0) return;
 
     const total = existingTasks.length;
+    const progressId = `batch-update-${Date.now()}`;
+    this.progressService.start(progressId, 'batch', `Batch Update Tasks`, {
+      message: `Updating ${total} task${total > 1 ? 's' : ''}...`,
+      totalSteps: total
+    });
     this.batchProgress.set({
       active: true,
       current: 0,
@@ -1063,6 +1085,11 @@ export class TaskService {
 
         const current = Math.min(i + chunkSize, total);
         const percentage = Math.round((current / total) * 100);
+        this.progressService.update(progressId, percentage, {
+          message: `Updated item ${current} of ${total} (${percentage}%)`,
+          currentStep: current,
+          totalSteps: total
+        });
         this.batchProgress.set({
           active: true,
           current,
@@ -1078,6 +1105,10 @@ export class TaskService {
       }
 
       this.saveToStorage();
+      this.progressService.complete(progressId, `Batch updated ${total} task${total > 1 ? 's' : ''}`);
+    } catch (err) {
+      this.progressService.fail(progressId, `Batch update failed`);
+      throw err;
     } finally {
       this.batchProgress.set(null);
     }

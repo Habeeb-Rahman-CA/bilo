@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import * as XLSX from 'xlsx-js-style';
 import { TaskService } from '../../core/services/task.service';
 import { ProjectService } from '../../core/services/project.service';
+import { ProgressService } from '../../core/services/progress.service';
 import { Task, Project } from '../../core/models/project.model';
 import { getTaskKey } from '../../core/utils/task-key.util';
 import { getLocalDateString } from '../../core/utils/date.util';
@@ -633,7 +634,8 @@ import { ScrollingModule } from '@angular/cdk/scrolling';
 export class ArchiveComponent {
   constructor(
     public taskService: TaskService,
-    public projectService: ProjectService
+    public projectService: ProjectService,
+    public progressService?: ProgressService
   ) { }
 
   // Completed tasks state & signals
@@ -947,9 +949,11 @@ export class ArchiveComponent {
   async exportData() {
     if (this.isExporting()) return;
 
+    const exportId = `excel-export-${Date.now()}`;
     this.isExporting.set(true);
     this.exportProgress.set(0);
     this.exportStepMessage.set('Preparing export data...');
+    this.progressService?.start(exportId, 'export', 'Excel Export Generation', { message: 'Preparing export data...' });
 
     try {
       await this.yieldToMain();
@@ -1128,9 +1132,11 @@ export class ArchiveComponent {
 
       this.exportProgress.set(100);
       this.exportStepMessage.set('Export completed successfully!');
+      this.progressService?.complete(this.progressService?.activeProgress()?.id || '', 'Excel spreadsheet downloaded!');
       await this.yieldToMain();
     } catch (err) {
       console.error('[ArchiveComponent] Error during Excel export:', err);
+      this.progressService?.fail(this.progressService?.activeProgress()?.id || '', 'Excel export failed');
     } finally {
       setTimeout(() => {
         this.isExporting.set(false);

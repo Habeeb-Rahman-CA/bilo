@@ -6,6 +6,7 @@ import { ProjectService } from '../../core/services/project.service';
 import { WorkflowService } from '../../core/services/workflow.service';
 import { TaskShareService } from '../../core/services/task-share.service';
 import { AuthService } from '../../core/services/auth.service';
+import { ProgressService } from '../../core/services/progress.service';
 import { Task, TaskComment, TaskStatusHistory, TaskPriority, TaskSeverity, TaskReproducibility, TaskType, Workflow } from '../../core/models/project.model';
 import { getTaskKey } from '../../core/utils/task-key.util';
 import { sanitizeLabels } from '../../core/utils/label.util';
@@ -2017,6 +2018,7 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
     public workflowService: WorkflowService,
     public taskShareService: TaskShareService,
     public authService: AuthService,
+    public progressService: ProgressService,
     private elementRef: ElementRef
   ) { }
 
@@ -2568,13 +2570,31 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
     this.uploadingCommentAttachments.set(true);
     this.uploadingCommentCount.set(imageFiles.length);
 
+    const uploadProgressId = `upload-${Date.now()}`;
+    const totalBytes = imageFiles.reduce((acc, f) => acc + f.size, 0);
+    this.progressService.start(uploadProgressId, 'upload', 'Large File Upload', {
+      message: `Compressing & uploading ${imageFiles.length} file(s)...`,
+      totalBytes
+    });
+
     try {
       let processedCount = 0;
-      for (const file of imageFiles) {
+      let loadedBytes = 0;
+
+      for (let i = 0; i < imageFiles.length; i++) {
+        const file = imageFiles[i];
         if (file.size > MAX_ATTACHMENT_FILE_SIZE_BYTES) {
           this.taskShareService.showToast(`File "${file.name}" exceeds 10MB limit and was skipped.`);
           continue;
         }
+
+        loadedBytes += file.size;
+        const pct = Math.round((loadedBytes / (totalBytes || 1)) * 100);
+        this.progressService.update(uploadProgressId, pct, {
+          message: `Processing "${file.name}" (${i + 1} of ${imageFiles.length})`,
+          loadedBytes,
+          totalBytes
+        });
 
         const compressed = await compressImageFile(file);
         if (compressed) {
@@ -2587,12 +2607,17 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
           processedCount++;
         }
       }
+
       if (processedCount > 0) {
         this.taskShareService.showToast(`${processedCount} image(s) attached to comment draft.`);
+        this.progressService.complete(uploadProgressId, `${processedCount} attachment(s) processed!`);
+      } else {
+        this.progressService.complete(uploadProgressId, 'Upload finished');
       }
     } catch (e) {
       console.error('Error processing comment image:', e);
       this.taskShareService.showToast('Failed to process image for comment. Please try again.');
+      this.progressService.fail(uploadProgressId, 'File processing failed');
     } finally {
       this.uploadingCommentAttachments.set(false);
       this.uploadingCommentCount.set(0);
