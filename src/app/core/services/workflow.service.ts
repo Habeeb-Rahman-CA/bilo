@@ -70,7 +70,29 @@ export class WorkflowService {
     }
   }
 
-  private saveToStorage() {
+  private saveTimeoutTimer: any = null;
+
+  saveToStorage(delayMs: number = 100) {
+    if (delayMs <= 0) {
+      this.saveToStorageImmediate();
+      return;
+    }
+
+    if (this.saveTimeoutTimer) {
+      clearTimeout(this.saveTimeoutTimer);
+      this.saveTimeoutTimer = null;
+    }
+
+    this.saveTimeoutTimer = setTimeout(() => {
+      this.saveToStorageImmediate();
+    }, delayMs);
+  }
+
+  saveToStorageImmediate() {
+    if (this.saveTimeoutTimer) {
+      clearTimeout(this.saveTimeoutTimer);
+      this.saveTimeoutTimer = null;
+    }
     localStorage.setItem('bilo_workflows_by_project', JSON.stringify(this.workflowsByProject()));
   }
 

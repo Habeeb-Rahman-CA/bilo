@@ -1,10 +1,11 @@
 import { Component, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import * as XLSX from 'xlsx-js-style';
 import { TaskService } from '../../core/services/task.service';
 import { ProjectService } from '../../core/services/project.service';
 import { ProgressService } from '../../core/services/progress.service';
+import { ExcelExportService } from '../../core/services/excel-export.service';
+import { ExportWorkerPayload } from '../../core/workers/excel-export.worker';
 import { Task, Project } from '../../core/models/project.model';
 import { getTaskKey } from '../../core/utils/task-key.util';
 import { getLocalDateString } from '../../core/utils/date.util';
@@ -635,7 +636,8 @@ export class ArchiveComponent {
   constructor(
     public taskService: TaskService,
     public projectService: ProjectService,
-    public progressService?: ProgressService
+    public progressService?: ProgressService,
+    private excelExportService?: ExcelExportService
   ) { }
 
   // Completed tasks state & signals
@@ -841,286 +843,83 @@ export class ArchiveComponent {
     return d;
   }
 
-  private async createStyledSheetAsync(
-    headers: string[],
-    descriptions: string[],
-    dataRows: (string | number | Date)[][],
-    baseProgress: number = 0,
-    progressWeight: number = 25
-  ): Promise<XLSX.WorkSheet> {
-    const ws: XLSX.WorkSheet = {};
-    const chunkSize = 250;
-
-    // 1. Header Row
-    headers.forEach((h, colIdx) => {
-      const cellRef = XLSX.utils.encode_cell({ r: 0, c: colIdx });
-      ws[cellRef] = {
-        v: h,
-        t: 's',
-        s: {
-          font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11, name: 'Calibri' },
-          fill: { fgColor: { rgb: '1C1917' } },
-          alignment: { vertical: 'center', horizontal: 'left' }
-        }
-      };
-    });
-
-    // 2. Field Description Row
-    descriptions.forEach((desc, colIdx) => {
-      const cellRef = XLSX.utils.encode_cell({ r: 1, c: colIdx });
-      ws[cellRef] = {
-        v: desc,
-        t: 's',
-        s: {
-          font: { italic: true, color: { rgb: '78716C' }, sz: 9, name: 'Calibri' },
-          fill: { fgColor: { rgb: 'F3F0E6' } },
-          alignment: { vertical: 'center', horizontal: 'left' }
-        }
-      };
-    });
-
-    // 3. Data Rows (Chunked to prevent thread locking)
-    const totalDataRows = dataRows.length;
-    for (let i = 0; i < totalDataRows; i += chunkSize) {
-      const chunk = dataRows.slice(i, i + chunkSize);
-      chunk.forEach((row, rowIdxInChunk) => {
-        const rowIdx = i + rowIdxInChunk;
-        row.forEach((val, colIdx) => {
-          const cellRef = XLSX.utils.encode_cell({ r: rowIdx + 2, c: colIdx });
-          const isNum = typeof val === 'number';
-          const isDateObj = val instanceof Date && !isNaN(val.getTime());
-
-          if (isDateObj) {
-            const hasTime = val.getHours() !== 0 || val.getMinutes() !== 0 || val.getSeconds() !== 0;
-            const dateFormat = hasTime ? 'yyyy-mm-dd hh:mm' : 'yyyy-mm-dd';
-            ws[cellRef] = {
-              v: val,
-              t: 'd',
-              z: dateFormat,
-              s: {
-                numFmt: dateFormat,
-                font: { sz: 10, name: 'Calibri', color: { rgb: '1C1917' } },
-                alignment: { vertical: 'center', horizontal: 'left' }
-              }
-            };
-          } else {
-            ws[cellRef] = {
-              v: val ?? '',
-              t: isNum ? 'n' : 's',
-              s: {
-                font: { sz: 10, name: 'Calibri', color: { rgb: '1C1917' } },
-                alignment: { vertical: 'center', horizontal: isNum ? 'right' : 'left' }
-              }
-            };
-          }
-        });
-      });
-
-      if (totalDataRows > 0) {
-        const rowProgress = Math.min(i + chunkSize, totalDataRows) / totalDataRows;
-        const currentPct = Math.round(baseProgress + (rowProgress * progressWeight));
-        this.exportProgress.set(Math.min(99, currentPct));
-      }
-      await this.yieldToMain();
-    }
-
-    // Range bounds definition
-    const totalRows = dataRows.length + 2;
-    const totalCols = headers.length;
-    ws['!ref'] = XLSX.utils.encode_range(
-      { r: 0, c: 0 },
-      { r: Math.max(totalRows - 1, 1), c: totalCols - 1 }
-    );
-
-    // Auto Column Widths calculation
-    ws['!cols'] = headers.map((h, colIdx) => {
-      let maxLen = Math.max(h.length, (descriptions[colIdx] || '').length);
-      dataRows.forEach(r => {
-        const cellVal = r[colIdx];
-        const str = cellVal instanceof Date ? cellVal.toISOString().slice(0, 10) : String(cellVal ?? '');
-        if (str.length > maxLen) maxLen = str.length;
-      });
-      return { wch: Math.min(Math.max(maxLen + 4, 15), 55) };
-    });
-
-    return ws;
-  }
-
   async exportData() {
     if (this.isExporting()) return;
 
     const exportId = `excel-export-${Date.now()}`;
     this.isExporting.set(true);
     this.exportProgress.set(0);
-    this.exportStepMessage.set('Preparing export data...');
+    this.exportStepMessage.set('Preparing export data for Web Worker...');
     this.progressService?.start(exportId, 'export', 'Excel Export Generation', { message: 'Preparing export data...' });
 
     try {
-      await this.yieldToMain();
-      const wb = XLSX.utils.book_new();
-
-      // 1. Sheet: Completed Tasks (Progress Weight: 30%)
-      this.exportStepMessage.set('Formatting Completed Tasks...');
-      const completedHeaders = ['Task ID', 'Title / Summary', 'Issue Type', 'Priority', 'Status', 'Project Name', 'Assignee', 'Due Date', 'Created Date'];
-      const completedDescriptions = [
-        'Unique task identifier code',
-        'Brief summary title of completed work',
-        'Work category (Task, Bug, Story, Epic)',
-        'Urgency priority level',
-        'Completion status state',
-        'Parent workspace project',
-        'Assigned team member',
-        'Target due date (YYYY-MM-DD)',
-        'Timestamp when task was logged'
-      ];
-
-      const completedTasksList = this.completedTasks();
       const projList = this.projectService.projects();
       const allTaskList = this.taskService.tasks();
-      const completedRows: (string | number | Date)[][] = [];
+      const completedTasksList = this.completedTasks();
+      const activitiesList = this.activities();
 
-      for (let i = 0; i < completedTasksList.length; i += 250) {
-        const chunk = completedTasksList.slice(i, i + 250);
-        chunk.forEach(t => {
-          completedRows.push([
-            getTaskKey(t, projList, allTaskList),
-            t.title,
-            (t.type || 'task').toUpperCase(),
-            (t.priority || 'medium').toUpperCase(),
-            'COMPLETED',
-            this.getProjectName(t.project_id),
-            t.assignee || 'Unassigned',
-            this.parseExcelDate(t.due_date),
-            this.parseExcelDate(t.created_at)
-          ]);
-        });
-        await this.yieldToMain();
-      }
+      const payload: ExportWorkerPayload = {
+        completedTasks: completedTasksList.map(t => ({
+          id: t.id,
+          taskKey: getTaskKey(t, projList, allTaskList),
+          title: t.title,
+          type: t.type,
+          priority: t.priority,
+          status: t.status,
+          completed: t.completed,
+          projectName: this.getProjectName(t.project_id),
+          assignee: t.assignee,
+          dueDate: t.due_date,
+          createdAt: t.created_at
+        })),
+        allTasks: allTaskList.map(t => ({
+          id: t.id,
+          taskKey: getTaskKey(t, projList, allTaskList),
+          title: t.title,
+          type: t.type,
+          priority: t.priority,
+          status: t.status,
+          completed: t.completed,
+          projectName: this.getProjectName(t.project_id),
+          assignee: t.assignee,
+          dueDate: t.due_date,
+          createdAt: t.created_at
+        })),
+        projects: projList.map(p => {
+          const pTasks = allTaskList.filter(t => t.project_id === p.id);
+          const pDone = pTasks.filter(t => t.completed || t.status.toLowerCase() === 'done').length;
+          const progress = pTasks.length > 0 ? Math.round((pDone / pTasks.length) * 100) : 0;
+          return {
+            id: p.id,
+            key: `PROJ-${p.id.slice(0, 4).toUpperCase()}`,
+            name: p.name,
+            description: p.description || '',
+            status: p.status || 'active',
+            totalTasks: pTasks.length,
+            completedTasks: pDone,
+            progressPct: `${progress}%`
+          };
+        }),
+        activities: activitiesList.map(act => ({
+          action: act.action,
+          description: act.description,
+          timestamp: act.timestamp
+        }))
+      };
 
-      const completedWs = await this.createStyledSheetAsync(
-        completedHeaders,
-        completedDescriptions,
-        completedRows,
-        0,
-        30
-      );
-      XLSX.utils.book_append_sheet(wb, completedWs, 'Completed Tasks');
+      const exportService = this.excelExportService || new ExcelExportService();
 
-      // 2. Sheet: All Workspace Tasks (Progress Weight: 40%)
-      this.exportStepMessage.set('Formatting All Workspace Tasks...');
-      const allHeaders = ['Task ID', 'Title / Summary', 'Issue Type', 'Priority', 'Status', 'Completed', 'Project Name', 'Assignee', 'Due Date', 'Created Date'];
-      const allDescriptions = [
-        'Unique task identifier code',
-        'Brief summary title of work item',
-        'Work category (Task, Bug, Story, Epic)',
-        'Urgency priority level',
-        'Current workflow state (Todo, In Progress, Done)',
-        'Completion status indicator (YES/NO)',
-        'Parent workspace project',
-        'Assigned team member',
-        'Target due date (YYYY-MM-DD)',
-        'Timestamp when task was logged'
-      ];
-
-      const allTaskRows: (string | number | Date)[][] = [];
-      for (let i = 0; i < allTaskList.length; i += 250) {
-        const chunk = allTaskList.slice(i, i + 250);
-        chunk.forEach(t => {
-          allTaskRows.push([
-            getTaskKey(t, projList, allTaskList),
-            t.title,
-            (t.type || 'task').toUpperCase(),
-            (t.priority || 'medium').toUpperCase(),
-            t.status.toUpperCase(),
-            t.completed ? 'YES' : 'NO',
-            this.getProjectName(t.project_id),
-            t.assignee || 'Unassigned',
-            this.parseExcelDate(t.due_date),
-            this.parseExcelDate(t.created_at)
-          ]);
-        });
-        await this.yieldToMain();
-      }
-
-      const allTasksWs = await this.createStyledSheetAsync(
-        allHeaders,
-        allDescriptions,
-        allTaskRows,
-        30,
-        40
-      );
-      XLSX.utils.book_append_sheet(wb, allTasksWs, 'All Tasks');
-
-      // 3. Sheet: Projects Summary (Progress Weight: 10%)
-      this.exportStepMessage.set('Formatting Projects Summary...');
-      const projectHeaders = ['Project Key', 'Project Name', 'Description', 'Status', 'Total Tasks', 'Completed Tasks', 'Progress (%)'];
-      const projectDescriptions = [
-        'Unique project code identifier',
-        'Name of workspace project',
-        'Project overview and objectives',
-        'Lifecycle status (Active, Completed)',
-        'Total count of assigned tasks',
-        'Count of finished tasks',
-        'Calculated completion percentage'
-      ];
-
-      const projectRows = projList.map(p => {
-        const pTasks = allTaskList.filter(t => t.project_id === p.id);
-        const pDone = pTasks.filter(t => t.completed || t.status.toLowerCase() === 'done').length;
-        const progress = pTasks.length > 0 ? Math.round((pDone / pTasks.length) * 100) : 0;
-        return [
-          `PROJ-${p.id.slice(0, 4).toUpperCase()}`,
-          p.name,
-          p.description || '',
-          (p.status || 'active').toUpperCase(),
-          pTasks.length,
-          pDone,
-          `${progress}%`
-        ];
+      const arrayBuffer = await exportService.exportToExcel(payload, (progress, stepMessage) => {
+        this.exportProgress.set(progress);
+        this.exportStepMessage.set(stepMessage);
+        this.progressService?.update(exportId, progress, stepMessage);
       });
 
-      const projectsWs = await this.createStyledSheetAsync(
-        projectHeaders,
-        projectDescriptions,
-        projectRows,
-        70,
-        10
-      );
-      XLSX.utils.book_append_sheet(wb, projectsWs, 'Projects Summary');
-
-      // 4. Sheet: Activity Log Stream (Progress Weight: 10%)
-      this.exportStepMessage.set('Formatting Activity Stream...');
-      const activityHeaders = ['Action', 'Description', 'Timestamp'];
-      const activityDescriptions = [
-        'Operation type (Created, Updated, Deleted)',
-        'Detailed log event description',
-        'Date and time when action occurred'
-      ];
-
-      const activityList = this.activities();
-      const activityRows = activityList.map(act => [
-        act.action,
-        act.description,
-        this.parseExcelDate(act.timestamp)
-      ]);
-
-      const activitiesWs = await this.createStyledSheetAsync(
-        activityHeaders,
-        activityDescriptions,
-        activityRows,
-        80,
-        10
-      );
-      XLSX.utils.book_append_sheet(wb, activitiesWs, 'Activity Stream');
-
-      // 5. Generate & download formatted .xlsx file (Progress Weight: 10%)
-      this.exportStepMessage.set('Generating Excel Spreadsheet file...');
-      this.exportProgress.set(95);
-      await this.yieldToMain();
+      this.exportProgress.set(100);
+      this.exportStepMessage.set('Export completed successfully!');
 
       const filename = `bilo-workspace-export-${getLocalDateString()}.xlsx`;
-      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-      const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const blob = new Blob([arrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
@@ -1130,13 +929,10 @@ export class ArchiveComponent {
       document.body.removeChild(link);
       URL.revokeObjectURL(link.href);
 
-      this.exportProgress.set(100);
-      this.exportStepMessage.set('Export completed successfully!');
-      this.progressService?.complete(this.progressService?.activeProgress()?.id || '', 'Excel spreadsheet downloaded!');
-      await this.yieldToMain();
+      this.progressService?.complete(exportId, 'Excel spreadsheet downloaded!');
     } catch (err) {
       console.error('[ArchiveComponent] Error during Excel export:', err);
-      this.progressService?.fail(this.progressService?.activeProgress()?.id || '', 'Excel export failed');
+      this.progressService?.fail(exportId, 'Excel export failed');
     } finally {
       setTimeout(() => {
         this.isExporting.set(false);

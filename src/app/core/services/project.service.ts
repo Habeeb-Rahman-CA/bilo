@@ -163,7 +163,30 @@ export class ProjectService {
     return candidate;
   }
 
-  private saveToStorage() {
+  private saveTimeoutTimer: any = null;
+
+  saveToStorage(delayMs: number = 100) {
+    if (delayMs <= 0) {
+      this.saveToStorageImmediate();
+      return;
+    }
+
+    if (this.saveTimeoutTimer) {
+      clearTimeout(this.saveTimeoutTimer);
+      this.saveTimeoutTimer = null;
+    }
+
+    this.saveTimeoutTimer = setTimeout(() => {
+      this.saveToStorageImmediate();
+    }, delayMs);
+  }
+
+  saveToStorageImmediate() {
+    if (this.saveTimeoutTimer) {
+      clearTimeout(this.saveTimeoutTimer);
+      this.saveTimeoutTimer = null;
+    }
+
     const currentUser = this.authService.user();
     if (!currentUser?.id) return;
     localStorage.setItem(`bilo_projects_data_${currentUser.id}`, JSON.stringify({
