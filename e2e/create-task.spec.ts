@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { setupAuthenticatedSession, mockInitialTasks } from './helpers/test-setup';
+import { setupAuthenticatedSession } from './helpers/test-setup';
 
 test.describe('Create Task Flow E2E', () => {
   test.beforeEach(async ({ page }) => {
@@ -57,14 +57,10 @@ test.describe('Create Task Flow E2E', () => {
     const modalHeader = page.locator('app-task-modal .modal-header h3');
     await expect(modalHeader).not.toBeVisible();
 
-    // Navigate to Backlog workspace view (02 BACKLOG) or check board view
-    const backlogTab = page.locator('button.sidebar-tab-btn', { hasText: 'BACKLOG' }).first();
-    if (await backlogTab.isVisible()) {
-      await backlogTab.click();
-    } else {
-      const mobileBacklogBtn = page.locator('button.bottom-tab-btn', { hasText: 'Backlog' }).first();
-      await mobileBacklogBtn.click();
-    }
+    // Navigate to Backlog workspace view (02 BACKLOG)
+    const backlogTab = page.locator('button.sidebar-tab-btn[title*="BACKLOG"]').first();
+    await expect(backlogTab).toBeVisible();
+    await backlogTab.click();
 
     // Verify new task is listed
     const taskSummary = page.locator('.cell-summary .summary-text', { hasText: uniqueTitle });

@@ -4,9 +4,10 @@ export const MOCK_USER_ID = 'e2e-user-123';
 export const MOCK_USER_EMAIL = 'e2e-tester@bilo.app';
 
 export const mockSession = {
-  access_token: 'mock-e2e-access-token-jwt-payload',
+  access_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlMmUtdXNlci0xMjMiLCJlbWFpbCI6ImUyZS10ZXN0ZXJAYmlsby5hcHAiLCJyb2xlIjoiYXV0aGVudGljYXRlZCIsImlhdCI6MTc5MDU1NjgwMCwiZXhwIjoyMDk5NTU2ODAwfQ.mock_signature',
   token_type: 'bearer',
-  expires_in: 3600,
+  expires_in: 86400,
+  expires_at: Math.floor(Date.now() / 1000) + 86400,
   refresh_token: 'mock-e2e-refresh-token',
   user: {
     id: MOCK_USER_ID,
@@ -16,7 +17,9 @@ export const mockSession = {
     user_metadata: {
       display_name: 'E2E Tester'
     },
-    app_metadata: { provider: 'email' }
+    app_metadata: { provider: 'email' },
+    created_at: '2026-10-01T00:00:00.000Z',
+    updated_at: '2026-10-01T00:00:00.000Z'
   }
 };
 
@@ -102,9 +105,9 @@ export const mockInitialTasks = [
 
 /**
  * Injects mock authenticated user state and seed data into browser localStorage
- * before navigation and intercepts Supabase REST endpoints.
+ * before navigation and intercepts Supabase REST and Auth endpoints.
  */
-export async function setupAuthenticatedSession(page: Page, tasks = mockInitialTasks) {
+export async function setupAuthenticatedSession(page: Page, tasks = mockInitialTasks, activeWorkspace: string = '01 TODAY') {
   // Intercept Supabase Auth & REST API calls
   await page.route('**/auth/v1/session*', async route => {
     await route.fulfill({
@@ -119,6 +122,22 @@ export async function setupAuthenticatedSession(page: Page, tasks = mockInitialT
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(mockSession.user)
+    });
+  });
+
+  await page.route('**/auth/v1/token*', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(mockSession)
+    });
+  });
+
+  await page.route('**/rest/v1/user_profiles*', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([mockProfile])
     });
   });
 
@@ -166,7 +185,7 @@ export async function setupAuthenticatedSession(page: Page, tasks = mockInitialT
 
   // Inject localStorage items before page scripts evaluate
   await page.addInitScript(
-    ({ session, uid, profile, projects, taskList, wfMap }) => {
+    ({ session, uid, profile, projects, taskList, wfMap, activeWs }) => {
       window.localStorage.setItem('sb-wjdeatxaljoazczehqlc-auth-token', JSON.stringify(session));
       window.localStorage.setItem(`bilo_user_profile_${uid}`, JSON.stringify(profile));
       window.localStorage.setItem(`bilo_projects_data_${uid}`, JSON.stringify({ projects, activities: [] }));
@@ -174,6 +193,7 @@ export async function setupAuthenticatedSession(page: Page, tasks = mockInitialT
       window.localStorage.setItem(`bilo_workflows_by_project_${uid}`, JSON.stringify(wfMap));
       window.localStorage.setItem('bilo_workflows_by_project', JSON.stringify(wfMap));
       window.localStorage.setItem('bilo_active_project_id', 'proj-e2e-1');
+      window.localStorage.setItem('bilo_active_workspace', activeWs);
     },
     {
       session: mockSession,
@@ -181,7 +201,8 @@ export async function setupAuthenticatedSession(page: Page, tasks = mockInitialT
       profile: mockProfile,
       projects: mockProjects,
       taskList: tasks,
-      wfMap: workflowsMap
+      wfMap: workflowsMap,
+      activeWs: activeWorkspace
     }
   );
 }

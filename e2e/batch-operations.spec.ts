@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { setupAuthenticatedSession, mockInitialTasks } from './helpers/test-setup';
+import { setupAuthenticatedSession } from './helpers/test-setup';
 
 test.describe('Batch Operations E2E', () => {
   test.beforeEach(async ({ page }) => {
@@ -7,13 +7,9 @@ test.describe('Batch Operations E2E', () => {
     await page.goto('/');
 
     // Switch to 02 BACKLOG view
-    const backlogTab = page.locator('button.sidebar-tab-btn', { hasText: 'BACKLOG' }).first();
-    if (await backlogTab.isVisible()) {
-      await backlogTab.click();
-    } else {
-      const mobileBacklogTab = page.locator('button.bottom-tab-btn', { hasText: 'Backlog' }).first();
-      await mobileBacklogTab.click();
-    }
+    const backlogTab = page.locator('button.sidebar-tab-btn[title*="BACKLOG"]').first();
+    await expect(backlogTab).toBeVisible();
+    await backlogTab.click();
   });
 
   test('should display task list and select all tasks via header checkbox', async ({ page }) => {
