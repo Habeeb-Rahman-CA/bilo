@@ -212,6 +212,36 @@ export type SettingsSection = 'overview' | 'workflow' | 'notifications';
                   </div>
                 </div>
               </div>
+
+              <!-- Danger Zone Card -->
+              <div class="danger-zone-card paper-panel">
+                <div class="danger-header">
+                  <div class="danger-title-wrap">
+                    <i class="fi fi-rr-triangle-warning text-rose danger-icon"></i>
+                    <div>
+                      <h4 class="danger-card-title text-rose">Danger Zone</h4>
+                      <span class="danger-card-sub">Irreversible workspace action</span>
+                    </div>
+                  </div>
+                  <span class="badge-mono badge-rose">DANGER</span>
+                </div>
+
+                <div class="danger-content font-mono">
+                  <div class="danger-desc-wrap">
+                    <strong>Delete Workspace "{{ proj.name }}"</strong>
+                    <p class="danger-desc-text">
+                      Permanently delete <strong>{{ proj.name }}</strong> (<code>{{ (proj.slug || proj.name).toUpperCase() }}</code>), all {{ getWorkspaceTaskCount(proj.id) }} task(s), Kanban status workflows, task comments, and project activity history.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn btn-danger btn-sm font-mono btn-delete-ws"
+                    (click)="openDeleteWorkspaceModal(proj)"
+                  >
+                    <i class="fi fi-rr-trash"></i> Delete Workspace
+                  </button>
+                </div>
+              </div>
             } @else {
               <div class="empty-state paper-panel font-mono">
                 <i class="fi fi-rr-folder-open empty-icon"></i>
@@ -552,6 +582,19 @@ export type SettingsSection = 'overview' | 'workflow' | 'notifications';
         type="warning"
         (confirm)="executeResetToDefaults()"
         (cancel)="resetConfirmOpen.set(false)"
+      />
+
+      <!-- Uniform Delete Workspace Confirmation Modal -->
+      <app-confirm-modal
+        [isOpen]="showDeleteWorkspaceModal()"
+        title="Delete Workspace"
+        [message]="'Are you sure you want to delete workspace &quot;' + (projectToDelete()?.name || '') + '&quot;? This action CANNOT be undone and will permanently delete the workspace, all associated tasks, workflows, and activity logs.'"
+        confirmText="Delete Workspace"
+        cancelText="Cancel"
+        type="danger"
+        [requireText]="(projectToDelete()?.slug || projectToDelete()?.name || '').toUpperCase()"
+        (confirm)="executeDeleteWorkspace()"
+        (cancel)="closeDeleteWorkspaceModal()"
       />
     </div>
   `,
@@ -1187,6 +1230,147 @@ export type SettingsSection = 'overview' | 'workflow' | 'notifications';
       height: 6px;
       border-radius: 50%;
     }
+
+    /* Desktop Features & Guides Styles */
+    .desktop-features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.85rem;
+      margin-top: 0.5rem;
+    }
+    .feature-card {
+      padding: 1rem;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xs);
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    .feature-icon {
+      font-size: 1.35rem;
+      margin-bottom: 0.1rem;
+    }
+    .feature-card h4 {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--text-main);
+      margin: 0;
+    }
+    .feature-card p {
+      font-size: 0.725rem;
+      color: var(--text-muted);
+      margin: 0;
+      line-height: 1.4;
+    }
+
+    .install-guides-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      margin-top: 0.75rem;
+    }
+    .guides-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--text-main);
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+    .guide-cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 0.85rem;
+    }
+    .guide-card {
+      padding: 1rem 1.1rem;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xs);
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+    .guide-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.825rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+    .guide-steps {
+      margin: 0;
+      padding-left: 1.1rem;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      line-height: 1.4;
+    }
+    .guide-steps code {
+      background: var(--bg-canvas);
+      padding: 0.1rem 0.3rem;
+      border-radius: 3px;
+      font-size: 0.7rem;
+      color: var(--accent-cyan);
+    }
+
+    /* Danger Zone & Delete Workspace Modal Styles */
+    .danger-zone-card {
+      margin-top: 1rem;
+      padding: 1.25rem;
+      background: rgba(225, 29, 72, 0.04);
+      border: 1px solid rgba(225, 29, 72, 0.35);
+      border-radius: var(--radius-xs);
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+    }
+    .danger-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .danger-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+    }
+    .danger-icon {
+      font-size: 1.25rem;
+    }
+    .danger-card-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      margin: 0;
+    }
+    .danger-card-sub {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+    }
+    .danger-content {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .danger-desc-wrap {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .danger-desc-text {
+      font-size: 0.775rem;
+      color: var(--text-muted);
+      margin: 0;
+      line-height: 1.4;
+    }
   `]
 })
 export class SettingsComponent {
@@ -1195,6 +1379,8 @@ export class SettingsComponent {
   accessModalOpen = signal<boolean>(false);
   editProjectModalOpen = signal<boolean>(false);
   resetConfirmOpen = signal<boolean>(false);
+  showDeleteWorkspaceModal = signal<boolean>(false);
+  projectToDelete = signal<Project | null>(null);
   columns: Workflow[] = [];
   deletedColumnIds: string[] = [];
   newColumnName = '';
@@ -1357,5 +1543,26 @@ export class SettingsComponent {
     setTimeout(() => {
       this.savedToast.set(false);
     }, 3000);
+  }
+
+  openDeleteWorkspaceModal(project: Project) {
+    this.projectToDelete.set(project);
+    this.showDeleteWorkspaceModal.set(true);
+  }
+
+  closeDeleteWorkspaceModal() {
+    this.showDeleteWorkspaceModal.set(false);
+    this.projectToDelete.set(null);
+  }
+
+  async executeDeleteWorkspace() {
+    const proj = this.projectToDelete();
+    if (!proj) return;
+
+    const projId = proj.id;
+    this.closeDeleteWorkspaceModal();
+
+    await this.projectService.deleteProject(projId);
+    this.activeSection.set('overview');
   }
 }

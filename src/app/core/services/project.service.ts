@@ -459,11 +459,14 @@ export class ProjectService {
     let finalName = updates.name ? updates.name.trim() : undefined;
     let finalSlug = updates.slug ? updates.slug.trim() : undefined;
 
-    if (finalName && currentProj.name.trim().toLowerCase() !== finalName.toLowerCase()) {
+    if (finalSlug) {
+      finalSlug = this.generateUniqueSlug(finalSlug, id);
+      if (finalName && currentProj.name.trim().toLowerCase() !== finalName.toLowerCase()) {
+        finalName = this.generateUniqueName(finalName, id);
+      }
+    } else if (finalName && currentProj.name.trim().toLowerCase() !== finalName.toLowerCase()) {
       finalName = this.generateUniqueName(finalName, id);
       finalSlug = this.generateUniqueSlug(finalName, id);
-    } else if (finalSlug) {
-      finalSlug = this.generateUniqueSlug(finalSlug, id);
     }
 
     const updatedProj: Project = {
@@ -584,10 +587,17 @@ export class ProjectService {
   }
 
   getProjectProgress(projectId: string): { completed: number; total: number; percent: number } {
-    const projTasks = (this.tasks() || []).filter(t => t && t.project_id === projectId);
+    let allTasks: Task[] = [];
+    try {
+      const taskService = this.injector.get(TaskService);
+      allTasks = taskService.tasks() || [];
+    } catch (e) {
+      allTasks = this.tasks() || [];
+    }
+    const projTasks = (allTasks || []).filter(t => t && t.project_id === projectId);
     const total = projTasks.length;
     if (!total || total <= 0) return { completed: 0, total: 0, percent: 0 };
-    const completed = projTasks.filter(t => t && (t.completed || (t.status || '').toLowerCase() === 'done')).length;
+    const completed = projTasks.filter(t => t && (t.completed || (t.status || '').toLowerCase() === 'done' || (t.status || '').toLowerCase() === 'completed')).length;
     const rawPercent = Math.round((completed / total) * 100);
     const percent = Number.isFinite(rawPercent) ? Math.min(100, Math.max(0, rawPercent)) : 0;
     return { completed, total, percent };

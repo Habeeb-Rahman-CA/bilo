@@ -9,10 +9,12 @@ import { Task } from '../../core/models/project.model';
 import { isDueSoon } from '../../core/utils/date.util';
 import { TaskDetailModalComponent } from '../../shared/components/task-detail-modal';
 import { TaskModalComponent } from '../../shared/components/task-modal';
+import { ActivityModalComponent } from '../../shared/components/activity-modal';
+
 @Component({
   selector: 'app-today',
   standalone: true,
-  imports: [CommonModule, FormsModule, TaskDetailModalComponent, TaskModalComponent],
+  imports: [CommonModule, FormsModule, TaskDetailModalComponent, TaskModalComponent, ActivityModalComponent],
   template: `
     <div class="today-workspace">
       <!-- Top Header Strip -->
@@ -204,15 +206,16 @@ import { TaskModalComponent } from '../../shared/components/task-modal';
         <div class="paper-panel grid-card">
           <div class="card-header">
             <h3><i class="fi fi-rr-time-past text-amber"></i> Recent Activity</h3>
-            <span class="badge-mono font-mono">
-              @if (isLoading()) {
-                Loading...
-              } @else if (allRecentActivities().length === 0) {
-                0 Activities
-              } @else {
-                Showing {{ displayedActivities().length }} of {{ allRecentActivities().length }}
-              }
-            </span>
+            @if (!isLoading() && allRecentActivities().length > 0) {
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs text-amber font-mono"
+                (click)="showActivityModal.set(true)"
+                title="View complete workspace activity log history"
+              >
+                <i class="fi fi-rr-eye"></i> View All
+              </button>
+            }
           </div>
 
           <div class="card-body">
@@ -239,23 +242,6 @@ import { TaskModalComponent } from '../../shared/components/task-modal';
                   </div>
                 }
               </div>
-
-              @if (allRecentActivities().length > 5) {
-                <div class="activity-footer font-mono">
-                  @if (hasMoreActivities()) {
-                    <button class="activity-footer-btn" (click)="loadMoreActivities()">
-                      <i class="fi fi-rr-angle-small-down"></i> Load More (+5)
-                    </button>
-                    <button class="activity-footer-btn" (click)="viewAllActivities()">
-                      <i class="fi fi-rr-eye"></i> View All ({{ allRecentActivities().length }})
-                    </button>
-                  } @else {
-                    <button class="activity-footer-btn" (click)="collapseActivities()">
-                      <i class="fi fi-rr-angle-small-up"></i> Show Less
-                    </button>
-                  }
-                </div>
-              }
             }
           </div>
         </div>
@@ -360,6 +346,11 @@ import { TaskModalComponent } from '../../shared/components/task-modal';
           (close)="activeDetailTask.set(null)"
         ></app-task-detail-modal>
       }
+
+      <app-activity-modal
+        [isOpen]="showActivityModal()"
+        (close)="showActivityModal.set(false)"
+      />
     </div>
   `,
   styles: [`
@@ -923,6 +914,7 @@ import { TaskModalComponent } from '../../shared/components/task-modal';
 })
 export class TodayComponent implements OnInit, OnDestroy {
   showNewTaskModal = signal<boolean>(false);
+  showActivityModal = signal<boolean>(false);
   activeDetailTask = signal<Task | null>(null);
 
   isLoading = computed(() => this.taskService.loading());
@@ -1007,8 +999,6 @@ export class TodayComponent implements OnInit, OnDestroy {
 
   totalTaskCount = computed(() => this.activeWorkspaceTasks().length);
 
-  activityLimit = signal<number>(5);
-
   allRecentActivities = computed(() => {
     const activities = this.projectService.activities();
     const activeProjId = this.projectService.activeProject()?.id;
@@ -1018,24 +1008,8 @@ export class TodayComponent implements OnInit, OnDestroy {
   });
 
   displayedActivities = computed(() => {
-    return this.allRecentActivities().slice(0, this.activityLimit());
+    return this.allRecentActivities().slice(0, 5);
   });
-
-  hasMoreActivities = computed(() => {
-    return this.allRecentActivities().length > this.activityLimit();
-  });
-
-  loadMoreActivities(): void {
-    this.activityLimit.update(l => l + 5);
-  }
-
-  viewAllActivities(): void {
-    this.activityLimit.set(this.allRecentActivities().length);
-  }
-
-  collapseActivities(): void {
-    this.activityLimit.set(5);
-  }
 
   recentActivities = computed(() => {
     return this.displayedActivities();

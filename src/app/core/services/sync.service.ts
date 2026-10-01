@@ -689,14 +689,6 @@ export class SyncService {
     if (this.pendingSyncQueue().length === 0) return;
 
     const totalInitial = this.pendingSyncQueue().length;
-    const syncProgressId = `sync-queue-${Date.now()}`;
-    if (totalInitial > 0 && this.progressService) {
-      this.progressService.start(syncProgressId, 'sync', 'Initial Data Sync', {
-        message: `Syncing pending mutations (1 of ${totalInitial})...`,
-        totalSteps: totalInitial
-      });
-    }
-
     this.syncing.set(true);
     this.lastSyncStartTime = Date.now();
 
@@ -753,12 +745,6 @@ export class SyncService {
             this.pendingSyncQueue.update(q => q.filter(o => !succeededSet.has(o.id)));
             await this.saveQueueToStorage(currentUserId);
             completedOpsCount += batchResult.succeededIds.length;
-            const pct = Math.min(100, Math.round((completedOpsCount / totalInitial) * 100));
-            this.progressService?.update(syncProgressId, pct, {
-              message: `Synced ${completedOpsCount} of ${totalInitial} operations (${pct}%)`,
-              currentStep: completedOpsCount,
-              totalSteps: totalInitial
-            });
           }
 
           // Failed ops: fall back to individual execution in the next loop iteration
@@ -773,12 +759,6 @@ export class SyncService {
           this.pendingSyncQueue.update(q => q.filter(o => o.id !== op.id));
           await this.saveQueueToStorage(currentUserId);
           completedOpsCount++;
-          const pct = Math.round((completedOpsCount / totalInitial) * 100);
-          this.progressService?.update(syncProgressId, pct, {
-            message: `Synced ${completedOpsCount} of ${totalInitial} operations (${pct}%)`,
-            currentStep: completedOpsCount,
-            totalSteps: totalInitial
-          });
         } else if (result.rateLimited) {
           console.warn(`[bilo Sync] Rate limit (HTTP 429) hit on op ${op.type} (${op.id}). Backing off for 3 seconds.`);
           await new Promise(res => setTimeout(res, 3000));
@@ -801,15 +781,8 @@ export class SyncService {
           await this.saveQueueToStorage(currentUserId);
         }
       }
-
-      if (totalInitial > 0) {
-        this.progressService?.complete(syncProgressId, 'Data sync complete!');
-      }
     } catch (e) {
       console.error('[bilo Sync] Unexpected error processing sync queue:', e);
-      if (totalInitial > 0) {
-        this.progressService?.fail(syncProgressId, 'Data sync failed');
-      }
     } finally {
       this.syncing.set(false);
     }

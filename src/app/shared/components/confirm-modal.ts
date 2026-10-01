@@ -31,7 +31,7 @@ import { registerModal, unregisterModal, isTopModal } from '../../core/utils/mod
             @if (requireText) {
               <div class="confirm-input-box">
                 <label class="confirm-input-label">
-                  To confirm, type <strong class="text-amber">"{{ requireText }}"</strong> below:
+                  To confirm, type <strong [class.text-rose]="type === 'danger'" [class.text-amber]="type !== 'danger'">"{{ requireText }}"</strong> below:
                 </label>
                 <input
                   type="text"

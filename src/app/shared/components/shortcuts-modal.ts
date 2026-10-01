@@ -1,6 +1,7 @@
 import { Component, signal, OnInit, OnDestroy, HostListener, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { WorkspaceService } from '../../core/services/workspace.service';
+import { PwaInstallService } from '../../core/services/pwa-install.service';
 import { registerModal, unregisterModal, isTopModal } from '../../core/utils/modal-stack.util';
 
 @Component({
@@ -49,7 +50,14 @@ import { registerModal, unregisterModal, isTopModal } from '../../core/utils/mod
             [class.active]="activeTab() === 'workflows'"
             (click)="activeTab.set('workflows')"
           >
-            <i class="fi fi-rr-workflow"></i> Workflow Architecture
+            <i class="fi fi-rr-workflow"></i> Workflows
+          </button>
+          <button
+            class="help-tab-btn"
+            [class.active]="activeTab() === 'desktop'"
+            (click)="activeTab.set('desktop')"
+          >
+            <i class="fi fi-rr-laptop"></i> Desktop App
           </button>
         </div>
 
@@ -335,6 +343,111 @@ import { registerModal, unregisterModal, isTopModal } from '../../core/utils/mod
                     <div class="step-content">
                       <span class="step-title">Track & Drag in 03 BOARD</span>
                       <span class="step-desc">The 03 BOARD workspace automatically reflects your project's custom column pipeline for fluid task drag-and-drop.</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          }
+
+          <!-- TAB 5: DESKTOP & MOBILE APP DOWNLOAD GUIDE -->
+          @if (activeTab() === 'desktop') {
+            <div class="tab-pane">
+              <div class="desktop-guide-wrapper font-mono">
+                <div class="guide-header">
+                  <i class="fi fi-rr-laptop text-cyan"></i>
+                  <span>Desktop & Mobile Application Download</span>
+                </div>
+                <p class="guide-text">
+                  Bilo is engineered as a zero-dependency Progressive Web Application (PWA). You can install it on <strong>macOS</strong>, <strong>Windows</strong>, <strong>Linux</strong>, <strong>Android</strong>, or <strong>iOS</strong> directly from your browser to run as a native desktop application with full offline support, keyboard shortcuts, and instant launching.
+                </p>
+
+                <!-- Installation Status Hero Box -->
+                <div class="status-box" [ngClass]="{
+                  'status-granted': pwaInstallService.isStandalone(),
+                  'status-default': pwaInstallService.canInstallPwa(),
+                  'status-unsupported': !pwaInstallService.isStandalone() && !pwaInstallService.canInstallPwa()
+                }">
+                  <div class="status-left">
+                    @if (pwaInstallService.isStandalone()) {
+                      <i class="fi fi-rr-check-circle icon-lg text-emerald"></i>
+                      <div>
+                        <strong>App Installed & Active in Standalone Mode</strong>
+                        <p class="status-desc">You are running Bilo as a standalone desktop application. Offline caching and desktop shortcuts are active.</p>
+                      </div>
+                    } @else if (pwaInstallService.canInstallPwa()) {
+                      <i class="fi fi-rr-download icon-lg text-cyan"></i>
+                      <div>
+                        <strong>Desktop App Ready to Install</strong>
+                        <p class="status-desc">Your browser supports one-click PWA desktop installation. Click Install below to add Bilo to your system applications.</p>
+                      </div>
+                    } @else {
+                      <i class="fi fi-rr-laptop icon-lg text-sky"></i>
+                      <div>
+                        <strong>Install Bilo as a Standalone Application</strong>
+                        <p class="status-desc">Follow the step-by-step browser guides below to install Bilo on your desktop or mobile device.</p>
+                      </div>
+                    }
+                  </div>
+
+                  @if (pwaInstallService.canInstallPwa()) {
+                    <div class="status-action">
+                      <button class="btn btn-primary btn-xs" (click)="pwaInstallService.promptInstall()">
+                        <i class="fi fi-rr-download"></i> Install Desktop App
+                      </button>
+                    </div>
+                  }
+                </div>
+
+                <!-- Desktop App Features Grid -->
+                <div class="desktop-features-grid font-mono">
+                  <div class="feature-card">
+                    <div class="card-title text-cyan"><i class="fi fi-rr-wifi-slash"></i> Offline Support</div>
+                    <p class="card-desc">Task edits, comments, and status shifts are saved locally and synced automatically when back online.</p>
+                  </div>
+                  <div class="feature-card">
+                    <div class="card-title text-emerald"><i class="fi fi-rr-rocket-lunch"></i> Instant Launch</div>
+                    <p class="card-desc">Launch Bilo directly from your desktop dock, taskbar, or system application launcher.</p>
+                  </div>
+                  <div class="feature-card">
+                    <div class="card-title text-amber"><i class="fi fi-rr-keyboard"></i> Shortcuts</div>
+                    <p class="card-desc">Full <code>Cmd+K</code> / <code>Ctrl+K</code> command palette searching and hotkeys without browser conflicts.</p>
+                  </div>
+                  <div class="feature-card">
+                    <div class="card-title text-purple"><i class="fi fi-rr-bell-ring"></i> Notifications</div>
+                    <p class="card-desc">System tray alerts and push notifications for task updates and due dates.</p>
+                  </div>
+                </div>
+
+                <!-- Installation Guides -->
+                <div class="install-guides-wrapper font-mono">
+                  <span class="md-title"><i class="fi fi-rr-interrogation text-cyan"></i> STEP-BY-STEP INSTALLATION GUIDES</span>
+
+                  <div class="guide-cards-grid">
+                    <!-- Chrome / Edge / Brave -->
+                    <div class="guide-card">
+                      <div class="guide-card-header">
+                        <i class="fi fi-rr-browser text-cyan"></i>
+                        <span>Chrome, Edge, Brave (Desktop)</span>
+                      </div>
+                      <ol class="guide-steps">
+                        <li>Look for the <strong>Install App icon</strong> <i class="fi fi-rr-download text-cyan"></i> on the right side of the address bar.</li>
+                        <li>Or click browser menu <code>(⋮)</code> &rarr; <code>Save and Share</code> &rarr; <code>Install Bilo...</code></li>
+                        <li>Confirm by clicking <strong>Install</strong> in the popup prompt.</li>
+                      </ol>
+                    </div>
+
+                    <!-- Safari macOS / iOS -->
+                    <div class="guide-card">
+                      <div class="guide-card-header">
+                        <i class="fi fi-rr-apple text-cyan"></i>
+                        <span>Safari (macOS & iOS)</span>
+                      </div>
+                      <ol class="guide-steps">
+                        <li>On macOS Safari, click <strong>File</strong> in menu bar &rarr; <code>Add to Dock</code>.</li>
+                        <li>On iOS Safari, tap the <strong>Share</strong> button <i class="fi fi-rr-share"></i> at the bottom.</li>
+                        <li>Scroll down and select <strong>Add to Home Screen</strong>.</li>
+                      </ol>
                     </div>
                   </div>
                 </div>
@@ -659,6 +772,113 @@ import { registerModal, unregisterModal, isTopModal } from '../../core/utils/mod
       line-height: 1.5;
     }
 
+    /* Tab 5: Desktop App Download Guide Styles */
+    .desktop-guide-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+      padding: 0.25rem;
+    }
+    .status-box {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.85rem 1rem;
+      border-radius: var(--radius-xs);
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-surface-subtle);
+      gap: 1rem;
+    }
+    .status-box.status-granted {
+      border-color: rgba(16, 185, 129, 0.3);
+      background: rgba(16, 185, 129, 0.05);
+    }
+    .status-box.status-default {
+      border-color: rgba(6, 182, 212, 0.3);
+      background: rgba(6, 182, 212, 0.05);
+    }
+    .status-box.status-unsupported {
+      border-color: var(--border-subtle);
+      background: var(--bg-surface-subtle);
+    }
+    .status-left {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .icon-lg {
+      font-size: 1.4rem;
+    }
+    .status-desc {
+      font-size: 0.725rem;
+      color: var(--text-muted);
+      margin: 0.15rem 0 0 0;
+      font-family: var(--font-sans);
+    }
+    .status-action {
+      flex-shrink: 0;
+    }
+
+    .desktop-features-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.85rem;
+    }
+    @media (max-width: 640px) {
+      .desktop-features-grid { grid-template-columns: 1fr; }
+    }
+
+    .install-guides-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+      margin-top: 0.25rem;
+    }
+    .guide-cards-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.85rem;
+    }
+    @media (max-width: 640px) {
+      .guide-cards-grid { grid-template-columns: 1fr; }
+    }
+    .guide-card {
+      padding: 0.85rem;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xs);
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .guide-card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.775rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+    .guide-steps {
+      margin: 0;
+      padding-left: 1.1rem;
+      font-size: 0.725rem;
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      line-height: 1.4;
+      font-family: var(--font-sans);
+    }
+    .guide-steps code {
+      background: var(--bg-surface);
+      padding: 0.1rem 0.3rem;
+      border-radius: 3px;
+      font-size: 0.675rem;
+      color: var(--accent-cyan);
+      font-family: var(--font-mono);
+    }
+
     /* Footer */
     .modal-footer {
       display: flex;
@@ -683,12 +903,13 @@ import { registerModal, unregisterModal, isTopModal } from '../../core/utils/mod
   `]
 })
 export class ShortcutsModalComponent implements OnInit, OnDestroy {
-  activeTab = signal<'shortcuts' | 'features' | 'markdown' | 'workflows'>('shortcuts');
+  activeTab = signal<'shortcuts' | 'features' | 'markdown' | 'workflows' | 'desktop'>('shortcuts');
   modalZIndex = 2000;
   private readonly modalId = 'shortcuts-modal';
 
   constructor(
     public workspaceService: WorkspaceService,
+    public pwaInstallService: PwaInstallService,
     private elementRef: ElementRef
   ) { }
 

@@ -40,16 +40,14 @@ import { registerModal, unregisterModal, isTopModal } from '../../core/utils/mod
             <div class="form-group">
               <div class="label-with-hint">
                 <label class="form-label">PROJECT NAME <span class="text-rose">*</span></label>
-                <span class="desc-hint font-mono" [class.text-rose]="name.length > 50">
-                  {{ name.length }}/50
-                </span>
               </div>
               <input
                 #nameInput
                 type="text"
                 class="form-input"
                 [class.input-error]="submitted && !name.trim()"
-                [(ngModel)]="name"
+                [ngModel]="name"
+                (ngModelChange)="onNameChange($event)"
                 name="name"
                 placeholder="e.g. Tokio Async Microservice or bilo Core Engine"
                 maxlength="50"
@@ -65,6 +63,37 @@ import { registerModal, unregisterModal, isTopModal } from '../../core/utils/mod
                   <span>A workspace named <strong>"{{ name.trim() }}"</strong> already exists.</span>
                   <button type="button" class="btn btn-ghost btn-xs text-cyan apply-unique-btn" (click)="useSuggestedName()">
                     Use "{{ suggestedUniqueName }}"
+                  </button>
+                </div>
+              }
+            </div>
+
+            <!-- Project Code / Key (Slug) -->
+            <div class="form-group">
+              <div class="label-with-hint">
+                <label class="form-label">PROJECT CODE / KEY <span class="text-rose">*</span></label>
+              </div>
+              <input
+                type="text"
+                class="form-input font-mono"
+                [class.input-error]="submitted && !slug.trim()"
+                [ngModel]="slug"
+                (ngModelChange)="onSlugChange($event)"
+                name="slug"
+                placeholder="e.g. TOK, BIL, DEMO"
+                maxlength="15"
+                required
+              />
+              @if (submitted && !slug.trim()) {
+                <span class="field-error-text font-mono">
+                  <i class="fi fi-rr-exclamation"></i> Project Code is required
+                </span>
+              } @else if (isDuplicateSlug) {
+                <div class="duplicate-warning-box font-mono">
+                  <i class="fi fi-rr-info text-amber"></i>
+                  <span>Project Code <strong>"{{ slug.trim().toUpperCase() }}"</strong> is already in use.</span>
+                  <button type="button" class="btn btn-ghost btn-xs text-cyan apply-unique-btn" (click)="useSuggestedSlug()">
+                    Use "{{ suggestedUniqueSlug }}"
                   </button>
                 </div>
               }
@@ -468,6 +497,8 @@ export class ProjectModalComponent implements OnInit, AfterViewInit, OnDestroy {
   submitted = false;
 
   name = '';
+  slug = '';
+  userEditedSlug = false;
   description = '';
   status: 'active' | 'archived' | 'completed' = 'active';
   labelsInput = '';
@@ -504,6 +535,38 @@ export class ProjectModalComponent implements OnInit, AfterViewInit, OnDestroy {
 
   useSuggestedName() {
     this.name = this.suggestedUniqueName;
+    if (!this.userEditedSlug && !this.isEditMode) {
+      this.slug = this.projectService.generateSlug(this.name).toUpperCase();
+    }
+  }
+
+  get isDuplicateSlug(): boolean {
+    if (!this.slug || !this.slug.trim()) return false;
+    const excludeId = this.projectToEdit?.id;
+    const inputSlug = this.slug.trim().toLowerCase();
+    return this.projectService.projects().some(p => p.id !== excludeId && (p.slug || '').trim().toLowerCase() === inputSlug);
+  }
+
+  get suggestedUniqueSlug(): string {
+    const excludeId = this.projectToEdit?.id;
+    const raw = this.slug.trim() || this.name.trim() || 'PRJ';
+    return this.projectService.generateUniqueSlug(raw, excludeId).toUpperCase();
+  }
+
+  useSuggestedSlug() {
+    this.slug = this.suggestedUniqueSlug;
+  }
+
+  onNameChange(newName: string) {
+    this.name = newName;
+    if (!this.userEditedSlug && !this.isEditMode && newName.trim()) {
+      this.slug = this.projectService.generateSlug(newName).toUpperCase();
+    }
+  }
+
+  onSlugChange(newSlug: string) {
+    this.slug = newSlug;
+    this.userEditedSlug = true;
   }
 
   removeImage() {
@@ -599,6 +662,7 @@ export class ProjectModalComponent implements OnInit, AfterViewInit, OnDestroy {
     this.modalZIndex = registerModal(this.modalId);
     if (this.projectToEdit) {
       this.name = this.projectToEdit.name || '';
+      this.slug = (this.projectToEdit.slug || this.projectService.generateSlug(this.name)).toUpperCase();
       this.description = this.projectToEdit.description || '';
       this.status = this.projectToEdit.status || 'active';
       this.labelsInput = (this.projectToEdit.labels || []).join(', ');
@@ -625,12 +689,20 @@ export class ProjectModalComponent implements OnInit, AfterViewInit, OnDestroy {
     this.submitted = true;
     if (!this.name.trim()) return;
 
+    if (!this.slug.trim()) {
+      this.slug = this.projectService.generateSlug(this.name).toUpperCase();
+    }
+
     this.submitting.set(true);
     try {
       if (this.isDuplicateName) {
         this.name = this.suggestedUniqueName;
       }
+      if (this.isDuplicateSlug) {
+        this.slug = this.suggestedUniqueSlug;
+      }
 
+      const finalSlug = this.slug.trim().toUpperCase();
       const parsedLabels = sanitizeLabels(this.labelsInput.split(','));
 
       let resultProject: Project | undefined = undefined;
@@ -638,6 +710,7 @@ export class ProjectModalComponent implements OnInit, AfterViewInit, OnDestroy {
       if (this.isEditMode && this.projectToEdit && this.projectToEdit.id) {
         const updated = await this.projectService.updateProject(this.projectToEdit.id, {
           name: this.name,
+          slug: finalSlug,
           description: this.description,
           status: this.status,
           labels: parsedLabels,
@@ -648,6 +721,7 @@ export class ProjectModalComponent implements OnInit, AfterViewInit, OnDestroy {
       } else {
         const created = await this.projectService.createProject({
           name: this.name,
+          slug: finalSlug,
           description: this.description,
           status: 'active',
           labels: parsedLabels,
