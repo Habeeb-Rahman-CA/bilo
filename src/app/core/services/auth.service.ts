@@ -52,6 +52,7 @@ export class AuthService implements OnDestroy {
   private authSubscription: { unsubscribe: () => void } | null = null;
   private authChannel: BroadcastChannel | null = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('bilo_auth_channel') : null;
   private storageEventListener: ((e: StorageEvent) => void) | null = null;
+  private authLoadingGuardTimer: any = null;
 
   constructor(
     private supabaseService: SupabaseService,
@@ -61,11 +62,36 @@ export class AuthService implements OnDestroy {
     this.setupCrossTabSync();
   }
 
+  private setupAuthLoadingGuard() {
+    if (this.authLoadingGuardTimer) {
+      clearTimeout(this.authLoadingGuardTimer);
+      this.authLoadingGuardTimer = null;
+    }
+    this.authLoadingGuardTimer = setTimeout(() => {
+      if (this.authLoading()) {
+        console.warn('[AuthService] 10-second safety timeout guard triggered: forcing authLoading to false.');
+        this.clearAuthLoading();
+      }
+    }, 10000);
+  }
+
+  clearAuthLoading() {
+    if (this.authLoadingGuardTimer) {
+      clearTimeout(this.authLoadingGuardTimer);
+      this.authLoadingGuardTimer = null;
+    }
+    if (this.authLoading()) {
+      this.authLoading.set(false);
+    }
+  }
+
   private async initAuth() {
+    this.setupAuthLoadingGuard();
+
     try {
       if (!this.supabaseService.isConfigured) {
         console.warn('[AuthService] Supabase not configured in environment. Running in local workspace mode.');
-        this.authLoading.set(false);
+        this.clearAuthLoading();
         return;
       }
 
@@ -108,7 +134,7 @@ export class AuthService implements OnDestroy {
     } catch (e) {
       console.warn('Auth initialization skipped in offline mode', e);
     } finally {
-      this.authLoading.set(false);
+      this.clearAuthLoading();
     }
 
     try {
@@ -141,7 +167,7 @@ export class AuthService implements OnDestroy {
           } catch (listenerErr) {
             console.warn('[AuthService] onAuthStateChange listener notice:', listenerErr);
           } finally {
-            this.authLoading.set(false);
+            this.clearAuthLoading();
           }
         });
 
@@ -149,7 +175,7 @@ export class AuthService implements OnDestroy {
       }
     } catch (subErr) {
       console.warn('[AuthService] onAuthStateChange subscription notice:', subErr);
-      this.authLoading.set(false);
+      this.clearAuthLoading();
     }
   }
 

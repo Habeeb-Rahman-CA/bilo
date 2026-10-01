@@ -27,6 +27,30 @@ describe('AuthService initAuth resilience', () => {
     expect(authService.authLoading()).toBe(false);
   });
 
+  it('should set authLoading to false via 10-second timeout guard if initAuth hangs', async () => {
+    vi.useFakeTimers();
+    const mockSupabaseService: any = {
+      isConfigured: true,
+      supabase: {
+        auth: {
+          getSession: vi.fn().mockImplementation(() => new Promise(() => {})),
+          onAuthStateChange: vi.fn().mockReturnValue({ data: { subscription: { unsubscribe: () => {} } } })
+        }
+      }
+    };
+
+    const mockInjector: any = {
+      get: vi.fn().mockReturnValue(null)
+    };
+
+    const authService = new AuthService(mockSupabaseService, mockInjector);
+    expect(authService.authLoading()).toBe(true);
+
+    vi.advanceTimersByTime(10000);
+    expect(authService.authLoading()).toBe(false);
+    vi.useRealTimers();
+  });
+
   it('should unsubscribe onAuthStateChange subscription on ngOnDestroy', async () => {
     const unsubscribeSpy = vi.fn();
     const mockSupabaseService: any = {

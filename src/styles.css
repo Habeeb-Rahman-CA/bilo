@@ -812,3 +812,56 @@ textarea:focus-visible,
   opacity: 0.6;
   filter: grayscale(100%);
 }
+
+/* ==========================================================================
+   Accessibility: Prefers-Reduced-Motion System (WCAG 2.1 SC 2.3.3)
+   Disables/pauses all animations, keyframes, transitions, and smooth scrolling
+   when user operating system or browser requests reduced motion.
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Completely stop infinite spinners, loading indicators, and skeleton pulses */
+  .spinner,
+  .spinner-icon,
+  .spin,
+  .spinning,
+  .dropzone-icon.spinner,
+  [class*="spin"],
+  [class*="spinner"],
+  .skeleton-line,
+  .skeleton-box,
+  .skeleton-card {
+    animation: none !important;
+    animation-play-state: paused !important;
+    transform: none !important;
+    opacity: 0.85 !important;
+  }
+
+  /* Disable lazy-image blur/fade transitions */
+  .lazy-image-init,
+  .lazy-loading,
+  .lazy-loaded,
+  .lazy-error {
+    transition: none !important;
+    filter: none !important;
+  }
+
+  /* Disable modal / popover slide & fade-in keyframes */
+  .user-menu-popover,
+  .notification-menu-popover,
+  .toast-item,
+  .mobile-sidebar-backdrop,
+  .modal-overlay,
+  .lightbox-overlay {
+    animation: none !important;
+    transition: none !important;
+  }
+}
