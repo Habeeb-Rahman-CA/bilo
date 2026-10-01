@@ -252,6 +252,12 @@ export class SyncService {
     this.syncing.set(false);
   }
 
+  /** Dismiss all permanently failed operations from the Dead Letter Queue. */
+  clearDeadLetterQueue() {
+    this.deadLetterQueue.set([]);
+    this.saveDlqToStorage();
+  }
+
   compactQueue(queue: PendingSyncOp[]): PendingSyncOp[] {
     if (!queue || queue.length === 0) return [];
 
@@ -502,9 +508,11 @@ export class SyncService {
     // 42501: Row Level Security policy violation
     // 23505: Unique constraint violation
     // 42703: Undefined column
-    // PGRST204: Missing column in schema cache
+    // PGRST100/200: Request or schema resolution error
     // 400: Bad request / malformed payload
     // 404: Endpoint / resource not found
+    // NOTE: PGRST204 (missing column in schema cache) is intentionally NOT listed here.
+    // It is recoverable: the sync service strips unknown columns and retries the upsert.
     if (
       code === '23503' ||
       code === '22P02' ||
@@ -513,7 +521,6 @@ export class SyncService {
       code === '42703' ||
       code === 'PGRST100' ||
       code === 'PGRST200' ||
-      code === 'PGRST204' ||
       code === '400' ||
       code === '404' ||
       message.includes('violates foreign key constraint') ||
@@ -586,14 +593,43 @@ export class SyncService {
       let error: any = null;
 
       switch (type) {
-        case 'CREATE_TASK':
-        case 'UPDATE_TASK': {
-          const payloads = ops.map(op => {
+        case 'CREATE_TASK': {
+          // Guard: filter out ops whose project_id is null/missing — upsert with a
+          // null project_id violates the NOT NULL DB constraint (23502).
+          const validPayloads: any[] = [];
+          const invalidOps: PendingSyncOp[] = [];
+          for (const op of ops) {
             const clean = this.sanitizeTaskPayload(op.payload);
             clean.user_id = currentUserId;
-            return clean;
-          });
-          ({ error } = await sb.from('tasks').upsert(payloads));
+            if (!clean.project_id) {
+              invalidOps.push(op);
+            } else {
+              validPayloads.push(clean);
+            }
+          }
+          if (invalidOps.length > 0) {
+            console.warn(`[bilo Sync] Batch CREATE_TASK: ${invalidOps.length} op(s) have no valid project_id and will be routed to DLQ.`);
+            // Return immediately; the caller will fall back to individual processing for all ops,
+            // where the pre-flight guard in executeOpResult will handle each invalid op as fatal.
+            return {
+              succeededIds: [],
+              failedIds: ops.map(o => o.id),
+              rateLimited: false,
+              error: 'One or more CREATE_TASK ops have no valid project_id'
+            };
+          }
+          ({ error } = await sb.from('tasks').upsert(validPayloads));
+          break;
+        }
+        case 'UPDATE_TASK': {
+          // Use .update().eq() — NOT upsert — so that absent columns (e.g. project_id)
+          // are never sent as null, which would violate the NOT NULL DB constraint.
+          for (const op of ops) {
+            const { id, project_id, ...updates } = this.sanitizeTaskPayload(op.payload);
+            const cleanUpdates: any = { ...updates, user_id: currentUserId };
+            const { error: opErr } = await sb.from('tasks').update(cleanUpdates).eq('id', id);
+            if (opErr) { error = opErr; break; }
+          }
           break;
         }
         case 'CREATE_PROJECT': {
@@ -809,14 +845,23 @@ export class SyncService {
         case 'CREATE_TASK': {
           const cleanPayload = this.sanitizeTaskPayload(payload);
           cleanPayload.user_id = currentUserId;
+
+          // Pre-flight guard: project_id is NOT NULL in the DB. If the payload lacks a
+          // valid UUID project_id (e.g. task was created while no project was active),
+          // treat this as fatal and route to DLQ rather than causing a 23502 error.
+          if (!cleanPayload.project_id) {
+            return { success: false, fatal: true, error: 'CREATE_TASK aborted: missing project_id (NOT NULL constraint would be violated)' };
+          }
+
           let { error } = await sb.from('tasks').upsert([cleanPayload]);
 
-          // Retry 1: Schema mismatch (missing columns like is_app_report, report_category, attachments)
+          // Retry 1: Schema mismatch — pre-strip ALL known schema-optional columns so a
+          // single retry suffices instead of one round-trip per missing column.
           if (error && error.code === 'PGRST204') {
-            delete cleanPayload.is_app_report;
-            delete cleanPayload.report_category;
-            delete cleanPayload.attachments;
-            this.stripMissingColumn(cleanPayload, error);
+            // Known optional columns that may not exist in all DB schema versions:
+            const optionalTaskCols = ['reporter', 'severity', 'reproducibility', 'is_app_report', 'report_category', 'attachments'];
+            for (const col of optionalTaskCols) delete cleanPayload[col];
+            this.stripMissingColumn(cleanPayload, error); // strip the exact column named in the error
 
             let retry = await sb.from('tasks').upsert([cleanPayload]);
             let retryCount = 0;
@@ -828,10 +873,10 @@ export class SyncService {
             error = retry.error;
           }
 
-          // Retry 2: FK Constraint violation (e.g. deleted workflow or project on server)
+          // Retry 2: FK Constraint violation on workflow_id (do NOT null project_id —
+          // that would itself cause a 23502 NOT NULL violation on the retry).
           if (error && (error.code === '23503' || String(error.message).includes('foreign key constraint'))) {
             if (cleanPayload.workflow_id) cleanPayload.workflow_id = null;
-            if (cleanPayload.project_id) cleanPayload.project_id = null;
 
             const fkRetry = await sb.from('tasks').upsert([cleanPayload]);
             if (fkRetry.error) {
@@ -851,33 +896,33 @@ export class SyncService {
           return { success: true };
         }
         case 'UPDATE_TASK': {
-          const { id, ...updates } = this.sanitizeTaskPayload(payload);
-          const cleanUpdates: any = { id, ...updates, user_id: currentUserId };
-          let { error } = await sb.from('tasks').upsert([cleanUpdates]);
+          // Use .update().eq('id') — NOT upsert — so absent columns (like project_id)
+          // are never sent as null and never trigger a NOT NULL constraint violation (23502).
+          const { id, project_id: _pid, ...updates } = this.sanitizeTaskPayload(payload);
+          const cleanUpdates: any = { ...updates, user_id: currentUserId };
 
-          // Retry 1: Schema mismatch (missing columns like is_app_report, report_category, attachments)
+          // Retry 1: Schema mismatch (missing columns)
+          let { error } = await sb.from('tasks').update(cleanUpdates).eq('id', id);
           if (error && error.code === 'PGRST204') {
             delete cleanUpdates.is_app_report;
             delete cleanUpdates.report_category;
             delete cleanUpdates.attachments;
             this.stripMissingColumn(cleanUpdates, error);
 
-            let retry = await sb.from('tasks').upsert([cleanUpdates]);
+            let retry = await sb.from('tasks').update(cleanUpdates).eq('id', id);
             let retryCount = 0;
             while (retry.error && retry.error.code === 'PGRST204' && retryCount < 5) {
               if (!this.stripMissingColumn(cleanUpdates, retry.error)) break;
-              retry = await sb.from('tasks').upsert([cleanUpdates]);
+              retry = await sb.from('tasks').update(cleanUpdates).eq('id', id);
               retryCount++;
             }
             error = retry.error;
           }
 
-          // Retry 2: FK Constraint violation (e.g. deleted workflow or project on server)
+          // Retry 2: FK Constraint violation (e.g. deleted workflow)
           if (error && (error.code === '23503' || String(error.message).includes('foreign key constraint'))) {
             if (cleanUpdates.workflow_id) cleanUpdates.workflow_id = null;
-            if (cleanUpdates.project_id) cleanUpdates.project_id = null;
-
-            const fkRetry = await sb.from('tasks').upsert([cleanUpdates]);
+            const fkRetry = await sb.from('tasks').update(cleanUpdates).eq('id', id);
             if (fkRetry.error) {
               return {
                 success: false,
@@ -1013,8 +1058,9 @@ export class SyncService {
           let { error } = await sb.from('task_status_history').upsert([cleanPayload]);
 
           if (error && error.code === 'PGRST204') {
-            delete cleanPayload.action_type;
-            delete cleanPayload.details;
+            // Pre-strip ALL known schema-optional columns for task_status_history:
+            const optionalHistoryCols = ['action_type', 'details', 'changed_by'];
+            for (const col of optionalHistoryCols) delete (cleanPayload as any)[col];
             this.stripMissingColumn(cleanPayload, error);
 
             let retry = await sb.from('task_status_history').upsert([cleanPayload]);

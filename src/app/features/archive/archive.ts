@@ -175,16 +175,16 @@ import { ScrollingModule } from '@angular/cdk/scrolling';
                     (click)="prevTaskPage()"
                     title="Previous Page"
                   >
-                    <i class="fi fi-rr-angle-left"></i> Prev
+                    <i class="fi fi-rr-angle-left"></i>
                   </button>
-                  <span class="page-indicator">Page {{ taskPage() }} of {{ totalTaskPages() }}</span>
+                  <span class="page-indicator">{{ taskPage() }} of {{ totalTaskPages() }}</span>
                   <button
                     class="btn btn-secondary btn-xs"
                     [disabled]="taskPage() === totalTaskPages()"
                     (click)="nextTaskPage()"
                     title="Next Page"
                   >
-                    Next <i class="fi fi-rr-angle-right"></i>
+                    <i class="fi fi-rr-angle-right"></i>
                   </button>
                 </div>
               </div>
@@ -283,16 +283,16 @@ import { ScrollingModule } from '@angular/cdk/scrolling';
                     (click)="prevActivityPage()"
                     title="Previous Page"
                   >
-                    <i class="fi fi-rr-angle-left"></i> Prev
+                    <i class="fi fi-rr-angle-left"></i>
                   </button>
-                  <span class="page-indicator">Page {{ activityPage() }} of {{ totalActivityPages() }}</span>
+                  <span class="page-indicator">{{ activityPage() }} of {{ totalActivityPages() }}</span>
                   <button
                     class="btn btn-secondary btn-xs"
                     [disabled]="activityPage() === totalActivityPages()"
                     (click)="nextActivityPage()"
                     title="Next Page"
                   >
-                    Next <i class="fi fi-rr-angle-right"></i>
+                    <i class="fi fi-rr-angle-right"></i>
                   </button>
                 </div>
               </div>

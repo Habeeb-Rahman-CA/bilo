@@ -449,7 +449,6 @@ export class TaskService {
 
     const payload: any = {
       id: newTask.id,
-      project_id: this.syncService.isValidUuid(newTask.project_id) ? newTask.project_id : null,
       title: newTask.title,
       description: newTask.description,
       type: newTask.type,
@@ -466,6 +465,11 @@ export class TaskService {
       due_date: newTask.due_date && newTask.due_date.trim() !== '' ? newTask.due_date : null,
       completed: newTask.completed
     };
+    // Only include project_id when it is a valid UUID — never send null which
+    // violates the NOT NULL DB constraint and causes a 23502 error on upsert.
+    if (this.syncService.isValidUuid(newTask.project_id)) {
+      payload.project_id = newTask.project_id;
+    }
     if (currentUser?.id) {
       payload.user_id = currentUser.id;
     }

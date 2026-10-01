@@ -267,7 +267,7 @@ describe('SyncService User Data Isolation & DLQ Escalation', () => {
         id: 'op-ratelimited',
         user_id: 'user-111',
         type: 'CREATE_TASK',
-        payload: { id: 't-rl', title: 'Rate Limited Task' },
+        payload: { id: 't-rl', project_id: '550e8400-e29b-41d4-a716-446655440000', title: 'Rate Limited Task' },
         timestamp: new Date().toISOString(),
         retryCount: 0
       }
@@ -338,7 +338,7 @@ describe('SyncService User Data Isolation & DLQ Escalation', () => {
         id: 'op-fk-fail',
         user_id: 'user-111',
         type: 'CREATE_TASK',
-        payload: { id: 't-fk', title: 'FK Task', workflow_id: 'deleted-wf-id' },
+        payload: { id: 't-fk', project_id: '550e8400-e29b-41d4-a716-446655440001', title: 'FK Task', workflow_id: 'deleted-wf-id' },
         timestamp: new Date().toISOString()
       }
     ]);
@@ -361,7 +361,7 @@ describe('SyncService User Data Isolation & DLQ Escalation', () => {
         id: 'op-hung',
         user_id: 'user-111',
         type: 'CREATE_TASK',
-        payload: { id: 't-hung', title: 'Hung Promise Task' },
+        payload: { id: 't-hung', project_id: '550e8400-e29b-41d4-a716-446655440002', title: 'Hung Promise Task' },
         timestamp: new Date().toISOString()
       }
     ]);
@@ -394,7 +394,7 @@ describe('SyncService User Data Isolation & DLQ Escalation', () => {
         id: 'op-pgrst204-task',
         user_id: 'user-111',
         type: 'CREATE_TASK',
-        payload: { id: 't-rep', title: 'App Report Task', is_app_report: true, report_category: 'bug' },
+        payload: { id: 't-rep', project_id: '550e8400-e29b-41d4-a716-446655440003', title: 'App Report Task', is_app_report: true, report_category: 'bug' },
         timestamp: new Date().toISOString()
       }
     ]);

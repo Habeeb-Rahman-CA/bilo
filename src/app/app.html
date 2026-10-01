@@ -51,9 +51,35 @@
             <i class="fi fi-rr-refresh" [class.spin]="retryingConnection()"></i> {{ retryingConnection() ? 'Retrying...' : 'Retry' }}
           </button>
         </span>
+      } @else if (syncService.syncing()) {
+        <!-- Actively syncing right now -->
+        <span class="badge-mono badge-sky offline-header-badge syncing-active-badge"
+              title="Syncing changes to cloud database... ({{ syncService.pendingSyncQueue().length }} operations remaining)"
+              role="status" aria-live="polite">
+          <i class="fi fi-rr-cloud-upload spin"></i>
+          <span class="offline-text">SYNCING ({{ syncService.pendingSyncQueue().length }})</span>
+        </span>
       } @else if (syncService.pendingSyncQueue().length > 0) {
-        <span class="badge-mono badge-sky offline-header-badge" title="Syncing pending mutations to cloud database..." role="status">
-          <i class="fi fi-rr-cloud-upload spin"></i> <span class="offline-text">SYNCING ({{ syncService.pendingSyncQueue().length }})</span>
+        <!-- Queued but not yet syncing (e.g. just came back online, waiting for next sync tick) -->
+        <span class="badge-mono badge-violet offline-header-badge"
+              title="{{ syncService.pendingSyncQueue().length }} change(s) queued — will sync automatically when online"
+              role="status">
+          <i class="fi fi-rr-cloud-upload"></i>
+          <span class="offline-text">QUEUED ({{ syncService.pendingSyncQueue().length }})</span>
+        </span>
+      }
+      @if (syncService.deadLetterQueue().length > 0) {
+        <!-- Permanent sync failures visible at all times -->
+        <span class="badge-mono badge-rose offline-header-badge dlq-badge"
+              title="{{ syncService.deadLetterQueue().length }} operation(s) failed permanently and could not be synced. Last error: {{ syncService.deadLetterQueue()[0]?.lastError || 'Unknown error' }}"
+              role="alert">
+          <i class="fi fi-rr-cloud-exclamation"></i>
+          <span class="offline-text">SYNC ERRORS ({{ syncService.deadLetterQueue().length }})</span>
+          <button class="btn btn-ghost btn-xs text-rose retry-conn-btn"
+                  (click)="syncService.clearDeadLetterQueue()"
+                  title="Dismiss failed sync operations">
+            <i class="fi fi-rr-cross-small"></i>
+          </button>
         </span>
       }
 

@@ -406,16 +406,16 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
                 (click)="goToPage(currentPage() - 1)"
                 title="Previous Page"
               >
-                <i class="fi fi-rr-angle-left"></i> PREV
+                <i class="fi fi-rr-angle-left"></i>
               </button>
-              <span class="page-indicator font-mono">PAGE {{ currentPage() }} / {{ totalPages() }}</span>
+              <span class="page-indicator font-mono">{{ currentPage() }} / {{ totalPages() }}</span>
               <button
                 class="btn btn-secondary btn-xs nav-btn"
                 [disabled]="currentPage() >= totalPages()"
                 (click)="goToPage(currentPage() + 1)"
                 title="Next Page"
               >
-                NEXT <i class="fi fi-rr-angle-right"></i>
+                <i class="fi fi-rr-angle-right"></i>
               </button>
               <button
                 class="btn btn-secondary btn-xs nav-btn"
