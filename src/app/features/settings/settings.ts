@@ -904,9 +904,6 @@ export type SettingsSection = 'overview' | 'workflow' | 'notifications';
       align-items: center;
       gap: 0.25rem;
     }
-    .btn-danger {
-      color: var(--accent-rose);
-    }
     .add-col-row {
       display: flex;
       gap: 0.65rem;
@@ -1370,6 +1367,96 @@ export type SettingsSection = 'overview' | 'workflow' | 'notifications';
       color: var(--text-muted);
       margin: 0;
       line-height: 1.4;
+    }
+
+    /* Mobile Responsive Styles for Workspace Details & Danger Zone */
+    @media (max-width: 768px) {
+      .settings-workspace {
+        padding: 0.75rem;
+        gap: 0.75rem;
+      }
+      .settings-card {
+        padding: 0.9rem;
+        gap: 0.85rem;
+      }
+      .card-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.85rem;
+      }
+      .header-title {
+        width: 100%;
+      }
+      .header-actions {
+        width: 100%;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
+        gap: 0.45rem;
+      }
+      .header-actions .btn {
+        width: 100%;
+        justify-content: center;
+        height: 34px;
+        font-size: 0.75rem;
+      }
+      .metrics-strip {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.5rem;
+        padding: 0.65rem;
+      }
+      .metric-item {
+        padding: 0.4rem;
+        background: var(--bg-surface);
+        border-radius: var(--radius-xs);
+        border: 1px solid var(--border-subtle);
+      }
+      .metric-num {
+        font-size: 1.05rem;
+      }
+      .project-info-grid {
+        grid-template-columns: 1fr;
+        gap: 0.65rem;
+      }
+      .info-group {
+        padding: 0.55rem 0.75rem;
+        background: var(--bg-surface-subtle);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-xs);
+      }
+      .settings-cards-grid {
+        grid-template-columns: 1fr;
+        gap: 0.85rem;
+      }
+      .setting-nav-card {
+        padding: 1rem;
+        gap: 0.85rem;
+      }
+
+      /* Danger Zone Mobile Optimizations */
+      .danger-zone-card {
+        padding: 1rem;
+        gap: 0.85rem;
+        border: 1px solid rgba(225, 29, 72, 0.4);
+        background: rgba(225, 29, 72, 0.06);
+      }
+      .danger-header {
+        padding-bottom: 0.55rem;
+        border-bottom: 1px dashed rgba(225, 29, 72, 0.25);
+      }
+      .danger-content {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.85rem;
+      }
+      .danger-desc-wrap {
+        width: 100%;
+      }
+      .btn-delete-ws {
+        width: 100%;
+        height: 34px;
+        justify-content: center;
+        font-size: 0.75rem;
+      }
     }
   `]
 })

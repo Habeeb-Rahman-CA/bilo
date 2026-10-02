@@ -331,6 +331,31 @@ pre,
   border-color: var(--border-medium);
 }
 
+.btn-danger {
+  background: rgba(225, 29, 72, 0.12);
+  color: var(--accent-rose);
+  border-color: rgba(225, 29, 72, 0.35);
+  font-weight: 600;
+}
+
+.btn-danger:hover {
+  background: var(--accent-rose);
+  color: #ffffff;
+  border-color: var(--accent-rose);
+}
+
+.btn-ghost.btn-danger {
+  background: transparent;
+  border-color: transparent;
+  color: var(--accent-rose);
+}
+
+.btn-ghost.btn-danger:hover {
+  background: rgba(225, 29, 72, 0.15);
+  color: var(--accent-rose);
+  border-color: rgba(225, 29, 72, 0.3);
+}
+
 .btn-ghost {
   background: transparent;
   border-color: transparent;
