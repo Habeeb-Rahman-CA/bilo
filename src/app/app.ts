@@ -80,6 +80,8 @@ export class App implements OnInit {
   editProfileModalOpen = signal<boolean>(false);
   userMenuOpen = signal<boolean>(false);
   notificationMenuOpen = signal<boolean>(false);
+  notificationsExpanded = signal<boolean>(false);
+  mobileMoreMenuOpen = signal<boolean>(false);
   retryingConnection = signal<boolean>(false);
 
   private userMenuPopoverInstance: ClosablePopover = {
@@ -89,6 +91,15 @@ export class App implements OnInit {
   private notificationMenuPopoverInstance: ClosablePopover = {
     closePopover: () => this.closeNotificationMenu()
   };
+
+  private mobileMoreMenuPopoverInstance: ClosablePopover = {
+    closePopover: () => this.closeMobileMoreMenu()
+  };
+
+  isMoreWorkspaceActive = computed(() => {
+    const ws = this.workspaceService.activeWorkspace();
+    return ws === '04 CALENDAR' || ws === '05 ARCHIVE' || ws === '06 SETTINGS';
+  });
 
   // Incoming Invite Link State
   incomingInviteProjectId = signal<string | null>(null);
@@ -227,6 +238,9 @@ export class App implements OnInit {
     if (this.notificationMenuOpen() && !target.closest('.notification-menu-container')) {
       this.closeNotificationMenu();
     }
+    if (this.mobileMoreMenuOpen() && !target.closest('.mobile-more-menu-container')) {
+      this.closeMobileMoreMenu();
+    }
   }
 
   openUserMenu() {
@@ -238,7 +252,12 @@ export class App implements OnInit {
     if (this.userMenuOpen()) {
       unregisterOpenPopover(this.userMenuPopoverInstance);
       this.userMenuOpen.set(false);
+      this.notificationsExpanded.set(false);
     }
+  }
+
+  toggleNotificationsExpanded() {
+    this.notificationsExpanded.update(v => !v);
   }
 
   toggleUserMenu(event: MouseEvent) {
@@ -268,6 +287,27 @@ export class App implements OnInit {
       this.closeNotificationMenu();
     } else {
       this.openNotificationMenu();
+    }
+  }
+
+  openMobileMoreMenu() {
+    registerOpenPopover(this.mobileMoreMenuPopoverInstance);
+    this.mobileMoreMenuOpen.set(true);
+  }
+
+  closeMobileMoreMenu() {
+    if (this.mobileMoreMenuOpen()) {
+      unregisterOpenPopover(this.mobileMoreMenuPopoverInstance);
+      this.mobileMoreMenuOpen.set(false);
+    }
+  }
+
+  toggleMobileMoreMenu(event: MouseEvent) {
+    event.stopPropagation();
+    if (this.mobileMoreMenuOpen()) {
+      this.closeMobileMoreMenu();
+    } else {
+      this.openMobileMoreMenu();
     }
   }
 
@@ -313,6 +353,7 @@ export class App implements OnInit {
   selectWorkspace(wsId: WorkspaceSection) {
     this.workspaceService.setWorkspace(wsId);
     this.mobileMenuOpen.set(false);
+    this.closeMobileMoreMenu();
   }
 
   onEditSharedTask(task: Task) {

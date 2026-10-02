@@ -25,7 +25,7 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
         </div>
 
         <div class="view-header-right">
-          <button class="btn btn-primary btn-sm" (click)="workspaceService.openCreateTaskModal()">
+          <button class="btn btn-primary btn-sm desktop-only" (click)="workspaceService.openCreateTaskModal()">
             <i class="fi fi-rr-plus"></i> New Task
           </button>
         </div>
@@ -441,23 +441,28 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
         </div>
       </div>
 
-      <!-- ROW 4: Workspace Health & Top Focus Target Strip -->
+      <!-- ROW 4: Workspace Pipeline Health, Top Focus & Next Due Strip (3 Items) -->
       <div class="paper-panel focus-health-strip font-mono">
-        <div class="fh-left">
-          <span class="fh-title">
-            <i class="fi fi-rr-target text-emerald"></i>
-            PIPELINE HEALTH
-          </span>
-          <span class="fh-subtitle">
-            {{ completed7dCount() }}/{{ totalTaskCount() }} Done ({{ pipelineHealthPercent() }}%)
-          </span>
+        <!-- Item 1: Pipeline Health -->
+        <div class="fh-item fh-left">
+          <div class="fh-meta-wrap">
+            <span class="fh-title">
+              <i class="fi fi-rr-target text-emerald"></i>
+              PIPELINE HEALTH
+            </span>
+            <span class="fh-subtitle">
+              {{ completed7dCount() }}/{{ totalTaskCount() }} Done ({{ pipelineHealthPercent() }}%)
+            </span>
+          </div>
+          <div class="fh-progress-track" title="Workspace pipeline completion progress">
+            <div class="fh-progress-fill" [style.width]="pipelineHealthPercent() + '%'"></div>
+          </div>
         </div>
 
-        <div class="fh-progress-track" title="Workspace pipeline completion progress">
-          <div class="fh-progress-fill" [style.width]="pipelineHealthPercent() + '%'"></div>
-        </div>
+        <div class="fh-divider"></div>
 
-        <div class="fh-right">
+        <!-- Item 2: Top Focus -->
+        <div class="fh-item fh-center">
           @if (topFocusTask(); as focus) {
             <div class="focus-pill" (click)="activeDetailTask.set(focus)" title="Top priority focus item — click to inspect details">
               <span class="badge-mono badge-amber">TOP FOCUS</span>
@@ -470,6 +475,60 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
               <span>All Priority Items Done</span>
             </div>
           }
+        </div>
+
+        <div class="fh-divider"></div>
+
+        <!-- Item 3: Next Due Soon / Sprint Pace -->
+        <div class="fh-item fh-right">
+          @if (nextDueSoonTask(); as dueTask) {
+            <div class="due-pill" (click)="activeDetailTask.set(dueTask)" title="Next imminent due date task — click to inspect details">
+              <span class="badge-mono badge-cyan">DUE SOON</span>
+              <span class="focus-task-title">{{ dueTask.title }}</span>
+              <span class="due-date-tag text-cyan">{{ formatDueDate(dueTask.due_date) }}</span>
+            </div>
+          } @else {
+            <div class="due-all-clear">
+              <span class="badge-mono badge-emerald">SPRINT PACE</span>
+              <span class="due-pace-text text-emerald"><i class="fi fi-rr-rocket text-emerald"></i> {{ velocityData().velocityRateStr }} Pace</span>
+            </div>
+          }
+        </div>
+      </div>
+
+      <!-- ROW 5: Task Allocation & Assignee Summary Strip -->
+      <div class="paper-panel focus-health-strip allocation-strip font-mono">
+        <!-- Item 1: Assigned vs Unassigned Count -->
+        <div class="fh-item fh-left">
+          <div class="fh-meta-wrap">
+            <span class="fh-title">
+              <i class="fi fi-rr-users-alt text-cyan"></i>
+              TASK ALLOCATION
+            </span>
+            <span class="fh-subtitle">
+              {{ assignedTaskCount() }} Assigned • <span class="text-amber">{{ unassignedTaskCount() }} Unassigned</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="fh-divider"></div>
+
+        <!-- Item 2: Team Assignee Pills Breakdown (Who tasks belong to) -->
+        <div class="fh-item fh-center assignee-pills-wrap">
+          <span class="assignee-strip-label">ASSIGNED TO:</span>
+          <div class="assignee-pills-list">
+            @for (asg of assigneeCounts(); track asg.name) {
+              <span
+                class="assignee-chip"
+                [class.unassigned-chip]="asg.isUnassigned"
+                [title]="asg.name + ': ' + asg.count + ' tasks'"
+              >
+                <i [class]="asg.isUnassigned ? 'fi fi-rr-user-cross text-amber' : 'fi fi-rr-user text-cyan'"></i>
+                <span class="chip-name">{{ asg.name }}</span>
+                <span class="chip-count">{{ asg.count }}</span>
+              </span>
+            }
+          </div>
         </div>
       </div>
     }
@@ -838,7 +897,7 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
       gap: 0.1rem;
     }
     .v-metric-num {
-      font-size: 0.95rem;
+      font-size: 0.775rem;
       font-weight: 700;
     }
     .v-metric-label {
@@ -995,23 +1054,32 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
       min-width: 2px;
     }
 
-    /* ROW 4: Workspace Health & Top Focus Target Strip */
+    /* ROW 4: Workspace Health, Top Focus & Next Due Strip */
     .focus-health-strip {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 1rem;
+      gap: 0.75rem;
       padding: 0.45rem 0.85rem;
       flex-shrink: 0;
       background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-xs);
     }
-    .fh-left {
+    .fh-item {
       display: flex;
       align-items: center;
       gap: 0.65rem;
-      font-size: 0.75rem;
+      flex: 1;
+      min-width: 0;
+    }
+    .fh-left {
+      max-width: 320px;
+    }
+    .fh-meta-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
       white-space: nowrap;
     }
     .fh-title {
@@ -1019,7 +1087,8 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
       color: var(--text-main);
       display: flex;
       align-items: center;
-      gap: 0.4rem;
+      gap: 0.35rem;
+      font-size: 0.75rem;
     }
     .fh-subtitle {
       color: var(--text-muted);
@@ -1027,8 +1096,9 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
     }
     .fh-progress-track {
       flex: 1;
-      max-width: 280px;
-      height: 8px;
+      min-width: 60px;
+      max-width: 140px;
+      height: 7px;
       background: var(--bg-surface-subtle);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-xs);
@@ -1040,12 +1110,16 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
       border-radius: var(--radius-xs);
       transition: width 0.4s ease;
     }
-    .fh-right {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
+    .fh-divider {
+      width: 1px;
+      height: 20px;
+      background: var(--border-subtle);
+      flex-shrink: 0;
     }
-    .focus-pill {
+    .fh-center, .fh-right {
+      justify-content: center;
+    }
+    .focus-pill, .due-pill {
       display: flex;
       align-items: center;
       gap: 0.45rem;
@@ -1056,9 +1130,10 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
       font-size: 0.725rem;
       cursor: pointer;
       transition: background 0.15s ease, border-color 0.15s ease;
-      max-width: 320px;
+      width: 100%;
+      max-width: 280px;
     }
-    .focus-pill:hover {
+    .focus-pill:hover, .due-pill:hover {
       background: var(--bg-surface-hover);
       border-color: var(--border-medium);
     }
@@ -1068,13 +1143,71 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
       overflow: hidden;
       text-overflow: ellipsis;
       font-weight: 600;
+      flex: 1;
     }
-    .focus-all-clear {
+    .due-date-tag {
+      font-size: 0.675rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .focus-all-clear, .due-all-clear {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.725rem;
+      color: var(--text-muted);
+    }
+    .due-pace-text {
+      font-weight: 700;
+      font-size: 0.725rem;
+    }
+
+    /* ROW 5: Task Allocation & Assignee Summary Strip */
+    .allocation-strip {
+      margin-top: 0.15rem;
+    }
+    .assignee-pills-wrap {
+      flex: 2;
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      overflow-x: auto;
+      justify-content: flex-start;
+    }
+    .assignee-strip-label {
+      font-size: 0.675rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+    .assignee-pills-list {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      overflow-x: auto;
+    }
+    .assignee-chip {
       display: flex;
       align-items: center;
       gap: 0.35rem;
-      font-size: 0.725rem;
-      color: var(--text-muted);
+      padding: 0.2rem 0.5rem;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xs);
+      font-size: 0.7rem;
+      white-space: nowrap;
+    }
+    .assignee-chip.unassigned-chip {
+      border-color: var(--accent-amber);
+      background: rgba(245, 158, 11, 0.08);
+    }
+    .chip-name {
+      color: var(--text-main);
+      font-weight: 600;
+    }
+    .chip-count {
+      font-weight: 700;
+      color: var(--text-main);
     }
 
     /* ==========================================================================
@@ -1180,6 +1313,59 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
       .timeline-item {
         font-size: 0.725rem;
       }
+
+      /* Mobile Pipeline Health & Task Allocation Responsive Layout */
+      .focus-health-strip {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+        padding: 0.55rem 0.65rem;
+      }
+
+      .fh-item {
+        width: 100%;
+        max-width: none;
+        justify-content: space-between;
+      }
+
+      .fh-left {
+        max-width: none;
+      }
+
+      .fh-meta-wrap {
+        flex-wrap: wrap;
+        gap: 0.35rem;
+      }
+
+      .fh-progress-track {
+        max-width: none;
+      }
+
+      .fh-divider {
+        display: none;
+      }
+
+      .focus-pill, .due-pill {
+        max-width: none;
+        justify-content: space-between;
+      }
+
+      .assignee-pills-wrap {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.35rem;
+        width: 100%;
+      }
+
+      .assignee-pills-list {
+        flex-wrap: wrap;
+        width: 100%;
+      }
+
+      .assignee-chip {
+        font-size: 0.675rem;
+        padding: 0.15rem 0.45rem;
+      }
     }
 
     @media (max-width: 480px) {
@@ -1189,6 +1375,16 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
 
       .project-filter-wrap {
         width: 95px;
+      }
+
+      .velocity-metrics-strip {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.35rem;
+        padding: 0.35rem 0.5rem;
+      }
+
+      .v-metric-num {
+        font-size: 0.725rem;
       }
     }
 
@@ -1349,6 +1545,42 @@ export class TodayComponent implements OnInit, OnDestroy {
 
   totalTaskCount = computed(() => this.activeWorkspaceTasks().length);
 
+  assignedTaskCount = computed(() => {
+    const tasks = this.activeWorkspaceTasks();
+    return tasks.filter(t => t.assignee && t.assignee.trim() !== '' && t.assignee.toLowerCase() !== 'unassigned').length;
+  });
+
+  unassignedTaskCount = computed(() => {
+    const tasks = this.activeWorkspaceTasks();
+    return tasks.filter(t => !t.assignee || t.assignee.trim() === '' || t.assignee.toLowerCase() === 'unassigned').length;
+  });
+
+  assigneeCounts = computed(() => {
+    const tasks = this.activeWorkspaceTasks();
+    const map = new Map<string, number>();
+    let unassigned = 0;
+
+    tasks.forEach(t => {
+      const a = (t.assignee || '').trim();
+      if (!a || a.toLowerCase() === 'unassigned') {
+        unassigned++;
+      } else {
+        map.set(a, (map.get(a) || 0) + 1);
+      }
+    });
+
+    const list: Array<{ name: string; count: number; isUnassigned: boolean }> = [];
+    map.forEach((count, name) => {
+      list.push({ name, count, isUnassigned: false });
+    });
+    list.sort((a, b) => b.count - a.count);
+
+    if (unassigned > 0 || list.length === 0) {
+      list.push({ name: 'Unassigned', count: unassigned, isUnassigned: true });
+    }
+    return list;
+  });
+
   allRecentActivities = computed(() => {
     const activities = this.projectService.activities();
     const activeProjId = this.projectService.activeProject()?.id;
@@ -1375,6 +1607,19 @@ export class TodayComponent implements OnInit, OnDestroy {
       return pA - pB;
     })[0];
   });
+
+  nextDueSoonTask = computed(() => {
+    const tasks = this.activeWorkspaceTasks();
+    const uncompleted = tasks.filter(t => !t.completed && (t.status || '').toLowerCase() !== 'done' && t.due_date);
+    if (uncompleted.length === 0) return null;
+    return [...uncompleted].sort((a, b) => new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime())[0];
+  });
+
+  formatDueDate(dateStr?: string | null): string {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
 
   displayedActivities = computed(() => {
     return this.allRecentActivities().slice(0, 5);

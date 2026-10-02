@@ -20,7 +20,7 @@ import { ScrollingModule } from '@angular/cdk/scrolling';
       <!-- Header -->
       <div class="view-header-strip paper-panel">
         <div class="view-header-left">
-          <span class="badge-mono">05 ARCHIVE</span>
+          <span class="badge-mono desktop-only">05 ARCHIVE</span>
           <h2 class="view-header-title">Completed Work & Audit</h2>
         </div>
 
@@ -33,9 +33,9 @@ import { ScrollingModule } from '@angular/cdk/scrolling';
           >
             @if (isExporting()) {
               <i class="fi fi-rr-spinner spinner-icon spinning"></i>
-              <span>Exporting ({{ exportProgress() }}%)...</span>
+              <span class="btn-export-text">Exporting...</span>
             } @else {
-              <i class="fi fi-rr-file-excel"></i> Export
+              <i class="fi fi-rr-file-excel"></i> <span class="btn-export-text">Export</span>
             }
           </button>
         </div>
@@ -622,6 +622,37 @@ import { ScrollingModule } from '@angular/cdk/scrolling';
       transition: width 0.18s ease-out;
       border-radius: 3px;
     }
+    .view-header-strip {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.75rem 1rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xs);
+      gap: 0.75rem;
+    }
+    .view-header-left {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      min-width: 0;
+    }
+    .view-header-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .view-header-right {
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
     @keyframes spin {
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
@@ -629,6 +660,27 @@ import { ScrollingModule } from '@angular/cdk/scrolling';
     .spinning {
       display: inline-block;
       animation: spin 1s linear infinite;
+    }
+
+    @media (max-width: 768px) {
+      .archive-workspace {
+        padding: 0.5rem;
+        gap: 0.65rem;
+      }
+      .view-header-strip {
+        padding: 0.6rem 0.75rem;
+        flex-wrap: nowrap;
+        justify-content: space-between;
+        gap: 0.5rem;
+      }
+      .view-header-title {
+        font-size: 0.925rem;
+      }
+      .export-btn {
+        padding: 0.25rem 0.55rem;
+        font-size: 0.75rem;
+        height: 30px;
+      }
     }
   `]
 })

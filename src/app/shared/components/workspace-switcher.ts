@@ -408,6 +408,25 @@ import { LazyImageDirective } from '../directives/lazy-image.directive';
     .btn-create {
       color: var(--accent-cyan);
     }
+
+    @media (max-width: 768px) {
+      .switcher-trigger {
+        min-width: 148px;
+        padding: 0.25rem 0.45rem;
+      }
+      .ws-name {
+        max-width: 80px;
+      }
+      .switcher-popover {
+        position: absolute;
+        top: calc(100% + 6px);
+        left: -20px;
+        right: auto;
+        width: 270px;
+        max-width: calc(100vw - 1rem);
+        z-index: 2000;
+      }
+    }
   `]
 })
 export class WorkspaceSwitcherComponent {

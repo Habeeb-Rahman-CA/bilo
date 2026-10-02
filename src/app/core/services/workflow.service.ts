@@ -89,6 +89,7 @@ export class WorkflowService {
   }
 
   saveToStorageImmediate() {
+    if (typeof localStorage === 'undefined') return;
     if (this.saveTimeoutTimer) {
       clearTimeout(this.saveTimeoutTimer);
       this.saveTimeoutTimer = null;

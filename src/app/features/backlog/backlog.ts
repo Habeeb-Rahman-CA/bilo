@@ -48,7 +48,7 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
         </div>
 
         <div class="view-header-right">
-          <button class="btn btn-primary btn-sm" (click)="workspaceService.openCreateTaskModal()">
+          <button class="btn btn-primary btn-sm desktop-only" (click)="workspaceService.openCreateTaskModal()">
             <i class="fi fi-rr-plus"></i> New Task
           </button>
         </div>

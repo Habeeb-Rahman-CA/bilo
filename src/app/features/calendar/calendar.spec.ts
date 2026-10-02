@@ -18,8 +18,18 @@ describe('CalendarComponent - Touch Drag & Scheduling', () => {
     const mockDragOverDate: any = () => dragOverDateVal;
     mockDragOverDate.set = vi.fn((val: any) => { dragOverDateVal = val; });
 
+    let touchDraggingVal = false;
+    const mockIsTouchDraggingTask: any = () => touchDraggingVal;
+    mockIsTouchDraggingTask.set = vi.fn((val: any) => { touchDraggingVal = val; });
+
+    let overCancelVal = false;
+    const mockIsOverCancelDropzone: any = () => overCancelVal;
+    mockIsOverCancelDropzone.set = vi.fn((val: any) => { overCancelVal = val; });
+
     component.draggedTaskId = mockDraggedTaskId;
     component.dragOverDate = mockDragOverDate;
+    component.isTouchDraggingTask = mockIsTouchDraggingTask;
+    component.isOverCancelDropzone = mockIsOverCancelDropzone;
     component.taskService = { updateTask: vi.fn().mockResolvedValue({}) };
   });
 
@@ -31,7 +41,7 @@ describe('CalendarComponent - Touch Drag & Scheduling', () => {
     component.onTouchStartTask(mockEvent, mockTask);
 
     expect(component.touchGhostEl).not.toBeNull();
-    expect(component.touchGhostEl.innerText).toContain('Mobile Touch Test Task');
+    expect(component.touchGhostEl.textContent).toContain('Mobile Touch Test Task');
 
     component.cleanupTouchGhost();
     expect(document.querySelector('.touch-drag-ghost')).toBeNull();

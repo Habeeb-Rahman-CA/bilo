@@ -54,7 +54,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
 
         <div class="view-header-right">
           <button
-            class="btn btn-primary btn-sm"
+            class="btn btn-primary btn-sm desktop-only"
             [disabled]="activeColumns().length === 0"
             (click)="workspaceService.openCreateTaskModal()"
           >
@@ -63,13 +63,26 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
         </div>
       </div>
 
-      <!-- 2. Standalone Filter Toolbar -->
-      <div class="filter-bar paper-panel font-mono">
-        <div class="filters-left">
+      <!-- 2. Standalone Filter Toolbar (Matching Backlog Layout) -->
+      <div class="filter-toolbar paper-panel font-mono">
+        <div class="search-box">
+          <i class="fi fi-rr-search search-icon"></i>
+          <input
+            type="text"
+            class="search-input font-mono"
+            placeholder="Search tasks by key, title, description..."
+            [ngModel]="rawSearchQuery()"
+            (ngModelChange)="onSearchInput($event)"
+          />
+          @if (rawSearchQuery()) {
+            <button class="btn-clear" (click)="clearSearch()"><i class="fi fi-rr-cross"></i></button>
+          }
+        </div>
 
+        <div class="filter-dropdowns">
           <!-- Issue Type Filter -->
           <div class="filter-group">
-            <label class="filter-label">TYPE</label>
+            <span class="filter-label">TYPE:</span>
             <app-select
               [options]="typeFilterOptions"
               [value]="selectedType()"
@@ -80,7 +93,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
 
           <!-- Priority Filter -->
           <div class="filter-group">
-            <label class="filter-label">PRIORITY</label>
+            <span class="filter-label">PRIORITY:</span>
             <app-select
               [options]="priorityFilterOptions"
               [value]="selectedPriority()"
@@ -91,7 +104,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
 
           <!-- Severity Filter -->
           <div class="filter-group">
-            <label class="filter-label">SEVERITY</label>
+            <span class="filter-label">SEVERITY:</span>
             <app-select
               [options]="severityFilterOptions"
               [value]="selectedSeverity()"
@@ -102,7 +115,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
 
           <!-- Reproducibility Filter -->
           <div class="filter-group">
-            <label class="filter-label">REPRO</label>
+            <span class="filter-label">REPRO:</span>
             <app-select
               [options]="reproducibilityFilterOptions"
               [value]="selectedReproducibility()"
@@ -113,7 +126,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
 
           <!-- Label Filter -->
           <div class="filter-group">
-            <label class="filter-label">LABEL</label>
+            <span class="filter-label">LABEL:</span>
             <app-select
               [options]="labelFilterOptions()"
               [value]="selectedLabel()"
@@ -124,7 +137,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
 
           <!-- Due Date Filter -->
           <div class="filter-group">
-            <label class="filter-label">DUE DATE</label>
+            <span class="filter-label">DUE:</span>
             <app-select
               [options]="dueDateFilterOptions"
               [value]="selectedDueDateFilter()"
@@ -135,7 +148,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
 
           <!-- Sort By & Direction -->
           <div class="filter-group sort-group">
-            <label class="filter-label">SORT</label>
+            <span class="filter-label">SORT:</span>
             <div class="sort-controls">
               <app-select
                 [options]="sortOptions"
@@ -157,26 +170,10 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
 
           @if (hasActiveFilters()) {
             <div class="filter-group reset-group">
-              <label class="filter-label">&nbsp;</label>
               <button class="btn btn-ghost btn-xs reset-btn" (click)="resetFilters()">
                 <i class="fi fi-rr-refresh"></i> Clear Filters
               </button>
             </div>
-          }
-        </div>
-
-        <!-- Search Box -->
-        <div class="search-box">
-          <i class="fi fi-rr-search search-icon"></i>
-          <input
-            type="text"
-            class="form-input search-input"
-            placeholder="Search title, description..."
-            [ngModel]="rawSearchQuery()"
-            (ngModelChange)="onSearchInput($event)"
-          />
-          @if (rawSearchQuery()) {
-            <button class="btn-clear" (click)="clearSearch()"><i class="fi fi-rr-cross"></i></button>
           }
         </div>
       </div>
@@ -409,33 +406,58 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       padding: 1rem;
       width: 100%;
     }
-    .filter-bar {
+    .filter-toolbar {
       display: flex;
-      justify-content: space-between;
-      align-items: flex-end;
+      flex-direction: column;
+      gap: 0.75rem;
       padding: 0.75rem 1rem;
       background: var(--bg-surface-subtle);
+    }
+    .search-box {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-xs);
-      flex-wrap: wrap;
-      gap: 0.75rem;
+      padding: 0.4rem 0.75rem;
+      position: relative;
     }
-    .filters-left {
+    .search-icon {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    .search-input {
+      flex: 1;
+      border: none;
+      background: transparent;
+      font-size: 0.825rem;
+      color: var(--text-main);
+      outline: none;
+    }
+    .btn-clear {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 0.75rem;
+    }
+    .filter-dropdowns {
       display: flex;
-      gap: 0.65rem;
+      align-items: center;
+      gap: 0.85rem;
       flex-wrap: wrap;
-      align-items: flex-end;
     }
     .filter-group {
       display: flex;
-      flex-direction: column;
-      gap: 0.2rem;
+      align-items: center;
+      gap: 0.35rem;
     }
     .filter-label {
-      font-size: 0.675rem;
+      font-size: 0.65rem;
+      font-weight: 700;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.05em;
     }
     .filter-select {
       width: 130px;
@@ -456,23 +478,6 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
     }
     .reset-btn {
       color: var(--accent-rose);
-    }
-    .search-box {
-      position: relative;
-      align-self: flex-end;
-    }
-    .search-icon {
-      position: absolute;
-      left: 0.55rem;
-      top: 50%;
-      transform: translateY(-50%);
-      color: var(--text-muted);
-      font-size: 0.8rem;
-    }
-    .search-input {
-      padding-left: 1.8rem;
-      width: 180px;
-      font-size: 0.775rem;
     }
     .empty-board {
       padding: 3rem 1.5rem;
@@ -941,6 +946,29 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
     }
     .text-amber {
       color: #f59e0b;
+    }
+
+    @media (max-width: 768px) {
+      .tasks-page-container {
+        padding: 0.5rem;
+        gap: 0.65rem;
+      }
+      .filter-toolbar {
+        padding: 0.5rem 0.65rem;
+        gap: 0.5rem;
+      }
+      .filter-dropdowns {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        padding-bottom: 0.2rem;
+        -webkit-overflow-scrolling: touch;
+      }
+      .filter-label {
+        display: none;
+      }
+      .filter-group {
+        flex-shrink: 0;
+      }
     }
   `]
 })

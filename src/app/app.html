@@ -1,10 +1,21 @@
 @if (authService.authLoading()) {
 <div class="initial-auth-screen font-mono">
-  <div class="auth-loading-card paper-panel">
-    <app-bilo-logo size="md" [showText]="true"></app-bilo-logo>
-    <div class="loading-status-wrap">
-      <i class="fi fi-rr-spinner spinner text-cyan"></i>
-      <span>Loading workspace session...</span>
+  <div class="minimal-auth-loader">
+    <div class="auth-loader-logo">
+      <app-bilo-logo size="md" [showText]="true"></app-bilo-logo>
+    </div>
+
+    <div class="auth-loader-bar-wrap">
+      <div class="auth-loader-bar-fill"></div>
+    </div>
+
+    <div class="auth-loader-status font-mono">
+      <span class="status-pulse-dot"></span>
+      <span class="status-text">INITIALIZING WORKSPACE</span>
+    </div>
+
+    <div class="auth-loader-version font-mono">
+      <span>bilo {{ appVersion }}</span>
     </div>
   </div>
 </div>
@@ -17,16 +28,14 @@
       <app-bilo-logo size="sm" [showText]="true"></app-bilo-logo>
     </div>
 
-    <!-- Middle: Command Palette Search Bar -->
+    <!-- Middle: Workspace Selection Dropdown (Centered) -->
     <div class="header-center">
-      <button class="cmd-search-bar font-mono" (click)="workspaceService.toggleCommandPalette()"
-        title="Search or type a command" aria-label="Search workspace and tasks (Cmd+K)">
-        <i class="fi fi-rr-search search-icon"></i>
-        <span class="search-placeholder">Search workspace, tasks...</span>
-      </button>
+      <app-workspace-switcher
+        (createWorkspace)="createProjectModalOpen.set(true)"
+      ></app-workspace-switcher>
     </div>
 
-    <!-- Right End: Offline Badge & Action Buttons -->
+    <!-- Right End: Offline Badge, Notifications Bell, Search Icon, Profile Avatar -->
     <div class="header-right font-mono">
       @if (canInstallPwa()) {
         <button class="btn btn-primary btn-xs pwa-install-btn" (click)="installPwa()" title="Install Bilo Desktop Standalone App" aria-label="Install Bilo Desktop Standalone App">
@@ -83,14 +92,13 @@
         </span>
       }
 
-      <!-- Light / Dark Theme Mode Toggle -->
-      <button class="btn btn-ghost btn-sm theme-toggle-btn" (click)="themeService.toggleTheme()"
-        [title]="themeService.isDarkMode() ? 'Switch to Light Craft Paper Theme' : 'Switch to Dark Theme (Black & Grey)'"
-        [attr.aria-label]="themeService.isDarkMode() ? 'Switch to Light Theme' : 'Switch to Dark Theme'">
-        <i [class]="themeService.isDarkMode() ? 'fi fi-rr-sun' : 'fi fi-rr-moon-stars'"></i>
+      <!-- Icon-Only Search Button -->
+      <button class="cmd-search-bar font-mono" (click)="workspaceService.toggleCommandPalette()"
+        title="Search or type a command (Cmd+K)" aria-label="Search workspace and tasks (Cmd+K)">
+        <i class="fi fi-rr-search search-icon"></i>
       </button>
 
-      <!-- Notifications Menu Icon & Popover -->
+      <!-- Notifications Menu Icon & Popover (In Top Header Bar) -->
       <div class="notification-menu-container font-mono">
         <button
           type="button"
@@ -153,11 +161,6 @@
         }
       </div>
 
-      <!-- Workspace Selection Dropdown -->
-      <app-workspace-switcher
-        (createWorkspace)="createProjectModalOpen.set(true)"
-      ></app-workspace-switcher>
-
       <!-- User Profile Menu Icon & Dropdown Popover (Rightmost) -->
       <div class="user-menu-container font-mono">
         <button
@@ -193,6 +196,22 @@
             </div>
 
             <div class="user-menu-actions">
+              <!-- Theme Toggle Row (Identical Style & Font Size as other user-action-btn items) -->
+              <button
+                type="button"
+                class="user-action-btn theme-toggle-btn"
+                (click)="themeService.toggleTheme()"
+                [title]="themeService.isDarkMode() ? 'Switch to Light Craft Paper Theme' : 'Switch to Dark Theme (Black & Grey)'"
+              >
+                <i [class]="themeService.isDarkMode() ? 'fi fi-rr-sun text-amber' : 'fi fi-rr-moon-stars text-purple'"></i>
+                <span>{{ themeService.isDarkMode() ? 'Light Mode' : 'Dark Theme' }}</span>
+                <span class="theme-mode-badge" [class.is-dark]="themeService.isDarkMode()">
+                  {{ themeService.isDarkMode() ? 'DARK' : 'LIGHT' }}
+                </span>
+              </button>
+
+              <div class="user-menu-divider"></div>
+
               <button
                 type="button"
                 class="user-action-btn"
@@ -366,21 +385,52 @@
       <i class="fi fi-rr-layout-fluid"></i>
       <span class="bottom-tab-label">Board</span>
     </button>
-    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '04 CALENDAR'"
-      (click)="selectWorkspace('04 CALENDAR')" title="Calendar" aria-label="Calendar Section">
-      <i class="fi fi-rr-calendar"></i>
-      <span class="bottom-tab-label">Calendar</span>
-    </button>
-    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '05 ARCHIVE'"
-      (click)="selectWorkspace('05 ARCHIVE')" title="Archive" aria-label="Archive Section">
-      <i class="fi fi-rr-box-alt"></i>
-      <span class="bottom-tab-label">Archive</span>
-    </button>
-    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '06 SETTINGS'"
-      (click)="selectWorkspace('06 SETTINGS')" title="Settings" aria-label="Settings Section">
-      <i class="fi fi-rr-settings"></i>
-      <span class="bottom-tab-label">Settings</span>
-    </button>
+
+    <!-- More Menu Button & Popover -->
+    <div class="mobile-more-menu-container">
+      <button class="bottom-tab-btn" [class.active]="isMoreWorkspaceActive() || mobileMoreMenuOpen()"
+        (click)="toggleMobileMoreMenu($event)" title="More Views" aria-label="More Navigation Items">
+        <i class="fi fi-rr-menu-dots-vertical"></i>
+        <span class="bottom-tab-label">More</span>
+      </button>
+
+      @if (mobileMoreMenuOpen()) {
+        <div class="mobile-more-popover paper-panel font-mono" (click)="$event.stopPropagation()">
+          <div class="mobile-more-header">
+            <span>MORE VIEWS</span>
+            <button type="button" class="btn btn-ghost btn-xs" (click)="closeMobileMoreMenu()">
+              <i class="fi fi-rr-cross"></i>
+            </button>
+          </div>
+          <div class="mobile-more-actions">
+            <button type="button" class="mobile-more-item" [class.active]="workspaceService.activeWorkspace() === '04 CALENDAR'"
+              (click)="selectWorkspace('04 CALENDAR')">
+              <i class="fi fi-rr-calendar text-cyan"></i>
+              <div class="mobile-more-item-info">
+                <span class="mobile-more-title">Calendar</span>
+                <span class="mobile-more-desc">View schedule & deadlines</span>
+              </div>
+            </button>
+            <button type="button" class="mobile-more-item" [class.active]="workspaceService.activeWorkspace() === '05 ARCHIVE'"
+              (click)="selectWorkspace('05 ARCHIVE')">
+              <i class="fi fi-rr-box-alt text-amber"></i>
+              <div class="mobile-more-item-info">
+                <span class="mobile-more-title">Archive</span>
+                <span class="mobile-more-desc">Completed & stored tasks</span>
+              </div>
+            </button>
+            <button type="button" class="mobile-more-item" [class.active]="workspaceService.activeWorkspace() === '06 SETTINGS'"
+              (click)="selectWorkspace('06 SETTINGS')">
+              <i class="fi fi-rr-settings text-purple"></i>
+              <div class="mobile-more-item-info">
+                <span class="mobile-more-title">Settings</span>
+                <span class="mobile-more-desc">Preferences & sync</span>
+              </div>
+            </button>
+          </div>
+        </div>
+      }
+    </div>
   </nav>
 
   <!-- Clean Paper Footer (Desktop) -->

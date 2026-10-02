@@ -865,3 +865,23 @@ textarea:focus-visible,
     transition: none !important;
   }
 }
+
+/* ==========================================================================
+   Global Desktop / Mobile View Visibility Utility Classes
+   ========================================================================== */
+.desktop-only {
+  display: inline-flex !important;
+}
+
+.mobile-only {
+  display: none !important;
+}
+
+@media (max-width: 768px) {
+  .desktop-only {
+    display: none !important;
+  }
+  .mobile-only {
+    display: inline-flex !important;
+  }
+}

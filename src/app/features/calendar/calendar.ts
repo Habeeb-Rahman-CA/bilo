@@ -9,6 +9,7 @@ import { TaskDetailModalComponent } from '../../shared/components/task-detail-mo
 import { TaskModalComponent } from '../../shared/components/task-modal';
 import { DatePickerComponent } from '../../shared/components/date-picker';
 import { getLocalDateString, isoToLocalDateString } from '../../core/utils/date.util';
+import { getTaskKey } from '../../core/utils/task-key.util';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 
 export type WeekStartDay = 'sunday' | 'monday' | 'saturday';
@@ -38,21 +39,70 @@ export interface CalendarCellEvent {
     <div class="calendar-workspace font-mono">
       <!-- Calendar Header Strip -->
       <div class="view-header-strip paper-panel">
-        <div class="view-header-left">
-          <span class="badge-mono">04 CALENDAR</span>
-          <h2 class="view-header-title">{{ monthTitle() }}</h2>
-          <div class="nav-btn-group">
-            <button class="btn btn-secondary btn-xs" (click)="prevMonth()" title="Previous Month">
-              <i class="fi fi-rr-angle-left"></i>
+        <div class="view-header-top">
+          <div class="view-header-title-wrap">
+            <span class="badge-mono desktop-only">04 CALENDAR</span>
+            <h2 class="view-header-title">{{ monthTitle() }}</h2>
+          </div>
+
+          <div class="header-action-group">
+            <div class="nav-btn-group">
+              <button class="btn btn-secondary btn-xs nav-icon-btn" (click)="prevMonth()" title="Previous Month">
+                <i class="fi fi-rr-angle-left"></i>
+              </button>
+              <button class="btn btn-secondary btn-xs nav-today-btn" (click)="todayMonth()" title="Jump to Current Month">
+                Today
+              </button>
+              <button class="btn btn-secondary btn-xs nav-icon-btn" (click)="nextMonth()" title="Next Month">
+                <i class="fi fi-rr-angle-right"></i>
+              </button>
+            </div>
+
+            <button
+              class="btn btn-secondary btn-sm schedule-toggle-btn"
+              [class.active]="showUnscheduledDrawer()"
+              (click)="showUnscheduledDrawer.set(!showUnscheduledDrawer())"
+              title="Toggle Unscheduled Tasks Scheduler Drawer"
+            >
+              <i class="fi fi-rr-time-fast text-amber"></i>
+              <span>Schedule ({{ unscheduledTasks().length }})</span>
             </button>
-            <button class="btn btn-secondary btn-xs" (click)="todayMonth()" title="Jump to Current Month">
-              Today
+
+            <button class="btn btn-primary btn-sm desktop-only" (click)="workspaceService.openCreateTaskModal()">
+              <i class="fi fi-rr-plus"></i> New Task
             </button>
-            <button class="btn btn-secondary btn-xs" (click)="nextMonth()" title="Next Month">
-              <i class="fi fi-rr-angle-right"></i>
+          </div>
+        </div>
+
+        <div class="view-header-toolbar">
+          <!-- Event Type Filter Toggles -->
+          <div class="filter-pills font-mono">
+            <button
+              class="filter-pill pill-created-toggle"
+              [class.active]="showCreated()"
+              (click)="showCreated.set(!showCreated())"
+            >
+              <i class="fi fi-rr-plus-circle"></i> Created ({{ monthCreatedCount() }})
+            </button>
+
+            <button
+              class="filter-pill pill-closed-toggle"
+              [class.active]="showClosed()"
+              (click)="showClosed.set(!showClosed())"
+            >
+              <i class="fi fi-rr-check-circle"></i> Closed ({{ monthClosedCount() }})
+            </button>
+
+            <button
+              class="filter-pill pill-due-toggle"
+              [class.active]="showDue()"
+              (click)="showDue.set(!showDue())"
+            >
+              <i class="fi fi-rr-clock"></i> Due ({{ monthDueCount() }})
             </button>
           </div>
 
+          <!-- Week Start Day Toggle -->
           <div class="week-start-toggle font-mono">
             <button
               type="button"
@@ -82,48 +132,6 @@ export interface CalendarCellEvent {
               SAT
             </button>
           </div>
-        </div>
-
-        <div class="view-header-right">
-          <!-- Event Type Filter Toggles -->
-          <div class="filter-pills font-mono">
-            <button
-              class="filter-pill pill-created-toggle"
-              [class.active]="showCreated()"
-              (click)="showCreated.set(!showCreated())"
-            >
-              <i class="fi fi-rr-plus-circle"></i> Created ({{ monthCreatedCount() }})
-            </button>
-
-            <button
-              class="filter-pill pill-closed-toggle"
-              [class.active]="showClosed()"
-              (click)="showClosed.set(!showClosed())"
-            >
-              <i class="fi fi-rr-check-circle"></i> Closed ({{ monthClosedCount() }})
-            </button>
-
-            <button
-              class="filter-pill pill-due-toggle"
-              [class.active]="showDue()"
-              (click)="showDue.set(!showDue())"
-            >
-              <i class="fi fi-rr-clock"></i> Due ({{ monthDueCount() }})
-            </button>
-          </div>
-
-          <button
-            class="btn btn-secondary btn-sm"
-            [class.active]="showUnscheduledDrawer()"
-            (click)="showUnscheduledDrawer.set(!showUnscheduledDrawer())"
-            title="Toggle Unscheduled Tasks Scheduler Drawer"
-          >
-            <i class="fi fi-rr-time-fast"></i> Schedule ({{ unscheduledTasks().length }})
-          </button>
-
-          <button class="btn btn-primary btn-sm" (click)="workspaceService.openCreateTaskModal()">
-            <i class="fi fi-rr-plus"></i> New Task
-          </button>
         </div>
       </div>
 
@@ -204,7 +212,15 @@ export interface CalendarCellEvent {
 
         <!-- Unscheduled Tasks Scheduler Side Panel -->
         @if (showUnscheduledDrawer()) {
-          <div class="unscheduled-drawer paper-panel font-mono">
+          <div
+            class="drawer-backdrop"
+            [class.touch-dragging-active]="isTouchDraggingTask()"
+            (click)="showUnscheduledDrawer.set(false)"
+          ></div>
+          <div
+            class="unscheduled-drawer paper-panel font-mono"
+            [class.touch-dragging-active]="isTouchDraggingTask()"
+          >
             <div class="drawer-header">
               <h3><i class="fi fi-rr-time-fast text-amber"></i> Unscheduled Tasks ({{ filteredUnscheduledTasks().length }})</h3>
               <button class="btn btn-ghost btn-xs" (click)="showUnscheduledDrawer.set(false)">
@@ -248,7 +264,7 @@ export interface CalendarCellEvent {
               } @else {
                 @for (t of paginatedUnscheduledTasks(); track t.id) {
                   <div
-                    class="unscheduled-card"
+                    class="unscheduled-card paper-panel font-mono"
                     draggable="true"
                     (dragstart)="onDragStartTask($event, t)"
                     (touchstart)="onTouchStartTask($event, t)"
@@ -257,14 +273,36 @@ export interface CalendarCellEvent {
                     (touchcancel)="onTouchCancelTask()"
                     (click)="openDetail(t)"
                   >
-                    <div class="card-top-row">
-                      <i [class]="getTypeIcon(t.type)"></i>
-                      <span class="card-title">{{ t.title }}</span>
+                    <!-- Meta Row: Issue Type Icon, Task Key, Priority Badge, Status Badge -->
+                    <div class="card-meta-row font-mono">
+                      <div class="card-key-type">
+                        <i [class]="getTypeIcon(t.type)"></i>
+                        <span class="task-key-tag">{{ getTaskKeyStr(t) }}</span>
+                      </div>
+
+                      <div class="card-badges">
+                        <span class="priority-badge" [class]="(t.priority || 'medium').toLowerCase()">
+                          {{ t.priority || 'medium' }}
+                        </span>
+                        <span class="status-pill">{{ t.status }}</span>
+                      </div>
                     </div>
 
-                    <div class="card-bottom-row">
-                      <span class="card-sub">{{ t.priority }} • {{ t.status }}</span>
-                      <div class="card-date-action" (click)="$event.stopPropagation()">
+                    <!-- Main Body: Task Title -->
+                    <h4 class="card-title-text font-mono" [title]="t.title">
+                      {{ t.title }}
+                    </h4>
+
+                    <!-- Action Footer: Project Name Pill & Date Picker Button -->
+                    <div class="card-action-row font-mono" (click)="$event.stopPropagation()">
+                      @if (getProjectName(t.project_id); as projName) {
+                        <span class="card-project-pill font-mono">
+                          <i class="fi fi-rr-folder text-amber"></i> {{ projName }}
+                        </span>
+                      }
+
+                      <div class="date-picker-wrap font-mono">
+                        <span class="schedule-date-label">Due:</span>
                         <app-date-picker
                           [value]="t.due_date || ''"
                           [compact]="true"
@@ -309,6 +347,14 @@ export interface CalendarCellEvent {
           </div>
         }
       </div>
+
+      <!-- Touch Drag Cancel Bar (Visible during mobile touch drag) -->
+      @if (isTouchDraggingTask()) {
+        <div class="touch-cancel-dropzone font-mono" [class.hovering]="isOverCancelDropzone()">
+          <i class="fi fi-rr-cross-circle"></i>
+          <span>{{ isOverCancelDropzone() ? 'Release to Cancel Scheduling' : 'Drop here to Cancel' }}</span>
+        </div>
+      }
 
       <!-- Selected Day Detail Modal Card matching App Theme -->
       @if (selectedCell(); as sc) {
@@ -427,40 +473,54 @@ export interface CalendarCellEvent {
     }
 
     /* Header Strip */
-    .calendar-banner {
+    .view-header-strip {
       display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 0.75rem;
-      padding: 0.75rem 1.1rem;
+      flex-direction: column;
+      gap: 0.65rem;
+      padding: 0.75rem 1rem;
       background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-xs);
       width: 100%;
       box-sizing: border-box;
     }
-    .banner-left {
+    .view-header-top {
       display: flex;
+      justify-content: space-between;
       align-items: center;
       gap: 0.75rem;
-      flex-wrap: wrap;
+      width: 100%;
     }
-    .banner-left h2 {
+    .view-header-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .view-header-title {
       font-size: 1.1rem;
       font-weight: 700;
       letter-spacing: -0.02em;
+      margin: 0;
+    }
+    .header-action-group {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
     }
     .nav-btn-group {
       display: flex;
       align-items: center;
       gap: 0.25rem;
     }
-    .banner-right {
+    .view-header-toolbar {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
-      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 0.75rem;
+      width: 100%;
+    }
+    .drawer-backdrop {
+      display: none;
     }
 
     .filter-pills {
@@ -662,7 +722,7 @@ export interface CalendarCellEvent {
 
     /* Unscheduled Drawer Panel */
     .unscheduled-drawer {
-      width: 290px;
+      width: 320px;
       flex-shrink: 0;
       display: flex;
       flex-direction: column;
@@ -682,9 +742,11 @@ export interface CalendarCellEvent {
     }
     .drawer-header h3 {
       font-size: 0.85rem;
+      font-weight: 700;
       display: flex;
       align-items: center;
       gap: 0.45rem;
+      margin: 0;
     }
     .drawer-search-box {
       position: relative;
@@ -745,7 +807,7 @@ export interface CalendarCellEvent {
     .unscheduled-list {
       display: flex;
       flex-direction: column;
-      gap: 0.5rem;
+      gap: 0.65rem;
       max-height: 520px;
       overflow-y: auto;
       overflow-x: hidden;
@@ -762,19 +824,20 @@ export interface CalendarCellEvent {
       gap: 0.4rem;
     }
 
+    /* Unscheduled Task Card */
     .unscheduled-card {
       display: flex;
       flex-direction: column;
-      gap: 0.4rem;
-      padding: 0.55rem 0.65rem;
+      gap: 0.45rem;
+      padding: 0.65rem 0.75rem;
       background: var(--bg-surface-subtle);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-xs);
       cursor: grab;
       transition: var(--transition-fast);
       position: relative;
-      overflow-x: hidden;
       box-sizing: border-box;
+      width: 100%;
     }
     .unscheduled-card:hover {
       border-color: var(--border-medium);
@@ -782,39 +845,98 @@ export interface CalendarCellEvent {
     }
     .unscheduled-card:active { cursor: grabbing; }
 
-    .card-top-row {
+    .card-meta-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.4rem;
+      width: 100%;
+    }
+    .card-key-type {
       display: flex;
       align-items: center;
-      gap: 0.45rem;
-      width: 100%;
-      overflow: hidden;
+      gap: 0.35rem;
+      font-size: 0.725rem;
+      font-weight: 700;
     }
-    .card-title {
-      font-size: 0.775rem;
+    .task-key-tag {
+      color: var(--text-subtle);
+      font-size: 0.725rem;
+      font-weight: 700;
+    }
+    .card-badges {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .priority-badge {
+      font-size: 0.625rem;
+      padding: 0.08rem 0.35rem;
+      border-radius: var(--radius-xs);
+      font-weight: 700;
+      text-transform: uppercase;
+      border: 1px solid var(--border-subtle);
+    }
+    .priority-badge.urgent { background: #fee2e2; color: #dc2626; border-color: #fca5a5; }
+    .priority-badge.high { background: #fef3c7; color: #d97706; border-color: #fcd34d; }
+    .priority-badge.medium { background: #e0f2fe; color: #0284c7; border-color: #7dd3fc; }
+    .priority-badge.low { background: #f3f4f6; color: #4b5563; border-color: #d1d5db; }
+
+    .status-pill {
+      font-size: 0.625rem;
+      padding: 0.08rem 0.35rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xs);
+      color: var(--text-muted);
+      text-transform: capitalize;
+    }
+
+    .card-title-text {
+      font-size: 0.825rem;
       font-weight: 600;
       color: var(--text-main);
-      white-space: nowrap;
+      margin: 0;
+      line-height: 1.35;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
       overflow: hidden;
-      text-overflow: ellipsis;
-      flex: 1;
+      word-break: break-word;
     }
-    .card-bottom-row {
+
+    .card-action-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: 0.5rem;
       width: 100%;
+      margin-top: 0.15rem;
+      padding-top: 0.35rem;
+      border-top: 1px dashed var(--border-subtle);
     }
-    .card-sub {
-      font-size: 0.625rem;
+    .card-project-pill {
+      font-size: 0.675rem;
+      padding: 0.1rem 0.4rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xs);
       color: var(--text-muted);
-      text-transform: capitalize;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      max-width: 130px;
     }
-    .card-date-action {
-      min-width: 90px;
+    .date-picker-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin-left: auto;
+    }
+    .schedule-date-label {
+      font-size: 0.675rem;
+      color: var(--text-muted);
+      font-weight: 700;
     }
     .date-picker-inline {
       background: var(--bg-surface);
@@ -894,6 +1016,146 @@ export interface CalendarCellEvent {
       margin-top: 0.5rem;
       border-top: 1px solid var(--border-subtle);
     }
+
+    @media (max-width: 768px) {
+      .calendar-workspace {
+        padding: 0.5rem;
+        gap: 0.65rem;
+      }
+      .view-header-strip {
+        padding: 0.6rem 0.75rem;
+        gap: 0.5rem;
+      }
+      .view-header-top {
+        justify-content: space-between;
+      }
+      .view-header-title {
+        font-size: 0.925rem;
+      }
+      .header-action-group {
+        gap: 0.35rem;
+      }
+      .nav-btn-group .btn-xs {
+        padding: 0.2rem 0.35rem;
+        font-size: 0.7rem;
+      }
+      .schedule-toggle-btn {
+        padding: 0.2rem 0.45rem;
+        font-size: 0.725rem;
+      }
+      .view-header-toolbar {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        justify-content: flex-start;
+        padding-bottom: 0.2rem;
+        gap: 0.6rem;
+        -webkit-overflow-scrolling: touch;
+      }
+      .filter-pills {
+        flex-wrap: nowrap;
+        flex-shrink: 0;
+        gap: 0.3rem;
+      }
+      .filter-pill {
+        white-space: nowrap;
+        font-size: 0.675rem;
+        padding: 0.18rem 0.45rem;
+        flex-shrink: 0;
+      }
+      .week-start-toggle {
+        margin-left: 0;
+        flex-shrink: 0;
+      }
+      .week-start-btn {
+        padding: 0.15rem 0.35rem;
+        font-size: 0.625rem;
+      }
+      .calendar-body-layout {
+        position: relative;
+      }
+      .days-grid {
+        grid-auto-rows: 95px;
+      }
+      .day-cell {
+        height: 95px;
+        max-height: 95px;
+        padding: 0.25rem 0.3rem;
+      }
+      .cell-events {
+        max-height: 56px;
+      }
+      .event-pill {
+        font-size: 0.6rem;
+        padding: 0.1rem 0.3rem;
+      }
+
+      /* Hide/Collapse Drawer & Backdrop during touch drag on Mobile */
+      .unscheduled-drawer.touch-dragging-active,
+      .drawer-backdrop.touch-dragging-active {
+        opacity: 0 !important;
+        pointer-events: none !important;
+        visibility: hidden !important;
+      }
+
+      /* Mobile Slide-Up Bottom Sheet for Unscheduled Drawer */
+      .drawer-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(3px);
+        z-index: 1000;
+        animation: fadeIn 0.2s ease-out;
+      }
+      .unscheduled-drawer {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        width: 100%;
+        max-height: 75vh;
+        z-index: 1001;
+        border-radius: var(--radius-md) var(--radius-md) 0 0;
+        border: 1px solid var(--border-medium);
+        border-bottom: none;
+        box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.4);
+        animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      @keyframes slideUp {
+        from { transform: translateY(100%); }
+        to { transform: translateY(0); }
+      }
+    }
+
+    /* Mobile Touch Drag Cancel Dropzone Bar */
+    .touch-cancel-dropzone {
+      position: fixed;
+      bottom: 1.25rem;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 100000;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.65rem 1.35rem;
+      background: rgba(225, 29, 72, 0.95);
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      border-radius: 24px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(8px);
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      cursor: pointer;
+      user-select: none;
+    }
+    .touch-cancel-dropzone.hovering {
+      background: #be123c;
+      transform: translateX(-50%) scale(1.08);
+      box-shadow: 0 12px 36px rgba(190, 18, 60, 0.6);
+      border-color: #ffffff;
+    }
   `]
 })
 export class CalendarComponent implements OnInit, OnDestroy {
@@ -911,6 +1173,8 @@ export class CalendarComponent implements OnInit, OnDestroy {
 
   draggedTaskId = signal<string | null>(null);
   dragOverDate = signal<string | null>(null);
+  isTouchDraggingTask = signal<boolean>(false);
+  isOverCancelDropzone = signal<boolean>(false);
 
   weekStart = signal<WeekStartDay>('sunday');
 
@@ -966,9 +1230,15 @@ export class CalendarComponent implements OnInit, OnDestroy {
     return list.filter(t => t.project_id === activeProjId);
   });
 
-  // Tasks that do NOT have a due_date set
+  // Tasks that do NOT have a due_date set and are NOT completed / done
   unscheduledTasks = computed(() => {
-    return this.tasks().filter(t => !t.due_date);
+    return this.tasks().filter(t => {
+      if (t.due_date) return false;
+      if (t.completed) return false;
+      const status = (t.status || '').toLowerCase();
+      if (status === 'done' || status === 'closed' || status === 'completed') return false;
+      return true;
+    });
   });
 
   unscheduledSearchQuery = signal<string>('');
@@ -1218,26 +1488,28 @@ export class CalendarComponent implements OnInit, OnDestroy {
   onTouchStartTask(e: TouchEvent, task: Task) {
     if (!e.touches || e.touches.length === 0) return;
     const touch = e.touches[0];
-    this.draggedTaskId.set(task.id);
+    this.draggedTaskId?.set?.(task.id);
+    this.isTouchDraggingTask?.set?.(true);
+    this.isOverCancelDropzone?.set?.(false);
 
     // Create a floating visual ghost for touch feedback
     this.cleanupTouchGhost();
     const ghost = document.createElement('div');
     ghost.className = 'touch-drag-ghost font-mono';
-    ghost.innerText = `📅 ${task.title}`;
+    ghost.innerHTML = `<i class="fi fi-rr-calendar" style="margin-right:0.35rem; font-size:0.85rem;"></i> ${task.title}`;
     ghost.style.position = 'fixed';
     ghost.style.left = `${touch.clientX - 40}px`;
     ghost.style.top = `${touch.clientY - 20}px`;
-    ghost.style.zIndex = '99999';
+    ghost.style.zIndex = '999999';
     ghost.style.pointerEvents = 'none';
-    ghost.style.padding = '0.4rem 0.75rem';
+    ghost.style.padding = '0.45rem 0.85rem';
     ghost.style.background = 'var(--accent-purple)';
     ghost.style.color = '#ffffff';
     ghost.style.borderRadius = 'var(--radius-xs)';
-    ghost.style.boxShadow = '0 8px 24px rgba(0,0,0,0.35)';
-    ghost.style.fontSize = '0.75rem';
+    ghost.style.boxShadow = '0 8px 24px rgba(0,0,0,0.4)';
+    ghost.style.fontSize = '0.775rem';
     ghost.style.fontWeight = '700';
-    ghost.style.border = '1px solid rgba(255,255,255,0.3)';
+    ghost.style.border = '1px solid rgba(255,255,255,0.4)';
 
     document.body.appendChild(ghost);
     this.touchGhostEl = ghost;
@@ -1249,42 +1521,64 @@ export class CalendarComponent implements OnInit, OnDestroy {
     this.touchGhostEl.style.left = `${touch.clientX - 40}px`;
     this.touchGhostEl.style.top = `${touch.clientY - 20}px`;
 
-    // Identify target day cell under touch pointer
+    // Identify target element under touch pointer
     if (typeof document !== 'undefined') {
       const targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
       if (targetEl) {
+        // Check if over cancel dropzone bar
+        if (targetEl.closest('.touch-cancel-dropzone')) {
+          if (!this.isOverCancelDropzone?.()) {
+            this.isOverCancelDropzone?.set?.(true);
+          }
+          if (this.dragOverDate?.() !== null) {
+            this.dragOverDate?.set?.(null);
+          }
+          return;
+        }
+
+        if (this.isOverCancelDropzone?.()) {
+          this.isOverCancelDropzone?.set?.(false);
+        }
+
+        // Check if over a calendar day cell
         const dayCell = targetEl.closest('.day-cell') as HTMLElement;
         if (dayCell && dayCell.dataset['date']) {
           const dateStr = dayCell.dataset['date'];
-          if (this.dragOverDate() !== dateStr) {
-            this.dragOverDate.set(dateStr);
+          if (this.dragOverDate?.() !== dateStr) {
+            this.dragOverDate?.set?.(dateStr);
           }
           return;
         }
       }
     }
-    if (this.dragOverDate() !== null) {
-      this.dragOverDate.set(null);
+
+    if (this.dragOverDate?.() !== null) {
+      this.dragOverDate?.set?.(null);
     }
   }
 
   async onTouchEndTask(e: TouchEvent) {
-    const taskId = this.draggedTaskId();
-    const dateStr = this.dragOverDate();
+    const taskId = this.draggedTaskId ? this.draggedTaskId() : null;
+    const dateStr = this.dragOverDate ? this.dragOverDate() : null;
+    const isCancelled = this.isOverCancelDropzone ? this.isOverCancelDropzone() : false;
 
     this.cleanupTouchGhost();
-    this.dragOverDate.set(null);
-    this.draggedTaskId.set(null);
+    this.dragOverDate?.set?.(null);
+    this.draggedTaskId?.set?.(null);
+    this.isTouchDraggingTask?.set?.(false);
+    this.isOverCancelDropzone?.set?.(false);
 
-    if (taskId && dateStr) {
+    if (taskId && dateStr && !isCancelled) {
       await this.taskService.updateTask(taskId, { due_date: dateStr });
     }
   }
 
   onTouchCancelTask() {
     this.cleanupTouchGhost();
-    this.dragOverDate.set(null);
-    this.draggedTaskId.set(null);
+    this.dragOverDate?.set?.(null);
+    this.draggedTaskId?.set?.(null);
+    this.isTouchDraggingTask?.set?.(false);
+    this.isOverCancelDropzone?.set?.(false);
   }
 
   private cleanupTouchGhost() {
@@ -1315,6 +1609,16 @@ export class CalendarComponent implements OnInit, OnDestroy {
     this.selectedCell.set(null);
     this.presetDueDate.set(dateStr);
     this.showCreateModal.set(true);
+  }
+
+  getTaskKeyStr(t: Task): string {
+    return getTaskKey(t, this.projectService.projects());
+  }
+
+  getProjectName(projectId?: string): string {
+    if (!projectId) return '';
+    const proj = this.projectService.projects().find(p => p.id === projectId);
+    return proj ? proj.name : '';
   }
 
   getTypeIcon(type: string): string {
