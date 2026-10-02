@@ -183,7 +183,7 @@ import { LazyImageDirective } from '../directives/lazy-image.directive';
                       type="text"
                       class="form-input inline-labels-input font-mono"
                       [(ngModel)]="labelsInputText"
-                      placeholder="Comma-separated labels, e.g. frontend, angular, bug"
+                      placeholder="Comma-separated labels, e.g. frontend, backend, bug"
                       (keydown.enter)="saveLabels()"
                       (keydown.escape)="cancelLabelsEdit()"
                       (blur)="saveLabels()"

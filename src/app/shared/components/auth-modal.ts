@@ -37,7 +37,7 @@ import { registerModal, unregisterModal, isTopModal, getModalZIndex } from '../.
         @if (!authService.isSupabaseConfigured) {
           <div class="auth-alert error-alert font-mono">
             <i class="fi fi-rr-exclamation text-rose"></i>
-            <span>Supabase credentials missing or unconfigured. Running in local storage mode; cloud sync is disabled.</span>
+            <span>Cloud database unconfigured. Running in local storage mode; cloud sync is disabled.</span>
           </div>
         }
 
@@ -126,7 +126,7 @@ import { registerModal, unregisterModal, isTopModal, getModalZIndex } from '../.
         <div class="auth-footer font-mono">
           <p class="auth-note">
             <i class="fi fi-rr-lock text-amber"></i>
-            Row Level Security (RLS) ensures only authenticated project members can access workspace data.
+            Isolated workspace security policies ensure only authenticated project members can access workspace data.
           </p>
         </div>
       </div>

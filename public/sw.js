@@ -3,7 +3,7 @@
    Provides App Shell Cache & Network-First / Stale-While-Revalidate Caching
    ========================================================================== */
 
-const CACHE_NAME = 'bilo-pwa-v1.1.2';
+const CACHE_NAME = 'bilo-pwa-v1.2.0';
 
 const STATIC_ASSETS = [
   '/',

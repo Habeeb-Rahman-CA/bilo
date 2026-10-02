@@ -31,6 +31,7 @@ import { JoinWorkspaceModalComponent } from './shared/components/join-workspace-
 import { ReportIssueModalComponent } from './shared/components/report-issue-modal';
 import { EditProfileModalComponent } from './shared/components/edit-profile-modal';
 import { AuthPageComponent } from './features/auth/auth-page';
+import { LandingPageComponent } from './features/landing/landing-page';
 import { TaskService } from './core/services/task.service';
 import { Task, ProjectRole, Project } from './core/models/project.model';
 import { verifySecureInviteToken, VerifiedInvitePayload } from './core/utils/invite-token.util';
@@ -64,13 +65,14 @@ import { ProgressOverlayComponent } from './shared/components/progress-overlay';
     AuthModalComponent,
     ProjectAccessModalComponent,
     EditProfileModalComponent,
-    AuthPageComponent
+    AuthPageComponent,
+    LandingPageComponent
   ],
   templateUrl: './app.html',
   styleUrl: './app.css'
 })
 export class App implements OnInit {
-  readonly appVersion = 'v1.1.1';
+  readonly appVersion = 'v1.2.0';
   sidebarCollapsed = signal<boolean>(false);
   mobileMenuOpen = signal<boolean>(false);
   editingSharedTask = signal<Task | null>(null);
@@ -83,6 +85,7 @@ export class App implements OnInit {
   notificationsExpanded = signal<boolean>(false);
   mobileMoreMenuOpen = signal<boolean>(false);
   retryingConnection = signal<boolean>(false);
+  showAuthPage = signal<boolean>(false);
 
   private userMenuPopoverInstance: ClosablePopover = {
     closePopover: () => this.closeUserMenu()

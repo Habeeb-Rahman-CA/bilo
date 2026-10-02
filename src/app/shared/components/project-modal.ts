@@ -120,7 +120,7 @@ import { registerModal, unregisterModal, isTopModal } from '../../core/utils/mod
                 class="form-input"
                 [(ngModel)]="labelsInput"
                 name="labelsInput"
-                placeholder="e.g. frontend, angular, rust, pwa"
+                placeholder="e.g. frontend, backend, mobile, pwa"
               />
             </div>
 
@@ -161,7 +161,7 @@ import { registerModal, unregisterModal, isTopModal } from '../../core/utils/mod
                     class="btn btn-secondary btn-xs"
                     (click)="fileInput.click()"
                     [disabled]="uploadingImage"
-                    title="Upload project image to Supabase Storage"
+                    title="Upload project image"
                   >
                     @if (uploadingImage) {
                       <i class="fi fi-rr-spinner spinner font-mono"></i> Uploading...

@@ -43,7 +43,7 @@
         </button>
       }
       @if (!supabaseService.isConfigured) {
-        <span class="badge-mono badge-rose offline-header-badge" title="Supabase credentials missing or unconfigured - Operating in local storage mode only. Data will not persist to cloud DB." role="alert">
+        <span class="badge-mono badge-rose offline-header-badge" title="Cloud database unconfigured - Operating in local storage mode only. Data will not persist to cloud DB." role="alert">
           <i class="fi fi-rr-exclamation"></i> <span class="offline-text">LOCAL ONLY (NO CLOUD DB)</span>
         </span>
       } @else if (syncService.connectionStatus() === 'offline' || !syncService.isOnline()) {
@@ -520,6 +520,14 @@
   <app-progress-overlay />
 </div>
 } @else {
-  <!-- Dedicated Sign In / Sign Up Landing Page -->
-  <app-auth-page (authenticated)="selectWorkspace('01 TODAY')" />
+  @if (showAuthPage()) {
+    <!-- Dedicated Sign In / Sign Up Auth Page -->
+    <app-auth-page
+      (authenticated)="selectWorkspace('01 TODAY')"
+      (backToLanding)="showAuthPage.set(false)"
+    />
+  } @else {
+    <!-- Public Minimalist Landing Page -->
+    <app-landing-page (getStarted)="showAuthPage.set(true)" />
+  }
 }

@@ -16,14 +16,25 @@ import { formatAuthError } from '../../core/utils/auth-error.util';
       <!-- Theme Switcher Top Header Bar -->
       <header class="auth-page-header">
         <app-bilo-logo size="md" [showText]="true"></app-bilo-logo>
-        <button
-          class="btn btn-ghost btn-sm theme-toggle-btn"
-          (click)="themeService.toggleTheme()"
-          [title]="themeService.isDarkMode() ? 'Switch to Light Theme' : 'Switch to Dark Theme'"
-        >
-          <i [class]="themeService.isDarkMode() ? 'fi fi-rr-sun' : 'fi fi-rr-moon-stars'"></i>
-          <span class="font-mono text-xs">{{ themeService.isDarkMode() ? 'Light Mode' : 'Dark Mode' }}</span>
-        </button>
+        <div class="auth-header-actions">
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm font-mono"
+            (click)="backToLanding.emit()"
+            title="Back to Landing Page"
+          >
+            <i class="fi fi-rr-arrow-left"></i> Home
+          </button>
+
+          <button
+            class="btn btn-ghost btn-sm theme-toggle-btn"
+            (click)="themeService.toggleTheme()"
+            [title]="themeService.isDarkMode() ? 'Switch to Light Theme' : 'Switch to Dark Theme'"
+          >
+            <i [class]="themeService.isDarkMode() ? 'fi fi-rr-sun' : 'fi fi-rr-moon-stars'"></i>
+            <span class="font-mono text-xs">{{ themeService.isDarkMode() ? 'Light Mode' : 'Dark Mode' }}</span>
+          </button>
+        </div>
       </header>
 
       <!-- Main Split Auth Box -->
@@ -32,7 +43,7 @@ import { formatAuthError } from '../../core/utils/auth-error.util';
           <!-- Left Feature Showcase Banner (Desktop) -->
           <div class="auth-hero-banner font-mono">
             <div class="hero-content">
-              <span class="hero-badge"><i class="fi fi-rr-shield-check"></i> RLS ISOLATED WORKSPACE</span>
+              <span class="hero-badge"><i class="fi fi-rr-shield-check"></i> CLOUD SECURE WORKSPACE</span>
               <h1 class="hero-title">Developer Project & Kanban Hub</h1>
               <p class="hero-desc">
                 Minimalist personal workspace with backlog, custom workflows, offline PWA sync, and row-level security.
@@ -49,7 +60,7 @@ import { formatAuthError } from '../../core/utils/auth-error.util';
                 </div>
                 <div class="feature-item">
                   <i class="fi fi-rr-check-circle text-amber"></i>
-                  <span>Supabase Authentication & Row Level Security</span>
+                  <span>Secure Multi-Tenant Auth & Isolated Workspace Data</span>
                 </div>
               </div>
             </div>
@@ -87,7 +98,7 @@ import { formatAuthError } from '../../core/utils/auth-error.util';
             @if (!authService.isSupabaseConfigured) {
               <div class="auth-alert error-alert font-mono">
                 <i class="fi fi-rr-exclamation text-rose"></i>
-                <span>Supabase credentials missing or unconfigured. Running in local storage mode; cloud sync is disabled.</span>
+                <span>Cloud database unconfigured. Running in local storage mode; cloud sync is disabled.</span>
               </div>
             }
 
@@ -216,7 +227,7 @@ import { formatAuthError } from '../../core/utils/auth-error.util';
       </main>
 
       <footer class="auth-page-footer font-mono">
-        <span>bilo Developer Workspace • Built with Supabase RLS & Angular</span>
+        <span>bilo Developer Workspace • High Performance Local & Cloud Sync</span>
       </footer>
     </div>
   `,
@@ -237,6 +248,11 @@ import { formatAuthError } from '../../core/utils/auth-error.util';
       padding: 1rem 1.5rem;
       border-bottom: 1px solid var(--border-subtle);
       background: var(--bg-surface);
+    }
+    .auth-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
     }
 
     .auth-card-wrapper {
@@ -534,6 +550,7 @@ import { formatAuthError } from '../../core/utils/auth-error.util';
 export class AuthPageComponent implements OnDestroy {
   @Input() initialMode: 'login' | 'signup' = 'login';
   @Output() authenticated = new EventEmitter<void>();
+  @Output() backToLanding = new EventEmitter<void>();
 
   mode = signal<'login' | 'signup'>(this.initialMode);
   email = '';
