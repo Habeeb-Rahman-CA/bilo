@@ -295,7 +295,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                           {{ t.priority || 'medium' }}
                         </span>
                       </div>
-                      <div class="drag-grip-wrap" cdkDragHandle (click)="$event.stopPropagation()" title="Drag to move task card">
+                      <div class="drag-grip-wrap" title="Hold and drag card to move">
                         <i class="fi fi-rr-grip-dots-vertical drag-grip"></i>
                       </div>
                     </div>

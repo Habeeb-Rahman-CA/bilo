@@ -109,7 +109,7 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
           </div>
         </div>
 
-      <!-- ROW 2: Status Overview (Pie/Donut Chart) + Recent Activity (Latest 5) -->
+      <!-- ROW 2: Status Overview (Donut Chart) + Recent Activity (2-Column Grid) -->
       <div class="dashboard-grid-2col">
         <!-- Card 1: Status Overview (Pie/Donut Chart) -->
         <div class="paper-panel grid-card">
@@ -174,10 +174,10 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
                     <i class="fi fi-rr-sparkles text-cyan"></i>
                   </div>
                   <h4 class="empty-state-title">All Clear for Today!</h4>
-                  <p class="empty-state-subtitle">No tasks scheduled or recorded for today. Take a break or create a new task to stay ahead of your pipeline.</p>
+                  <p class="empty-state-subtitle">No tasks scheduled or recorded for today.</p>
                   <div class="empty-state-actions">
                     <button type="button" class="btn btn-primary btn-xs" (click)="showNewTaskModal.set(true)">
-                      <i class="fi fi-rr-plus"></i> Create New Task
+                      <i class="fi fi-rr-plus"></i> Create Task
                     </button>
                   </div>
                 </div>
@@ -247,9 +247,118 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
         </div>
       </div>
 
-      <!-- ROW 3: Priority Breakdown (Vertical Bars) + Types of Work (Horizontal Bars) -->
-      <div class="dashboard-grid-2col">
-        <!-- Card 1: Priority Breakdown (Vertical Bars) -->
+      <!-- ROW 3: 3-COLUMN GRID (Velocity Trend + Priority Breakdown + Types of Work) -->
+      <div class="dashboard-grid-3col">
+        <!-- Card 1: 7-Day Velocity & Productivity Trend Chart -->
+        <div class="paper-panel grid-card velocity-card">
+          <div class="card-header">
+            <div class="header-left">
+              <h3><i class="fi fi-rr-chart-histogram text-emerald"></i> 7-Day Velocity</h3>
+            </div>
+            <span class="badge-mono font-mono" [ngClass]="{
+              'badge-emerald': velocityData().rateNum >= 80,
+              'badge-cyan': velocityData().rateNum >= 50 && velocityData().rateNum < 80,
+              'badge-amber': velocityData().rateNum < 50
+            }">
+              {{ velocityData().velocityRateStr }} VELOCITY
+            </span>
+          </div>
+
+          <div class="card-body">
+            @if (isLoading()) {
+              <div class="skeleton-bars font-mono">
+                <div class="skeleton-bar-col"></div>
+                <div class="skeleton-bar-col"></div>
+                <div class="skeleton-bar-col"></div>
+              </div>
+            } @else {
+              <!-- Metrics Strip -->
+              <div class="velocity-metrics-strip font-mono">
+                <div class="v-metric-item">
+                  <span class="v-metric-num" [ngClass]="{
+                    'text-emerald': velocityData().rateNum >= 80,
+                    'text-cyan': velocityData().rateNum >= 50 && velocityData().rateNum < 80,
+                    'text-amber': velocityData().rateNum < 50
+                  }">{{ velocityData().velocityRateStr }}</span>
+                  <span class="v-metric-label">Velocity</span>
+                </div>
+                <div class="v-metric-item">
+                  <span class="v-metric-num text-emerald">{{ velocityData().totalCompleted }}</span>
+                  <span class="v-metric-label">Completed</span>
+                </div>
+                <div class="v-metric-item">
+                  <span class="v-metric-num text-amber">{{ velocityData().totalCreated }}</span>
+                  <span class="v-metric-label">Created</span>
+                </div>
+                <div class="v-metric-item">
+                  <span class="v-metric-num text-cyan">{{ velocityData().peakDayLabel }}</span>
+                  <span class="v-metric-label">Peak Day</span>
+                </div>
+              </div>
+
+              <!-- SVG Area & Line Chart -->
+              <div class="velocity-chart-wrapper">
+                <svg viewBox="0 0 500 160" class="velocity-svg">
+                  <defs>
+                    <linearGradient id="velocity-grad-completed" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stop-color="#10b981" stop-opacity="0.35" />
+                      <stop offset="100%" stop-color="#10b981" stop-opacity="0.0" />
+                    </linearGradient>
+                    <linearGradient id="velocity-grad-created" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.25" />
+                      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0.0" />
+                    </linearGradient>
+                  </defs>
+
+                  <!-- Horizontal Grid Lines -->
+                  <line x1="30" y1="35" x2="470" y2="35" stroke="var(--border-subtle)" stroke-dasharray="3,3" stroke-width="1" />
+                  <line x1="30" y1="82" x2="470" y2="82" stroke="var(--border-subtle)" stroke-dasharray="3,3" stroke-width="1" />
+                  <line x1="30" y1="130" x2="470" y2="130" stroke="var(--border-subtle)" stroke-width="1" />
+
+                  <!-- Created Area & Polyline (Amber) -->
+                  <path [attr.d]="velocityData().areaCreated" fill="url(#velocity-grad-created)" />
+                  <polyline [attr.points]="velocityData().polylineCreated" fill="none" stroke="#f59e0b" stroke-width="2" stroke-dasharray="4,2" />
+
+                  <!-- Completed Area & Polyline (Emerald) -->
+                  <path [attr.d]="velocityData().areaCompleted" fill="url(#velocity-grad-completed)" />
+                  <polyline [attr.points]="velocityData().polylineCompleted" fill="none" stroke="#10b981" stroke-width="2.5" />
+
+                  <!-- Points & Day Labels -->
+                  @for (d of velocityData().days; track d.dayLabel) {
+                    <!-- Created Node (Amber Circle) -->
+                    <circle [attr.cx]="d.x" [attr.cy]="d.yCreated" r="3.5" fill="#f59e0b" stroke="var(--bg-surface)" stroke-width="1.5">
+                      <title>{{ d.dayLabel }} ({{ d.dateLabel }}): {{ d.created }} Created</title>
+                    </circle>
+
+                    <!-- Completed Node (Emerald Circle) -->
+                    <circle [attr.cx]="d.x" [attr.cy]="d.yCompleted" r="4.5" fill="#10b981" stroke="var(--bg-surface)" stroke-width="2">
+                      <title>{{ d.dayLabel }} ({{ d.dateLabel }}): {{ d.completed }} Completed</title>
+                    </circle>
+
+                    <!-- Day Label Text -->
+                    <text [attr.x]="d.x" y="152" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--text-muted)">
+                      {{ d.dayLabel }}
+                    </text>
+                  }
+                </svg>
+
+                <!-- Legend Strip -->
+                <div class="velocity-legend font-mono">
+                  <div class="legend-item-inline">
+                    <span class="dot-emerald"></span>
+                    <span>Done</span>
+                  </div>
+                  <div class="legend-item-inline">
+                    <span class="dot-amber"></span>
+                    <span>Created</span>
+                  </div>
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+
+        <!-- Card 2: Priority Breakdown (Vertical Bars) -->
         <div class="paper-panel grid-card">
           <div class="card-header">
             <h3><i class="fi fi-rr-stats text-rose"></i> Priority Breakdown</h3>
@@ -288,7 +397,7 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
           </div>
         </div>
 
-        <!-- Card 2: Types of Work (Horizontal Bars) -->
+        <!-- Card 3: Types of Work (Horizontal Bars) -->
         <div class="paper-panel grid-card">
           <div class="card-header">
             <h3><i class="fi fi-rr-box text-purple"></i> Types of Work</h3>
@@ -331,6 +440,38 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
           </div>
         </div>
       </div>
+
+      <!-- ROW 4: Workspace Health & Top Focus Target Strip -->
+      <div class="paper-panel focus-health-strip font-mono">
+        <div class="fh-left">
+          <span class="fh-title">
+            <i class="fi fi-rr-target text-emerald"></i>
+            PIPELINE HEALTH
+          </span>
+          <span class="fh-subtitle">
+            {{ completed7dCount() }}/{{ totalTaskCount() }} Done ({{ pipelineHealthPercent() }}%)
+          </span>
+        </div>
+
+        <div class="fh-progress-track" title="Workspace pipeline completion progress">
+          <div class="fh-progress-fill" [style.width]="pipelineHealthPercent() + '%'"></div>
+        </div>
+
+        <div class="fh-right">
+          @if (topFocusTask(); as focus) {
+            <div class="focus-pill" (click)="activeDetailTask.set(focus)" title="Top priority focus item — click to inspect details">
+              <span class="badge-mono badge-amber">TOP FOCUS</span>
+              <span class="focus-task-title">{{ focus.title }}</span>
+              <i class="fi fi-rr-arrow-right text-subtle"></i>
+            </div>
+          } @else {
+            <div class="focus-all-clear">
+              <i class="fi fi-rr-check-circle text-emerald"></i>
+              <span>All Priority Items Done</span>
+            </div>
+          }
+        </div>
+      </div>
     }
 
       <!-- Task Modals -->
@@ -357,44 +498,50 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
     .today-workspace {
       display: flex;
       flex-direction: column;
-      gap: 1rem;
-      padding: 1rem;
+      gap: 0.65rem;
+      padding: 0.65rem;
       width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+      overflow: hidden;
+      justify-content: space-between;
+    }
+    @media (max-width: 900px) {
+      .today-workspace {
+        height: auto;
+        min-height: 100%;
+        overflow-y: auto;
+      }
     }
 
     /* Top Banner Strip */
-    .today-banner {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 0.75rem 1.1rem;
-      background: var(--bg-surface);
-    }
-    .banner-left {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-    }
-    .banner-date {
-      font-size: 0.85rem;
-      color: var(--text-muted);
-    }
-    .banner-right {
-      display: flex;
-      align-items: center;
+    .view-header-strip {
+      padding: 0.4rem 0.85rem;
+      flex-shrink: 0;
     }
 
     /* Row 1: 4 Stat Cards Grid */
     .stats-row {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 1rem;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.65rem;
+      flex-shrink: 0;
+    }
+    @media (max-width: 900px) {
+      .stats-row {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+    @media (max-width: 500px) {
+      .stats-row {
+        grid-template-columns: 1fr;
+      }
     }
     .stat-card {
-      padding: 0.85rem 1.1rem;
+      padding: 0.55rem 0.85rem;
       display: flex;
       flex-direction: column;
-      gap: 0.35rem;
+      gap: 0.2rem;
     }
     .stat-top {
       display: flex;
@@ -402,55 +549,82 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
       align-items: center;
     }
     .stat-label {
-      font-size: 0.675rem;
+      font-size: 0.65rem;
       color: var(--text-muted);
       font-weight: 700;
       letter-spacing: 0.05em;
     }
     .stat-icon {
-      font-size: 1rem;
+      font-size: 0.9rem;
     }
     .stat-value {
-      font-size: 1.6rem;
+      font-size: 1.35rem;
       font-weight: 700;
       color: var(--text-main);
       line-height: 1.1;
     }
     .stat-sub {
-      font-size: 0.725rem;
+      font-size: 0.675rem;
       color: var(--text-muted);
     }
 
-    /* Row 2 & 3: 2-Column Grid */
+    /* Row 2: 2-Column Grid (Donut & Activity) */
     .dashboard-grid-2col {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 1rem;
+      gap: 0.65rem;
+      flex: 1.05;
+      min-height: 0;
     }
     @media (max-width: 900px) {
       .dashboard-grid-2col {
         grid-template-columns: 1fr;
+        flex: none;
+      }
+    }
+
+    /* Row 3: 3-Column Grid (Velocity, Priority, Types) */
+    .dashboard-grid-3col {
+      display: grid;
+      grid-template-columns: 1.25fr 0.875fr 0.875fr;
+      gap: 0.65rem;
+      flex: 1.15;
+      min-height: 0;
+    }
+    @media (max-width: 1150px) {
+      .dashboard-grid-3col {
+        grid-template-columns: 1fr 1fr 1fr;
+      }
+    }
+    @media (max-width: 900px) {
+      .dashboard-grid-3col {
+        grid-template-columns: 1fr;
+        flex: none;
       }
     }
 
     .grid-card {
-      padding: 0.85rem 1.1rem;
+      padding: 0.65rem 0.85rem;
       display: flex;
       flex-direction: column;
-      gap: 0.75rem;
+      gap: 0.45rem;
+      height: 100%;
+      box-sizing: border-box;
+      overflow: hidden;
     }
     .card-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding-bottom: 0.45rem;
+      padding-bottom: 0.35rem;
       border-bottom: 1px solid var(--border-subtle);
+      flex-shrink: 0;
     }
     .card-header h3 {
-      font-size: 0.9rem;
+      font-size: 0.85rem;
       display: flex;
       align-items: center;
-      gap: 0.45rem;
+      gap: 0.4rem;
     }
     .card-header-actions {
       display: flex;
@@ -462,19 +636,21 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
     }
     .card-body {
       flex: 1;
+      min-height: 0;
+      overflow: hidden;
       display: flex;
       flex-direction: column;
       justify-content: center;
     }
     .empty-chart {
-      padding: 2.5rem 1rem;
+      padding: 1.5rem 0.5rem;
       text-align: center;
       color: var(--text-muted);
-      font-size: 0.8rem;
+      font-size: 0.75rem;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 0.4rem;
+      gap: 0.3rem;
     }
 
     /* Donut/Pie Chart */
@@ -483,16 +659,16 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
       flex-direction: row;
       align-items: center;
       justify-content: space-around;
-      gap: 1.5rem;
-      padding: 0.5rem 0;
+      gap: 1rem;
+      padding: 0.25rem 0;
     }
     @media (max-width: 500px) {
       .donut-body { flex-direction: column; }
     }
     .donut-chart-container {
       position: relative;
-      width: 130px;
-      height: 130px;
+      width: 105px;
+      height: 105px;
       flex-shrink: 0;
     }
     .donut-svg {
@@ -511,13 +687,13 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
       pointer-events: none;
     }
     .center-num {
-      font-size: 1.3rem;
+      font-size: 1.15rem;
       font-weight: 700;
       color: var(--text-main);
       line-height: 1;
     }
     .center-lbl {
-      font-size: 0.625rem;
+      font-size: 0.575rem;
       color: var(--text-muted);
       letter-spacing: 0.05em;
     }
@@ -525,8 +701,9 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
     .legend-list {
       display: flex;
       flex-direction: column;
-      gap: 0.4rem;
+      gap: 0.3rem;
       flex: 1;
+      overflow-y: auto;
     }
     .empty-legend {
       flex: 1;
@@ -557,8 +734,8 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
       display: flex;
       justify-content: space-between;
       align-items: center;
-      font-size: 0.775rem;
-      padding: 0.25rem 0.45rem;
+      font-size: 0.725rem;
+      padding: 0.2rem 0.4rem;
       background: var(--bg-surface-subtle);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-xs);
@@ -566,32 +743,34 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
     .legend-left {
       display: flex;
       align-items: center;
-      gap: 0.45rem;
+      gap: 0.35rem;
     }
     .legend-name { color: var(--text-main); }
     .legend-right {
       display: flex;
-      gap: 0.35rem;
+      gap: 0.25rem;
     }
     .legend-cnt { font-weight: 700; }
-    .legend-pct { color: var(--text-muted); font-size: 0.7rem; }
+    .legend-pct { color: var(--text-muted); font-size: 0.65rem; }
 
     /* Timeline Recent Activity */
     .timeline-list {
       display: flex;
       flex-direction: column;
-      gap: 0.65rem;
-      padding: 0.25rem 0;
+      gap: 0.45rem;
+      padding: 0.15rem 0;
+      flex: 1;
+      overflow-y: auto;
     }
     .timeline-item {
       display: flex;
       align-items: flex-start;
-      gap: 0.55rem;
-      font-size: 0.775rem;
+      gap: 0.45rem;
+      font-size: 0.725rem;
     }
     .timeline-dot {
-      width: 6px;
-      height: 6px;
+      width: 5px;
+      height: 5px;
       border-radius: 50%;
       background: var(--accent-amber);
       margin-top: 5px;
@@ -603,10 +782,10 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
     }
     .act-text {
       color: var(--text-main);
-      line-height: 1.3;
+      line-height: 1.25;
     }
     .act-time {
-      font-size: 0.675rem;
+      font-size: 0.625rem;
       color: var(--text-muted);
     }
     .activity-footer {
@@ -614,8 +793,8 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
       justify-content: center;
       align-items: center;
       gap: 0.5rem;
-      margin-top: 0.75rem;
-      padding-top: 0.5rem;
+      margin-top: 0.5rem;
+      padding-top: 0.35rem;
       border-top: 1px dashed var(--border-subtle);
     }
     .activity-footer-btn {
@@ -624,7 +803,7 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-xs);
       font-size: 0.725rem;
-      padding: 0.25rem 0.6rem;
+      padding: 0.2rem 0.5rem;
       cursor: pointer;
       display: flex;
       align-items: center;
@@ -636,33 +815,115 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
       border-color: var(--border-main);
     }
 
+    /* 7-Day Velocity & Productivity Trend Chart Styles */
+    .velocity-card {
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .velocity-metrics-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.4rem;
+      padding: 0.45rem 0.65rem;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xs);
+      margin-bottom: 0.45rem;
+      flex-shrink: 0;
+    }
+    .v-metric-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.1rem;
+    }
+    .v-metric-num {
+      font-size: 0.95rem;
+      font-weight: 700;
+    }
+    .v-metric-label {
+      font-size: 0.575rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .velocity-chart-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+      flex: 1;
+      min-height: 0;
+      justify-content: space-between;
+    }
+    .velocity-svg {
+      width: 100%;
+      height: 105px;
+      flex: 1;
+      min-height: 0;
+    }
+    .velocity-legend {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.85rem;
+      margin-top: 0.25rem;
+      font-size: 0.675rem;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+    .legend-item-inline {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .dot-emerald {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent-emerald, #10b981);
+      display: inline-block;
+    }
+    .dot-amber {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent-amber, #f59e0b);
+      display: inline-block;
+    }
+
     /* Vertical Bars Priority Breakdown */
     .vbars-body {
-      padding: 1rem 0 0.5rem 0;
+      padding: 0.25rem 0;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
     }
     .vbars-container {
       display: flex;
       justify-content: space-around;
       align-items: flex-end;
-      height: 140px;
-      padding-top: 1rem;
+      flex: 1;
+      height: 100%;
+      padding-top: 0.35rem;
     }
     .vbar-col {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 0.35rem;
+      gap: 0.25rem;
       height: 100%;
       flex: 1;
     }
     .vbar-count {
-      font-size: 0.775rem;
+      font-size: 0.725rem;
       font-weight: 700;
       color: var(--text-main);
     }
     .vbar-track {
       flex: 1;
-      width: 24px;
+      width: 20px;
       background: var(--bg-surface-subtle);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-xs);
@@ -677,7 +938,7 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
       min-height: 2px;
     }
     .vbar-label {
-      font-size: 0.7rem;
+      font-size: 0.65rem;
       color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 0.04em;
@@ -685,28 +946,34 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
 
     /* Horizontal Bars Types of Work */
     .hbars-body {
-      padding: 0.5rem 0;
+      padding: 0.25rem 0;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-around;
     }
     .hbars-list {
       display: flex;
       flex-direction: column;
-      gap: 0.65rem;
+      justify-content: space-around;
+      gap: 0.35rem;
+      flex: 1;
     }
     .hbar-row {
       display: flex;
       flex-direction: column;
-      gap: 0.25rem;
+      gap: 0.15rem;
     }
     .hbar-meta {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      font-size: 0.775rem;
+      font-size: 0.725rem;
     }
     .type-name {
       display: flex;
       align-items: center;
-      gap: 0.4rem;
+      gap: 0.35rem;
       color: var(--text-main);
     }
     .type-count {
@@ -715,7 +982,7 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
     }
     .hbar-track {
       width: 100%;
-      height: 7px;
+      height: 6px;
       background: var(--bg-surface-subtle);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-xs);
@@ -723,8 +990,91 @@ import { ActivityModalComponent } from '../../shared/components/activity-modal';
     }
     .hbar-fill {
       height: 100%;
+      border-radius: var(--radius-xs);
       transition: width 0.3s ease;
       min-width: 2px;
+    }
+
+    /* ROW 4: Workspace Health & Top Focus Target Strip */
+    .focus-health-strip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.45rem 0.85rem;
+      flex-shrink: 0;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xs);
+    }
+    .fh-left {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      font-size: 0.75rem;
+      white-space: nowrap;
+    }
+    .fh-title {
+      font-weight: 700;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .fh-subtitle {
+      color: var(--text-muted);
+      font-size: 0.7rem;
+    }
+    .fh-progress-track {
+      flex: 1;
+      max-width: 280px;
+      height: 8px;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xs);
+      overflow: hidden;
+    }
+    .fh-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #10b981 0%, #06b6d4 100%);
+      border-radius: var(--radius-xs);
+      transition: width 0.4s ease;
+    }
+    .fh-right {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .focus-pill {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.25rem 0.6rem;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xs);
+      font-size: 0.725rem;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease;
+      max-width: 320px;
+    }
+    .focus-pill:hover {
+      background: var(--bg-surface-hover);
+      border-color: var(--border-medium);
+    }
+    .focus-task-title {
+      color: var(--text-main);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-weight: 600;
+    }
+    .focus-all-clear {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.725rem;
+      color: var(--text-muted);
     }
 
     /* ==========================================================================
@@ -1007,12 +1357,122 @@ export class TodayComponent implements OnInit, OnDestroy {
       : activities;
   });
 
+  pipelineHealthPercent = computed(() => {
+    const total = this.totalTaskCount();
+    if (total === 0) return 100;
+    const done = this.completed7dCount();
+    return Math.min(100, Math.round((done / total) * 100));
+  });
+
+  topFocusTask = computed(() => {
+    const tasks = this.activeWorkspaceTasks();
+    const uncompleted = tasks.filter(t => !t.completed && (t.status || '').toLowerCase() !== 'done');
+    if (uncompleted.length === 0) return null;
+    const priorityOrder: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+    return [...uncompleted].sort((a, b) => {
+      const pA = priorityOrder[(a.priority || '').toLowerCase()] ?? 4;
+      const pB = priorityOrder[(b.priority || '').toLowerCase()] ?? 4;
+      return pA - pB;
+    })[0];
+  });
+
   displayedActivities = computed(() => {
     return this.allRecentActivities().slice(0, 5);
   });
 
   recentActivities = computed(() => {
     return this.displayedActivities();
+  });
+
+  // 7-Day Velocity & Productivity Trend Data Calculation
+  velocityData = computed(() => {
+    const tasks = this.activeWorkspaceTasks();
+    const now = this.currentDate();
+    const days: Array<{
+      date: Date;
+      dayLabel: string;
+      dateLabel: string;
+      created: number;
+      completed: number;
+      x: number;
+      yCompleted: number;
+      yCreated: number;
+    }> = [];
+
+    const countsCreated: number[] = [];
+    const countsCompleted: number[] = [];
+
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (6 - i));
+      const startOfDay = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+      const endOfDay = startOfDay + 86400000 - 1;
+
+      const created = tasks.filter(t => {
+        if (!t.created_at) return false;
+        const tTime = new Date(t.created_at).getTime();
+        return tTime >= startOfDay && tTime <= endOfDay;
+      }).length;
+
+      const completed = tasks.filter(t => {
+        if (!t.completed && (t.status || '').toLowerCase() !== 'done') return false;
+        const tTime = t.updated_at ? new Date(t.updated_at).getTime() : (t.created_at ? new Date(t.created_at).getTime() : 0);
+        return tTime >= startOfDay && tTime <= endOfDay;
+      }).length;
+
+      countsCreated.push(created);
+      countsCompleted.push(completed);
+
+      days.push({
+        date: d,
+        dayLabel: d.toLocaleDateString('en-US', { weekday: 'short' }),
+        dateLabel: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        created,
+        completed,
+        x: Math.round(40 + i * 70),
+        yCompleted: 0,
+        yCreated: 0
+      });
+    }
+
+    const maxVal = Math.max(...countsCreated, ...countsCompleted, 4);
+
+    days.forEach(d => {
+      d.yCompleted = Math.round(130 - (d.completed / maxVal) * 95);
+      d.yCreated = Math.round(130 - (d.created / maxVal) * 95);
+    });
+
+    const totalCreated = countsCreated.reduce((a, b) => a + b, 0);
+    const totalCompleted = countsCompleted.reduce((a, b) => a + b, 0);
+
+    const rateNum = totalCreated > 0 ? Math.round((totalCompleted / totalCreated) * 100) : (totalCompleted > 0 ? 100 : 0);
+    const velocityRateStr = `${rateNum}%`;
+
+    let peakDayItem = days[0];
+    days.forEach(d => {
+      if (d.completed > peakDayItem.completed) {
+        peakDayItem = d;
+      }
+    });
+
+    const polylineCompleted = days.map(d => `${d.x},${d.yCompleted}`).join(' ');
+    const areaCompleted = `M 40,130 L ${polylineCompleted} L 460,130 Z`;
+
+    const polylineCreated = days.map(d => `${d.x},${d.yCreated}`).join(' ');
+    const areaCreated = `M 40,130 L ${polylineCreated} L 460,130 Z`;
+
+    return {
+      days,
+      maxVal,
+      totalCreated,
+      totalCompleted,
+      rateNum,
+      velocityRateStr,
+      peakDayLabel: `${peakDayItem.dayLabel} (${peakDayItem.completed} closed)`,
+      polylineCompleted,
+      areaCompleted,
+      polylineCreated,
+      areaCreated
+    };
   });
 
   getTasksForStatusOverview = computed(() => {
