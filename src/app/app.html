@@ -28,14 +28,25 @@
       <app-bilo-logo size="sm" [showText]="true"></app-bilo-logo>
     </div>
 
-    <!-- Middle: Workspace Selection Dropdown (Centered) -->
+    <!-- Middle: Wide Search Bar on Desktop, Workspace Switcher on Mobile -->
     <div class="header-center">
-      <app-workspace-switcher
-        (createWorkspace)="createProjectModalOpen.set(true)"
-      ></app-workspace-switcher>
+      <!-- Desktop Wide Command Search Bar -->
+      <button class="cmd-search-bar font-mono desktop-only" (click)="workspaceService.toggleCommandPalette()"
+        title="Search or type a command (⌘K)" aria-label="Search workspace and tasks (⌘K)">
+        <i class="fi fi-rr-search search-icon"></i>
+        <span class="search-placeholder">Search workspace, tasks...</span>
+        <span class="key-badge font-mono">⌘K</span>
+      </button>
+
+      <!-- Mobile Workspace Switcher Dropdown -->
+      <div class="mobile-only">
+        <app-workspace-switcher
+          (createWorkspace)="createProjectModalOpen.set(true)"
+        ></app-workspace-switcher>
+      </div>
     </div>
 
-    <!-- Right End: Offline Badge, Notifications Bell, Search Icon, Profile Avatar -->
+    <!-- Right End: Badges, Desktop Workspace Switcher, Notifications, Search Icon (Mobile), Profile Avatar -->
     <div class="header-right font-mono">
       @if (canInstallPwa()) {
         <button class="btn btn-primary btn-xs pwa-install-btn" (click)="installPwa()" title="Install Bilo Desktop Standalone App" aria-label="Install Bilo Desktop Standalone App">
@@ -92,8 +103,15 @@
         </span>
       }
 
-      <!-- Icon-Only Search Button -->
-      <button class="cmd-search-bar font-mono" (click)="workspaceService.toggleCommandPalette()"
+      <!-- Desktop Workspace Selection Dropdown -->
+      <div class="desktop-only">
+        <app-workspace-switcher
+          (createWorkspace)="createProjectModalOpen.set(true)"
+        ></app-workspace-switcher>
+      </div>
+
+      <!-- Mobile Icon-Only Search Button -->
+      <button class="cmd-search-bar font-mono mobile-only" (click)="workspaceService.toggleCommandPalette()"
         title="Search or type a command (Cmd+K)" aria-label="Search workspace and tasks (Cmd+K)">
         <i class="fi fi-rr-search search-icon"></i>
       </button>

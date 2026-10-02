@@ -55,12 +55,6 @@
 
 .cmd-search-bar {
   height: 32px;
-  width: 32px;
-  min-width: 32px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   background: var(--bg-surface-subtle);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-xs);
@@ -72,6 +66,24 @@
   box-sizing: border-box;
 }
 
+.cmd-search-bar.desktop-only {
+  width: 100%;
+  max-width: 540px;
+  padding: 0.35rem 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cmd-search-bar.mobile-only {
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .cmd-search-bar:hover {
   background: var(--bg-surface-hover);
   border-color: var(--border-medium);
@@ -80,12 +92,16 @@
 
 .search-icon {
   font-size: 0.85rem;
-  margin-right: 0;
   color: var(--text-muted);
 }
 
 .search-placeholder {
-  display: none;
+  display: inline-block;
+  flex: 1;
+  text-align: left;
+  margin-left: 0.5rem;
+  font-size: 0.775rem;
+  color: var(--text-muted);
 }
 
 /* Header Right: Help Icon */
