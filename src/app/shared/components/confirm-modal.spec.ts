@@ -34,4 +34,86 @@ describe('ConfirmModalComponent', () => {
 
     expect(spy).toHaveBeenCalled();
   });
+
+  describe('requireText validation', () => {
+    beforeEach(() => {
+      component.requireText = 'My Project';
+    });
+
+    it('should disable confirm when typedText does not match requireText', () => {
+      component.typedText = 'Wrong Text';
+      expect(component.isConfirmDisabled()).toBe(true);
+
+      const spy = vi.fn();
+      component.confirm.subscribe(spy);
+      component.onConfirm();
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('should enable confirm when typedText matches requireText case-insensitively', () => {
+      component.typedText = 'my project';
+      expect(component.isConfirmDisabled()).toBe(false);
+
+      const spy = vi.fn();
+      component.confirm.subscribe(spy);
+      component.onConfirm();
+      expect(spy).toHaveBeenCalled();
+    });
+  });
+
+  describe('Keyboard navigation & Focus Trap', () => {
+    it('should emit cancel event when Escape key is pressed while open', () => {
+      component.isOpen = true;
+      const spy = vi.fn();
+      component.cancel.subscribe(spy);
+
+      const event = new KeyboardEvent('keydown', { key: 'Escape' });
+      const preventSpy = vi.spyOn(event, 'preventDefault');
+
+      component.handleKeyDown(event);
+
+      expect(preventSpy).toHaveBeenCalled();
+      expect(spy).toHaveBeenCalled();
+    });
+
+    it('should not react to key events when modal is closed', () => {
+      component.isOpen = false;
+      const spy = vi.fn();
+      component.cancel.subscribe(spy);
+
+      const event = new KeyboardEvent('keydown', { key: 'Escape' });
+      component.handleKeyDown(event);
+
+      expect(spy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Duplicate click prevention (isSubmitting)', () => {
+    it('should set isSubmitting to true and only emit confirm once on multiple clicks', () => {
+      const spy = vi.fn();
+      component.confirm.subscribe(spy);
+
+      component.onConfirm();
+      component.onConfirm();
+      component.onConfirm();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(component.isSubmitting).toBe(true);
+      expect(component.isConfirmDisabled()).toBe(true);
+    });
+
+    it('should reset isSubmitting when isOpen changes', () => {
+      component.isSubmitting = true;
+      component.ngOnChanges({
+        isOpen: {
+          currentValue: true,
+          previousValue: false,
+          firstChange: false,
+          isFirstChange: () => false
+        }
+      });
+
+      expect(component.isSubmitting).toBe(false);
+    });
+  });
 });

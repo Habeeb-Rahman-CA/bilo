@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, OnInit, Output, AfterViewInit, ViewChild, ElementRef, signal } from '@angular/core';
+import { Component, EventEmitter, Input, OnInit, Output, AfterViewInit, ViewChild, ElementRef, signal, OnDestroy, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TaskService } from '../../core/services/task.service';
@@ -9,13 +9,17 @@ import { Task, TaskPriority, TaskSeverity, TaskReproducibility, TaskType, Workfl
 import { DatePickerComponent } from './date-picker';
 import { SelectComponent, SelectOption } from './select';
 import { RichEditorComponent } from './rich-editor';
+import { compressImageFile, canAddAttachment, MAX_ATTACHMENT_FILE_SIZE_BYTES, MAX_ATTACHMENTS_PER_TASK } from '../../core/utils/image-compressor.util';
+import { sanitizeLabels } from '../../core/utils/label.util';
+import { registerModal, unregisterModal, isTopModal } from '../../core/utils/modal-stack.util';
+import { LazyImageDirective } from '../directives/lazy-image.directive';
 
 @Component({
   selector: 'app-task-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule, DatePickerComponent, SelectComponent, RichEditorComponent],
+  imports: [CommonModule, FormsModule, DatePickerComponent, SelectComponent, RichEditorComponent, LazyImageDirective],
   template: `
-    <div class="modal-overlay" (click)="close.emit()">
+    <div class="modal-overlay" [style.z-index]="modalZIndex" (click)="close.emit()">
       <div class="modal-card paper-panel font-mono" (click)="$event.stopPropagation()">
         <!-- Header Strip -->
         <div class="modal-header">
@@ -31,29 +35,41 @@ import { RichEditorComponent } from './rich-editor';
 
         <form (ngSubmit)="saveTask()" class="modal-form">
           <div class="form-body">
-            @if (submitted && !title.trim()) {
+            @if (conflictError()) {
+              <div class="form-error-banner font-mono text-rose">
+                <i class="fi fi-rr-triangle-warning"></i>
+                <span>{{ conflictError() }}</span>
+              </div>
+            }
+            @if (submitted && titleError) {
               <div class="form-error-banner font-mono">
                 <i class="fi fi-rr-triangle-warning"></i>
-                <span>Please complete all required fields below before saving.</span>
+                <span>Please complete all required fields correctly before saving.</span>
               </div>
             }
 
             <!-- Title -->
             <div class="form-group">
-              <label class="form-label">SUMMARY / TITLE <span class="text-rose">*</span></label>
+              <div class="label-with-hint">
+                <label class="form-label">SUMMARY / TITLE <span class="text-rose">*</span></label>
+                <span class="desc-hint font-mono" [class.text-rose]="title.length > 255">
+                  {{ title.length }}/255
+                </span>
+              </div>
               <input
                 #titleInput
                 type="text"
                 class="form-input"
-                [class.input-error]="submitted && !title.trim()"
+                [class.input-error]="submitted && !!titleError"
                 [(ngModel)]="title"
                 name="title"
                 placeholder="e.g. Implement JWT Auth interceptor or Fix CSS grid layout"
+                maxlength="255"
                 required
               />
-              @if (submitted && !title.trim()) {
+              @if (submitted && titleError) {
                 <span class="field-error-text font-mono">
-                  <i class="fi fi-rr-exclamation"></i> Summary / Title is required
+                  <i class="fi fi-rr-exclamation"></i> {{ titleError }}
                 </span>
               }
             </div>
@@ -102,7 +118,14 @@ import { RichEditorComponent } from './rich-editor';
             <!-- Assignee & Due Date Row -->
             <div class="form-row">
               <div class="form-group half">
-                <label class="form-label">ASSIGNEE</label>
+                <div class="label-with-hint">
+                  <label class="form-label">ASSIGNEE</label>
+                  @if (assigneeLoadError()) {
+                    <span class="member-load-error font-mono text-amber" title="Failed to load project members from server. Fallback options active.">
+                      <i class="fi fi-rr-warning"></i> Members load issue
+                    </span>
+                  }
+                </div>
                 <app-select
                   [options]="assigneeOptions"
                   [(value)]="assignee"
@@ -193,7 +216,7 @@ import { RichEditorComponent } from './rich-editor';
                 <div class="attachment-grid">
                   @for (img of attachments(); track $index) {
                     <div class="attachment-thumb-card" (click)="previewImage.set(img)">
-                      <img [src]="img" alt="Attachment" />
+                      <img [appLazyImage]="img" alt="Attachment" />
                       <div class="thumb-overlay">
                         <i class="fi fi-rr-eye zoom-icon"></i>
                         <button
@@ -221,9 +244,18 @@ import { RichEditorComponent } from './rich-editor';
               <button type="button" class="btn btn-secondary btn-sm" (click)="close.emit()">
                 Cancel
               </button>
-              <button type="submit" class="btn btn-primary btn-sm">
-                <i class="fi fi-rr-check"></i>
-                <span>{{ isEditMode ? 'Save Changes' : 'Create Task' }}</span>
+              <button
+                type="submit"
+                class="btn btn-primary btn-sm"
+                [disabled]="submitting() || uploadingAttachments() || (submitted && !!titleError)"
+              >
+                @if (submitting()) {
+                  <i class="fi fi-rr-spinner spinner font-mono"></i>
+                  <span>Saving...</span>
+                } @else {
+                  <i class="fi fi-rr-check"></i>
+                  <span>{{ isEditMode ? 'Save Changes' : 'Create Task' }}</span>
+                }
               </button>
             </div>
           </div>
@@ -545,7 +577,7 @@ import { RichEditorComponent } from './rich-editor';
     }
   `]
 })
-export class TaskModalComponent implements OnInit, AfterViewInit {
+export class TaskModalComponent implements OnInit, AfterViewInit, OnDestroy {
   @Input() taskToEdit: Task | null = null;
   @Input() defaultProjectId: string = '';
   @Input() defaultStatus: string = '';
@@ -567,6 +599,11 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
   assigneeOptions: SelectOption[] = [];
   dueDate = '';
   labelsInput = '';
+  initialUpdatedAt: string = '';
+  conflictError = signal<string | null>(null);
+  assigneeLoadError = signal<boolean>(false);
+  modalZIndex = 2000;
+  private readonly modalId = 'task-modal-' + Math.random().toString(36).substring(2, 9);
 
   attachments = signal<string[]>([]);
   uploadingAttachments = signal<boolean>(false);
@@ -613,25 +650,125 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
 
   get statusOptions(): SelectOption[] {
     const statuses = this.getAvailableStatuses();
-    return statuses.map(s => ({
-      value: s.name,
-      label: s.name
-    }));
+    if (!this.isEditMode) {
+      return statuses.map(s => ({
+        value: s.name,
+        label: s.name
+      }));
+    }
+
+    const currentStatus = this.status || this.taskToEdit?.status || '';
+    return statuses.map(s => {
+      const isCurrent = !!currentStatus && s.name.trim().toLowerCase() === currentStatus.trim().toLowerCase();
+
+      if (isCurrent) {
+        return {
+          value: s.name,
+          label: s.name,
+          icon: 'fi fi-rr-check-circle text-cyan',
+          badge: 'CURRENT',
+          description: 'Current status',
+          disabled: false
+        };
+      }
+
+      const isAllowed = !currentStatus ? true : this.workflowService.canTransition(currentStatus, s.id, this.projectId);
+
+      if (isAllowed) {
+        return {
+          value: s.name,
+          label: s.name,
+          icon: 'fi fi-rr-angle-small-right text-emerald',
+          badge: 'ALLOWED',
+          description: 'Transition allowed',
+          disabled: false
+        };
+      } else {
+        return {
+          value: s.name,
+          label: s.name,
+          icon: 'fi fi-rr-lock text-rose',
+          badge: 'RESTRICTED',
+          description: `Transition from "${currentStatus}" restricted by workflow rules`,
+          disabled: true
+        };
+      }
+    });
   }
 
   get isEditMode(): boolean {
     return !!this.taskToEdit;
   }
 
+  get titleError(): string | null {
+    const trimmed = (this.title || '').trim();
+    if (!trimmed) {
+      return 'Summary / Title is required';
+    }
+    if (trimmed.length < 2) {
+      return 'Title must be at least 2 characters long';
+    }
+    if (trimmed.length > 255) {
+      return 'Title cannot exceed 255 characters';
+    }
+    return null;
+  }
+
   constructor(
     private taskService: TaskService,
     public projectService: ProjectService,
     public workflowService: WorkflowService,
-    private taskShareService: TaskShareService
+    private taskShareService: TaskShareService,
+    private elementRef: ElementRef
   ) { }
 
+  @HostListener('window:keydown', ['$event'])
+  handleGlobalKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && isTopModal(this.modalId)) {
+      e.preventDefault();
+      this.close.emit();
+      return;
+    }
+
+    if (e.key === 'Tab' && isTopModal(this.modalId)) {
+      this.trapFocus(e);
+    }
+  }
+
+  private trapFocus(e: KeyboardEvent) {
+    const container = this.elementRef?.nativeElement;
+    if (!container) return;
+
+    const focusables = (Array.from(
+      container.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ) as HTMLElement[]).filter(el => el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement);
+
+    if (focusables.length === 0) return;
+
+    const firstEl = focusables[0];
+    const lastEl = focusables[focusables.length - 1];
+    const activeEl = document.activeElement;
+
+    if (e.shiftKey) {
+      if (activeEl === firstEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        lastEl.focus();
+      }
+    } else {
+      if (activeEl === lastEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        firstEl.focus();
+      }
+    }
+  }
+
   async ngOnInit() {
+    this.modalZIndex = registerModal(this.modalId);
+    this.conflictError.set(null);
     if (this.taskToEdit) {
+      this.initialUpdatedAt = this.taskToEdit.updated_at || '';
       this.title = this.taskToEdit.title;
       this.description = this.taskToEdit.description || '';
       this.projectId = this.taskToEdit.project_id || this.projectService.activeProject()?.id || (this.projectService.projects()[0]?.id || '');
@@ -663,9 +800,31 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
     await this.loadAssigneeOptions();
   }
 
+  ngOnDestroy() {
+    unregisterModal(this.modalId);
+  }
+
   async loadAssigneeOptions() {
-    const opts = await this.projectService.getWorkspaceMemberOptions(this.projectId, this.assignee);
-    this.assigneeOptions = opts as SelectOption[];
+    try {
+      const opts = await this.projectService.getWorkspaceMemberOptions(this.projectId, this.assignee);
+      if (opts && opts.length > 0) {
+        this.assigneeOptions = opts as SelectOption[];
+        this.assigneeLoadError.set(false);
+      } else {
+        this.assigneeLoadError.set(true);
+        this.assigneeOptions = [
+          { value: 'Unassigned', label: 'Unassigned', icon: 'fi fi-rr-user-slash' },
+          ...(this.assignee && this.assignee !== 'Unassigned' ? [{ value: this.assignee, label: this.assignee, icon: 'fi fi-rr-user' }] : [])
+        ];
+      }
+    } catch (e) {
+      console.warn('Failed to load workspace assignee options:', e);
+      this.assigneeLoadError.set(true);
+      this.assigneeOptions = [
+        { value: 'Unassigned', label: 'Unassigned', icon: 'fi fi-rr-user-slash' },
+        ...(this.assignee && this.assignee !== 'Unassigned' ? [{ value: this.assignee, label: this.assignee, icon: 'fi fi-rr-user' }] : [])
+      ];
+    }
     if (!this.assignee || this.assignee === 'Self') {
       this.assignee = 'Unassigned';
     }
@@ -713,9 +872,19 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
   }
 
   async processFiles(files: File[]) {
+    if (this.uploadingAttachments()) {
+      this.taskShareService.showToast('Attachment upload in progress. Please wait.');
+      return;
+    }
+
     const imageFiles = files.filter(f => f.type.startsWith('image/'));
     if (imageFiles.length === 0) {
       this.taskShareService.showToast('Please select valid image files.');
+      return;
+    }
+
+    if (this.attachments().length + imageFiles.length > MAX_ATTACHMENTS_PER_TASK) {
+      this.taskShareService.showToast(`Maximum ${MAX_ATTACHMENTS_PER_TASK} attachments allowed per task.`);
       return;
     }
 
@@ -723,22 +892,46 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
     this.uploadCount.set(imageFiles.length);
 
     try {
-      for (const file of imageFiles) {
-        const imgData = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = (ev) => resolve((ev.target?.result as string) || '');
-          reader.onerror = () => reject(new Error('Failed to read image file'));
-          reader.readAsDataURL(file);
-        });
+      let processedCount = 0;
+      let remainingCount = imageFiles.length;
 
-        if (imgData) {
-          this.attachments.update(curr => [...curr, imgData]);
+      for (const file of imageFiles) {
+        this.uploadCount.set(remainingCount);
+
+        if (file.size > MAX_ATTACHMENT_FILE_SIZE_BYTES) {
+          this.taskShareService.showToast(`File "${file.name}" exceeds 10MB limit and was skipped.`);
+          remainingCount--;
+          continue;
         }
+
+        try {
+          const compressed = await compressImageFile(file);
+          if (compressed) {
+            const check = canAddAttachment(this.attachments(), compressed);
+            if (!check.allowed) {
+              this.taskShareService.showToast(check.reason || 'Cumulative task attachment size limit (1.5MB) reached.');
+              break;
+            }
+            this.attachments.update(curr => [...curr, compressed]);
+            processedCount++;
+          }
+        } catch (fileErr: any) {
+          console.warn('[TaskModal] Image processing warning:', fileErr);
+          const msg = fileErr?.message || `Failed to process image "${file.name}".`;
+          this.taskShareService.showToast(msg);
+        }
+
+        remainingCount--;
+        // Yield main event loop to allow GC and keep UI responsive between sequential files
+        await new Promise(resolve => setTimeout(resolve, 15));
       }
-      this.taskShareService.showToast(`${imageFiles.length} image(s) attached.`);
-    } catch (err) {
+
+      if (processedCount > 0) {
+        this.taskShareService.showToast(`${processedCount} image(s) processed & attached.`);
+      }
+    } catch (err: any) {
       console.error('Error uploading image file:', err);
-      this.taskShareService.showToast('Failed to load image file. Please try again.');
+      this.taskShareService.showToast('Failed to process image file. Please try again.');
     } finally {
       this.uploadingAttachments.set(false);
       this.uploadCount.set(0);
@@ -749,18 +942,21 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
     this.attachments.update(curr => curr.filter((_, i) => i !== index));
   }
 
+  submitting = signal<boolean>(false);
+
   async saveTask() {
     this.submitted = true;
-    if (!this.title.trim()) return;
+    if (this.titleError) return;
+
+    this.submitting.set(true);
+    try {
+      this.title = this.title.trim();
 
     if (!this.projectId) {
       this.projectId = this.projectService.activeProject()?.id || (this.projectService.projects()[0]?.id || '');
     }
 
-    const parsedLabels = this.labelsInput
-      .split(',')
-      .map(l => l.trim().toLowerCase())
-      .filter(l => l.length > 0);
+    const parsedLabels = sanitizeLabels(this.labelsInput.split(','));
 
     const available = this.getAvailableStatuses();
     const finalStatus = this.isEditMode
@@ -774,22 +970,31 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
     let resTask: Task | undefined = undefined;
 
     if (this.isEditMode && this.taskToEdit) {
-      const updated = await this.taskService.updateTask(this.taskToEdit.id, {
-        title: this.title,
-        description: this.description,
-        project_id: this.projectId,
-        workflow_id: activeWf?.id,
-        type: this.type,
-        status: finalStatus,
-        priority: this.priority,
-        severity: targetSeverity,
-        reproducibility: targetReproducibility,
-        assignee: this.assignee,
-        due_date: this.dueDate,
-        labels: parsedLabels,
-        attachments: this.attachments()
-      });
-      resTask = updated || undefined;
+      const updated = await this.taskService.updateTask(
+        this.taskToEdit.id,
+        {
+          title: this.title,
+          description: this.description,
+          project_id: this.projectId,
+          workflow_id: activeWf?.id,
+          type: this.type,
+          status: finalStatus,
+          priority: this.priority,
+          severity: targetSeverity,
+          reproducibility: targetReproducibility,
+          assignee: this.assignee,
+          due_date: this.dueDate,
+          labels: parsedLabels,
+          attachments: this.attachments()
+        },
+        this.initialUpdatedAt
+      );
+      if (!updated) {
+        this.conflictError.set('Concurrent Edit Conflict: This task was modified by another user while you were editing. Your changes were canceled to prevent data loss.');
+        return;
+      }
+      resTask = updated;
+      this.taskShareService.showToast(`Task "${updated.title}" updated successfully!`);
     } else {
       const created = await this.taskService.createTask({
         title: this.title,
@@ -807,9 +1012,18 @@ export class TaskModalComponent implements OnInit, AfterViewInit {
         attachments: this.attachments()
       });
       resTask = created;
+      if (created) {
+        this.taskShareService.showToast(`Task "${created.title}" created successfully!`);
+      }
     }
 
-    this.close.emit(resTask);
+      this.close.emit(resTask);
+    } catch (err: any) {
+      console.error('Error saving task:', err);
+      this.taskShareService.showToast(err?.message || 'Failed to save task.');
+    } finally {
+      this.submitting.set(false);
+    }
   }
 }
 

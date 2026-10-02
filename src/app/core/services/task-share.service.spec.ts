@@ -81,10 +81,11 @@ describe('TaskShareService', () => {
     expect(service.toastMessage()).toContain('Opened shared task');
   });
 
-  it('should return false for unmatched task params', () => {
+  it('should return false and display a toast notification for unmatched task params', () => {
     const matched = service.openTaskByParam('non-existent-task-id');
     expect(matched).toBe(false);
     expect(service.activeSharedTask()).toBeNull();
+    expect(service.toastMessage()).toContain('Shared task "NON-EXISTENT-TASK-ID" not found or may have been deleted');
   });
 
   it('should close shared task modal', () => {

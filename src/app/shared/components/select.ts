@@ -11,6 +11,27 @@ export interface SelectOption {
   disabled?: boolean;
 }
 
+export interface ClosablePopover {
+  closePopover(): void;
+}
+
+let activePopoverInstance: ClosablePopover | null = null;
+
+export function registerOpenPopover(instance: ClosablePopover) {
+  if (activePopoverInstance && activePopoverInstance !== instance) {
+    try {
+      activePopoverInstance.closePopover();
+    } catch (e) {}
+  }
+  activePopoverInstance = instance;
+}
+
+export function unregisterOpenPopover(instance: ClosablePopover) {
+  if (activePopoverInstance === instance) {
+    activePopoverInstance = null;
+  }
+}
+
 @Component({
   selector: 'app-select',
   standalone: true,
@@ -91,7 +112,7 @@ export interface SelectOption {
                 [class.is-selected]="opt.value === valueSignal()"
                 [class.is-focused]="i === activeIndex()"
                 [class.is-disabled]="opt.disabled"
-                (click)="selectOption(opt)"
+                (click)="selectOption(opt, $event)"
                 (mouseenter)="onOptionMouseEnter(i)"
               >
                 @if (opt.icon) {
@@ -465,6 +486,9 @@ export class SelectComponent implements OnChanges, OnDestroy {
 
   constructor(private elementRef: ElementRef) {}
 
+  private openTimeoutId: any = null;
+  private appendedPopoverEl: HTMLElement | null = null;
+
   ngOnChanges(changes: SimpleChanges) {
     if (changes['options']) {
       this.optionsSignal.set(changes['options'].currentValue || []);
@@ -483,7 +507,7 @@ export class SelectComponent implements OnChanges, OnDestroy {
   onDocumentClick(event: MouseEvent) {
     const target = event.target as Node;
     const isInsideTrigger = this.elementRef.nativeElement.contains(target);
-    const isInsidePopover = this.popoverEl?.nativeElement?.contains(target);
+    const isInsidePopover = this.popoverEl?.nativeElement?.contains(target) || this.appendedPopoverEl?.contains(target);
     if (!isInsideTrigger && !isInsidePopover) {
       this.closePopover();
     }
@@ -492,16 +516,31 @@ export class SelectComponent implements OnChanges, OnDestroy {
   @HostListener('window:resize')
   onWindowResize() {
     if (this.isOpen()) {
-      this.closePopover();
+      this.updateRect();
     }
   }
 
   private onScrollCapture = (event: Event) => {
-    if (this.isOpen()) {
-      if (this.optionsListEl?.nativeElement && this.optionsListEl.nativeElement.contains(event.target as Node)) {
-        return;
+    if (!this.isOpen()) return;
+
+    // Ignore scroll events originating from inside the options list dropdown itself
+    if (
+      this.optionsListEl?.nativeElement &&
+      event.target &&
+      this.optionsListEl.nativeElement.contains(event.target as Node)
+    ) {
+      return;
+    }
+
+    // Recalculate trigger element bounding rect on scroll to dynamically update popover position
+    this.updateRect();
+
+    // Auto-close if trigger element scrolls completely out of viewport
+    const rect = this.triggerRect();
+    if (rect) {
+      if (rect.bottom < 0 || rect.top > window.innerHeight || rect.right < 0 || rect.left > window.innerWidth) {
+        this.closePopover();
       }
-      this.closePopover();
     }
   };
 
@@ -517,46 +556,83 @@ export class SelectComponent implements OnChanges, OnDestroy {
   }
 
   openPopover() {
+    registerOpenPopover(this);
     this.updateRect();
     this.searchQuery.set('');
     this.isOpen.set(true);
     this.updateActiveIndex();
 
-    document.addEventListener('scroll', this.onScrollCapture, true);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('scroll', this.onScrollCapture, { capture: true, passive: true });
 
-    setTimeout(() => {
-      if (this.popoverEl?.nativeElement) {
-        document.body.appendChild(this.popoverEl.nativeElement);
+      if (this.openTimeoutId) {
+        clearTimeout(this.openTimeoutId);
       }
-      if (this.searchInputEl) {
-        this.searchInputEl.nativeElement.focus();
-      }
-    }, 0);
+
+      this.openTimeoutId = setTimeout(() => {
+        this.openTimeoutId = null;
+        if (!this.isOpen()) return;
+
+        if (this.popoverEl?.nativeElement && document.body) {
+          this.popoverEl.nativeElement.setAttribute('data-bilo-popover', 'true');
+          document.body.appendChild(this.popoverEl.nativeElement);
+          this.appendedPopoverEl = this.popoverEl.nativeElement;
+        }
+        if (this.searchInputEl) {
+          this.searchInputEl.nativeElement.focus();
+        }
+      }, 0);
+    }
   }
 
   closePopover() {
-    document.removeEventListener('scroll', this.onScrollCapture, true);
-    if (this.popoverEl?.nativeElement && this.popoverEl.nativeElement.parentNode === document.body) {
-      this.popoverEl.nativeElement.remove();
+    unregisterOpenPopover(this);
+    if (this.openTimeoutId) {
+      clearTimeout(this.openTimeoutId);
+      this.openTimeoutId = null;
+    }
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('scroll', this.onScrollCapture, true);
+      if (this.appendedPopoverEl) {
+        if (this.appendedPopoverEl.parentNode) {
+          this.appendedPopoverEl.remove();
+        }
+        this.appendedPopoverEl = null;
+      }
+      if (this.popoverEl?.nativeElement && this.popoverEl.nativeElement.parentNode) {
+        this.popoverEl.nativeElement.remove();
+      }
     }
     this.isOpen.set(false);
     this.searchQuery.set('');
     this.activeIndex.set(-1);
   }
 
-  selectOption(opt: SelectOption) {
+  selectOption(opt: SelectOption, event?: Event) {
+    if (event) {
+      event.stopPropagation();
+    }
     if (opt.disabled) return;
     this.valueSignal.set(opt.value);
     this.valueChange.emit(opt.value);
     this.selectionChange.emit(opt);
-    this.closePopover();
+
+    // Defer DOM removal to next microtask so event propagation and parent contains() checks complete safely
+    setTimeout(() => {
+      this.closePopover();
+    }, 0);
   }
 
   clearSelection(event?: Event) {
-    if (event) event.stopPropagation();
+    if (event) {
+      event.stopPropagation();
+    }
     this.valueSignal.set(null);
     this.valueChange.emit(null);
-    this.closePopover();
+
+    setTimeout(() => {
+      this.closePopover();
+    }, 0);
   }
 
   isKeyboardNav = false;
@@ -576,6 +652,7 @@ export class SelectComponent implements OnChanges, OnDestroy {
     if (this.disabled) return;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
+      event.stopPropagation();
       if (!this.isOpen()) {
         this.openPopover();
       }
@@ -587,37 +664,51 @@ export class SelectComponent implements OnChanges, OnDestroy {
   }
 
   private handleKeyNavigation(event: KeyboardEvent) {
-    const opts = this.filteredOptions();
-    if (opts.length === 0) return;
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      const opts = this.filteredOptions();
+      const idx = this.activeIndex();
+      if (idx >= 0 && idx < opts.length) {
+        this.selectOption(opts[idx], event);
+      }
+      return;
+    }
 
     if (event.key === 'ArrowDown') {
       event.preventDefault();
       event.stopPropagation();
-      this.isKeyboardNav = true;
-      const next = (this.activeIndex() + 1) % opts.length;
-      this.activeIndex.set(next);
-      this.scrollToFocusedOption();
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      event.stopPropagation();
-      this.isKeyboardNav = true;
-      const prev = (this.activeIndex() - 1 + opts.length) % opts.length;
-      this.activeIndex.set(prev);
-      this.scrollToFocusedOption();
-    } else if (event.key === 'Enter') {
-      event.preventDefault();
-      event.stopPropagation();
-      const idx = this.activeIndex();
-      if (idx >= 0 && idx < opts.length) {
-        this.selectOption(opts[idx]);
+      const opts = this.filteredOptions();
+      if (opts.length > 0) {
+        this.isKeyboardNav = true;
+        const next = (this.activeIndex() + 1) % opts.length;
+        this.activeIndex.set(next);
+        this.scrollToFocusedOption();
       }
-    } else if (event.key === 'Escape') {
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      event.stopPropagation();
+      const opts = this.filteredOptions();
+      if (opts.length > 0) {
+        this.isKeyboardNav = true;
+        const prev = (this.activeIndex() - 1 + opts.length) % opts.length;
+        this.activeIndex.set(prev);
+        this.scrollToFocusedOption();
+      }
+      return;
+    }
+
+    if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
       this.closePopover();
       if (this.triggerEl) {
         this.triggerEl.nativeElement.focus();
       }
+      return;
     }
   }
 

@@ -1,13 +1,14 @@
-import { Component, EventEmitter, Output } from '@angular/core';
+import { Component, EventEmitter, Output, OnInit, OnDestroy, HostListener, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { PushNotificationService } from '../../core/services/push-notification.service';
+import { registerModal, unregisterModal, isTopModal, getModalZIndex } from '../../core/utils/modal-stack.util';
 
 @Component({
   selector: 'app-push-notification-modal',
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="modal-overlay" (click)="close.emit()">
+    <div class="modal-overlay" [style.z-index]="modalZIndex" (click)="close.emit()">
       <div class="push-modal-card paper-panel font-mono" (click)="$event.stopPropagation()">
         <!-- Modal Header -->
         <div class="modal-header">
@@ -67,8 +68,16 @@ import { PushNotificationService } from '../../core/services/push-notification.s
                   <i class="fi fi-rr-bell-ring"></i> Grant Permission
                 </button>
               } @else if (pushService.permissionStatus() === 'granted') {
-                <button class="btn btn-secondary btn-sm" (click)="pushService.sendTestNotification()">
-                  <i class="fi fi-rr-paper-plane"></i> Send Test Notification
+                <button
+                  class="btn btn-secondary btn-sm"
+                  [disabled]="pushService.isSendingTest()"
+                  (click)="pushService.sendTestNotification()"
+                >
+                  @if (pushService.isSendingTest()) {
+                    <i class="fi fi-rr-spinner spinner font-mono"></i> Sending...
+                  } @else {
+                    <i class="fi fi-rr-paper-plane"></i> Send Test Notification
+                  }
                 </button>
               }
             </div>
@@ -83,43 +92,61 @@ import { PushNotificationService } from '../../core/services/push-notification.s
 
             <div class="toggle-list">
               <!-- Master Push Toggle -->
-              <div class="toggle-item master-toggle">
+              <div class="toggle-item master-toggle" [class.item-disabled]="!pushService.isSupported()">
                 <div class="toggle-info">
                   <span class="toggle-title">
                     <i class="fi fi-rr-signal-alt text-amber"></i> Master Push Notification Switch
                   </span>
                   <span class="toggle-desc">Enable or pause all Web Push alerts from Bilo PWA</span>
                 </div>
-                <button class="toggle-switch-btn" [class.active]="pushService.notificationsEnabled()" (click)="pushService.toggleNotifications()">
+                <button
+                  class="toggle-switch-btn"
+                  [class.active]="pushService.isSupported() && pushService.notificationsEnabled()"
+                  [disabled]="!pushService.isSupported()"
+                  (click)="pushService.toggleNotifications()"
+                  [title]="!pushService.isSupported() ? 'Push notifications not supported in this browser' : ''"
+                >
                   <span class="switch-handle font-mono">
-                    {{ pushService.notificationsEnabled() ? 'ON' : 'OFF' }}
+                    {{ !pushService.isSupported() ? 'N/A' : pushService.notificationsEnabled() ? 'ON' : 'OFF' }}
                   </span>
                 </button>
               </div>
 
               <!-- Trigger 1: Task Creation -->
-              <div class="toggle-item">
+              <div class="toggle-item" [class.item-disabled]="!pushService.isSupported()">
                 <div class="toggle-info">
                   <span class="toggle-title">
                     <i class="fi fi-rr-add text-emerald"></i> New Task Creation Alerts
                   </span>
                   <span class="toggle-desc">Receive notification whenever a new task is created</span>
                 </div>
-                <button class="toggle-checkbox" [class.checked]="pushService.notifyOnTaskCreate()" (click)="pushService.toggleSetting('create')">
-                  <i [class]="pushService.notifyOnTaskCreate() ? 'fi fi-rr-check' : ''"></i>
+                <button
+                  class="toggle-checkbox"
+                  [class.checked]="pushService.isSupported() && pushService.notifyOnTaskCreate()"
+                  [disabled]="!pushService.isSupported()"
+                  (click)="pushService.toggleSetting('create')"
+                  [title]="!pushService.isSupported() ? 'Push notifications not supported in this browser' : ''"
+                >
+                  <i [class]="pushService.isSupported() && pushService.notifyOnTaskCreate() ? 'fi fi-rr-check' : ''"></i>
                 </button>
               </div>
 
               <!-- Trigger 2: Task Status Change -->
-              <div class="toggle-item">
+              <div class="toggle-item" [class.item-disabled]="!pushService.isSupported()">
                 <div class="toggle-info">
                   <span class="toggle-title">
                     <i class="fi fi-rr-refresh text-cyan"></i> Task Status Change Alerts
                   </span>
                   <span class="toggle-desc">Receive notification when any task's status changes</span>
                 </div>
-                <button class="toggle-checkbox" [class.checked]="pushService.notifyOnStatusChange()" (click)="pushService.toggleSetting('status_change')">
-                  <i [class]="pushService.notifyOnStatusChange() ? 'fi fi-rr-check' : ''"></i>
+                <button
+                  class="toggle-checkbox"
+                  [class.checked]="pushService.isSupported() && pushService.notifyOnStatusChange()"
+                  [disabled]="!pushService.isSupported()"
+                  (click)="pushService.toggleSetting('status_change')"
+                  [title]="!pushService.isSupported() ? 'Push notifications not supported in this browser' : ''"
+                >
+                  <i [class]="pushService.isSupported() && pushService.notifyOnStatusChange() ? 'fi fi-rr-check' : ''"></i>
                 </button>
               </div>
             </div>
@@ -145,8 +172,16 @@ import { PushNotificationService } from '../../core/services/push-notification.s
               <div class="empty-log-box font-mono">
                 <i class="fi fi-rr-bell-slash text-muted empty-icon"></i>
                 <p>No push notifications dispatched in this session yet.</p>
-                <button class="btn btn-secondary btn-xs" (click)="pushService.sendTestNotification()">
-                  <i class="fi fi-rr-paper-plane"></i> Send Test Notification
+                <button
+                  class="btn btn-secondary btn-xs"
+                  [disabled]="pushService.isSendingTest()"
+                  (click)="pushService.sendTestNotification()"
+                >
+                  @if (pushService.isSendingTest()) {
+                    <i class="fi fi-rr-spinner spinner font-mono"></i> Sending...
+                  } @else {
+                    <i class="fi fi-rr-paper-plane"></i> Send Test Notification
+                  }
                 </button>
               </div>
             } @else {
@@ -476,10 +511,75 @@ import { PushNotificationService } from '../../core/services/push-notification.s
       align-items: center;
       gap: 0.45rem;
     }
+    .spinner {
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
   `]
 })
-export class PushNotificationModalComponent {
+export class PushNotificationModalComponent implements OnInit, OnDestroy {
   @Output() close = new EventEmitter<void>();
 
-  constructor(public pushService: PushNotificationService) {}
+  private readonly modalId = 'push-notification-modal-' + Math.random().toString(36).substring(2, 9);
+
+  get modalZIndex(): number {
+    return getModalZIndex(this.modalId);
+  }
+
+  constructor(
+    public pushService: PushNotificationService,
+    private elementRef: ElementRef
+  ) {}
+
+  ngOnInit() {
+    registerModal(this.modalId);
+  }
+
+  ngOnDestroy() {
+    unregisterModal(this.modalId);
+  }
+
+  @HostListener('window:keydown', ['$event'])
+  handleGlobalKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && isTopModal(this.modalId)) {
+      e.preventDefault();
+      this.close.emit();
+      return;
+    }
+
+    if (e.key === 'Tab' && isTopModal(this.modalId)) {
+      this.trapFocus(e);
+    }
+  }
+
+  private trapFocus(e: KeyboardEvent) {
+    const container = this.elementRef?.nativeElement;
+    if (!container) return;
+
+    const focusables = (Array.from(
+      container.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ) as HTMLElement[]).filter(el => el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement);
+
+    if (focusables.length === 0) return;
+
+    const firstEl = focusables[0];
+    const lastEl = focusables[focusables.length - 1];
+    const activeEl = document.activeElement;
+
+    if (e.shiftKey) {
+      if (activeEl === firstEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        lastEl.focus();
+      }
+    } else {
+      if (activeEl === lastEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        firstEl.focus();
+      }
+    }
+  }
 }

@@ -10,13 +10,14 @@ import { Project, Workflow } from '../../core/models/project.model';
 import { ProjectAccessModalComponent } from '../../shared/components/project-access-modal';
 import { ProjectModalComponent } from '../../shared/components/project-modal';
 import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
+import { ColorPickerComponent } from '../../shared/components/color-picker';
 
 export type SettingsSection = 'overview' | 'workflow' | 'notifications';
 
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [CommonModule, FormsModule, ProjectAccessModalComponent, ProjectModalComponent, ConfirmModalComponent],
+  imports: [CommonModule, FormsModule, ProjectAccessModalComponent, ProjectModalComponent, ConfirmModalComponent, ColorPickerComponent],
   template: `
     <div class="settings-workspace font-mono">
       <!-- Top Banner Bar -->
@@ -211,6 +212,36 @@ export type SettingsSection = 'overview' | 'workflow' | 'notifications';
                   </div>
                 </div>
               </div>
+
+              <!-- Danger Zone Card -->
+              <div class="danger-zone-card paper-panel">
+                <div class="danger-header">
+                  <div class="danger-title-wrap">
+                    <i class="fi fi-rr-triangle-warning text-rose danger-icon"></i>
+                    <div>
+                      <h4 class="danger-card-title text-rose">Danger Zone</h4>
+                      <span class="danger-card-sub">Irreversible workspace action</span>
+                    </div>
+                  </div>
+                  <span class="badge-mono badge-rose">DANGER</span>
+                </div>
+
+                <div class="danger-content font-mono">
+                  <div class="danger-desc-wrap">
+                    <strong>Delete Workspace "{{ proj.name }}"</strong>
+                    <p class="danger-desc-text">
+                      Permanently delete <strong>{{ proj.name }}</strong> (<code>{{ (proj.slug || proj.name).toUpperCase() }}</code>), all {{ getWorkspaceTaskCount(proj.id) }} task(s), Kanban status workflows, task comments, and project activity history.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn btn-danger btn-sm font-mono btn-delete-ws"
+                    (click)="openDeleteWorkspaceModal(proj)"
+                  >
+                    <i class="fi fi-rr-trash"></i> Delete Workspace
+                  </button>
+                </div>
+              </div>
             } @else {
               <div class="empty-state paper-panel font-mono">
                 <i class="fi fi-rr-folder-open empty-icon"></i>
@@ -276,12 +307,10 @@ export type SettingsSection = 'overview' | 'workflow' | 'notifications';
                             <div class="column-item-top">
                               <span class="drag-handle"><i class="fi fi-rr-menu-dots-vertical"></i></span>
 
-                              <input
-                                type="color"
-                                class="color-picker-inline"
-                                [(ngModel)]="col.color"
+                              <app-color-picker
+                                [(color)]="col.color"
                                 title="Column accent color"
-                              />
+                              ></app-color-picker>
 
                               <input
                                 type="text"
@@ -451,37 +480,51 @@ export type SettingsSection = 'overview' | 'workflow' | 'notifications';
                   </div>
                   <button
                     class="btn btn-xs font-mono"
-                    [class.btn-primary]="pushService.notificationsEnabled()"
-                    [class.btn-secondary]="!pushService.notificationsEnabled()"
+                    [class.btn-primary]="pushService.isSupported() && pushService.notificationsEnabled()"
+                    [class.btn-secondary]="!pushService.isSupported() || !pushService.notificationsEnabled()"
+                    [disabled]="!pushService.isSupported()"
                     (click)="pushService.toggleNotifications()"
+                    [title]="!pushService.isSupported() ? 'Push notifications not supported in this browser' : ''"
                   >
-                    {{ pushService.notificationsEnabled() ? 'ENABLED' : 'DISABLED' }}
+                    {{ !pushService.isSupported() ? 'UNSUPPORTED' : pushService.notificationsEnabled() ? 'ENABLED' : 'DISABLED' }}
                   </button>
                 </div>
 
                 <!-- Trigger 1: Task Creation -->
-                <div class="toggle-item">
+                <div class="toggle-item" [class.item-disabled]="!pushService.isSupported()">
                   <div class="toggle-info">
                     <span class="toggle-title">
                       <i class="fi fi-rr-add text-emerald"></i> New Task Creation Alerts
                     </span>
                     <span class="toggle-desc">Receive notification whenever a new task is created</span>
                   </div>
-                  <button class="toggle-checkbox" [class.checked]="pushService.notifyOnTaskCreate()" (click)="pushService.toggleSetting('create')">
-                    <i [class]="pushService.notifyOnTaskCreate() ? 'fi fi-rr-check' : ''"></i>
+                  <button
+                    class="toggle-checkbox"
+                    [class.checked]="pushService.isSupported() && pushService.notifyOnTaskCreate()"
+                    [disabled]="!pushService.isSupported()"
+                    (click)="pushService.toggleSetting('create')"
+                    [title]="!pushService.isSupported() ? 'Push notifications not supported in this browser' : ''"
+                  >
+                    <i [class]="pushService.isSupported() && pushService.notifyOnTaskCreate() ? 'fi fi-rr-check' : ''"></i>
                   </button>
                 </div>
 
                 <!-- Trigger 2: Task Status Change -->
-                <div class="toggle-item">
+                <div class="toggle-item" [class.item-disabled]="!pushService.isSupported()">
                   <div class="toggle-info">
                     <span class="toggle-title">
                       <i class="fi fi-rr-refresh text-cyan"></i> Task Status Change Alerts
                     </span>
                     <span class="toggle-desc">Receive notification when any task's status changes</span>
                   </div>
-                  <button class="toggle-checkbox" [class.checked]="pushService.notifyOnStatusChange()" (click)="pushService.toggleSetting('status_change')">
-                    <i [class]="pushService.notifyOnStatusChange() ? 'fi fi-rr-check' : ''"></i>
+                  <button
+                    class="toggle-checkbox"
+                    [class.checked]="pushService.isSupported() && pushService.notifyOnStatusChange()"
+                    [disabled]="!pushService.isSupported()"
+                    (click)="pushService.toggleSetting('status_change')"
+                    [title]="!pushService.isSupported() ? 'Push notifications not supported in this browser' : ''"
+                  >
+                    <i [class]="pushService.isSupported() && pushService.notifyOnStatusChange() ? 'fi fi-rr-check' : ''"></i>
                   </button>
                 </div>
               </div>
@@ -539,6 +582,19 @@ export type SettingsSection = 'overview' | 'workflow' | 'notifications';
         type="warning"
         (confirm)="executeResetToDefaults()"
         (cancel)="resetConfirmOpen.set(false)"
+      />
+
+      <!-- Uniform Delete Workspace Confirmation Modal -->
+      <app-confirm-modal
+        [isOpen]="showDeleteWorkspaceModal()"
+        title="Delete Workspace"
+        [message]="'Are you sure you want to delete workspace &quot;' + (projectToDelete()?.name || '') + '&quot;? This action CANNOT be undone and will permanently delete the workspace, all associated tasks, workflows, and activity logs.'"
+        confirmText="Delete Workspace"
+        cancelText="Cancel"
+        type="danger"
+        [requireText]="(projectToDelete()?.slug || projectToDelete()?.name || '').toUpperCase()"
+        (confirm)="executeDeleteWorkspace()"
+        (cancel)="closeDeleteWorkspaceModal()"
       />
     </div>
   `,
@@ -847,9 +903,6 @@ export type SettingsSection = 'overview' | 'workflow' | 'notifications';
       display: flex;
       align-items: center;
       gap: 0.25rem;
-    }
-    .btn-danger {
-      color: var(--accent-rose);
     }
     .add-col-row {
       display: flex;
@@ -1174,6 +1227,237 @@ export type SettingsSection = 'overview' | 'workflow' | 'notifications';
       height: 6px;
       border-radius: 50%;
     }
+
+    /* Desktop Features & Guides Styles */
+    .desktop-features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.85rem;
+      margin-top: 0.5rem;
+    }
+    .feature-card {
+      padding: 1rem;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xs);
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    .feature-icon {
+      font-size: 1.35rem;
+      margin-bottom: 0.1rem;
+    }
+    .feature-card h4 {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--text-main);
+      margin: 0;
+    }
+    .feature-card p {
+      font-size: 0.725rem;
+      color: var(--text-muted);
+      margin: 0;
+      line-height: 1.4;
+    }
+
+    .install-guides-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      margin-top: 0.75rem;
+    }
+    .guides-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--text-main);
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+    .guide-cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 0.85rem;
+    }
+    .guide-card {
+      padding: 1rem 1.1rem;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xs);
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+    .guide-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.825rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+    .guide-steps {
+      margin: 0;
+      padding-left: 1.1rem;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      line-height: 1.4;
+    }
+    .guide-steps code {
+      background: var(--bg-canvas);
+      padding: 0.1rem 0.3rem;
+      border-radius: 3px;
+      font-size: 0.7rem;
+      color: var(--accent-cyan);
+    }
+
+    /* Danger Zone & Delete Workspace Modal Styles */
+    .danger-zone-card {
+      margin-top: 1rem;
+      padding: 1.25rem;
+      background: rgba(225, 29, 72, 0.04);
+      border: 1px solid rgba(225, 29, 72, 0.35);
+      border-radius: var(--radius-xs);
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+    }
+    .danger-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .danger-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+    }
+    .danger-icon {
+      font-size: 1.25rem;
+    }
+    .danger-card-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      margin: 0;
+    }
+    .danger-card-sub {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+    }
+    .danger-content {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .danger-desc-wrap {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .danger-desc-text {
+      font-size: 0.775rem;
+      color: var(--text-muted);
+      margin: 0;
+      line-height: 1.4;
+    }
+
+    /* Mobile Responsive Styles for Workspace Details & Danger Zone */
+    @media (max-width: 768px) {
+      .settings-workspace {
+        padding: 0.75rem;
+        gap: 0.75rem;
+      }
+      .settings-card {
+        padding: 0.9rem;
+        gap: 0.85rem;
+      }
+      .card-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.85rem;
+      }
+      .header-title {
+        width: 100%;
+      }
+      .header-actions {
+        width: 100%;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
+        gap: 0.45rem;
+      }
+      .header-actions .btn {
+        width: 100%;
+        justify-content: center;
+        height: 34px;
+        font-size: 0.75rem;
+      }
+      .metrics-strip {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.5rem;
+        padding: 0.65rem;
+      }
+      .metric-item {
+        padding: 0.4rem;
+        background: var(--bg-surface);
+        border-radius: var(--radius-xs);
+        border: 1px solid var(--border-subtle);
+      }
+      .metric-num {
+        font-size: 1.05rem;
+      }
+      .project-info-grid {
+        grid-template-columns: 1fr;
+        gap: 0.65rem;
+      }
+      .info-group {
+        padding: 0.55rem 0.75rem;
+        background: var(--bg-surface-subtle);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-xs);
+      }
+      .settings-cards-grid {
+        grid-template-columns: 1fr;
+        gap: 0.85rem;
+      }
+      .setting-nav-card {
+        padding: 1rem;
+        gap: 0.85rem;
+      }
+
+      /* Danger Zone Mobile Optimizations */
+      .danger-zone-card {
+        padding: 1rem;
+        gap: 0.85rem;
+        border: 1px solid rgba(225, 29, 72, 0.4);
+        background: rgba(225, 29, 72, 0.06);
+      }
+      .danger-header {
+        padding-bottom: 0.55rem;
+        border-bottom: 1px dashed rgba(225, 29, 72, 0.25);
+      }
+      .danger-content {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.85rem;
+      }
+      .danger-desc-wrap {
+        width: 100%;
+      }
+      .btn-delete-ws {
+        width: 100%;
+        height: 34px;
+        justify-content: center;
+        font-size: 0.75rem;
+      }
+    }
   `]
 })
 export class SettingsComponent {
@@ -1182,6 +1466,8 @@ export class SettingsComponent {
   accessModalOpen = signal<boolean>(false);
   editProjectModalOpen = signal<boolean>(false);
   resetConfirmOpen = signal<boolean>(false);
+  showDeleteWorkspaceModal = signal<boolean>(false);
+  projectToDelete = signal<Project | null>(null);
   columns: Workflow[] = [];
   deletedColumnIds: string[] = [];
   newColumnName = '';
@@ -1235,15 +1521,47 @@ export class SettingsComponent {
   async addNewWorkflowColumn(projectId: string) {
     if (!this.newColumnName.trim()) return;
     const name = this.newColumnName.trim();
+    const existingNames = this.columns.map(c => c.name.trim().toLowerCase());
+    if (existingNames.includes(name.toLowerCase())) {
+      alert(`A workflow status column named "${name}" already exists in this project.`);
+      return;
+    }
     const created = await this.workflowService.createWorkflow(projectId, name);
     this.columns.push(JSON.parse(JSON.stringify(created)));
     this.newColumnName = '';
   }
 
   removeColumn(col: Workflow, index: number) {
+    if (this.columns.length <= 1) {
+      alert('Cannot delete the only remaining status column in a workflow.');
+      return;
+    }
+
+    const projId = this.activeProject()?.id || 'global';
+    const colNameLower = col.name.trim().toLowerCase();
+
+    const assignedTasks = this.taskService.tasks().filter(t => {
+      if (projId !== 'global' && t.project_id !== projId) return false;
+      if (t.workflow_id === col.id) return true;
+      if (t.status === col.id) return true;
+      if (colNameLower && t.status?.trim().toLowerCase() === colNameLower) return true;
+      return false;
+    });
+
+    if (assignedTasks.length > 0) {
+      const remainingCols = this.columns.filter((_, i) => i !== index);
+      const fallbackName = remainingCols.length > 0 ? remainingCols[0].name : 'Backlog';
+      const confirmed = window.confirm(
+        `Column "${col.name}" currently has ${assignedTasks.length} task(s) assigned to it.\n\nDeleting this column will reassign those task(s) to "${fallbackName}". Are you sure you want to proceed?`
+      );
+      if (!confirmed) return;
+    }
+
     this.columns.splice(index, 1);
-    if (col.id && !col.id.startsWith('wf-')) {
-      this.deletedColumnIds.push(col.id);
+    if (col.id && !col.id.startsWith('temp-')) {
+      if (!this.deletedColumnIds.includes(col.id)) {
+        this.deletedColumnIds.push(col.id);
+      }
     }
   }
 
@@ -1301,17 +1619,10 @@ export class SettingsComponent {
   async saveWorkflowChanges(projectId: string) {
     this.triggerSavedToast();
     for (const delId of this.deletedColumnIds) {
-      this.workflowService.deleteWorkflow(delId, projectId);
+      await this.workflowService.deleteWorkflow(delId, projectId);
     }
-    this.workflowService.updateWorkflowPositions(projectId, this.columns);
-    for (const col of this.columns) {
-      this.workflowService.updateWorkflowTransitions(
-        projectId,
-        col.id,
-        col.allow_all_transitions !== false,
-        col.allowed_transitions || []
-      );
-    }
+    this.deletedColumnIds = [];
+    await this.workflowService.updateWorkflowPositions(projectId, this.columns);
   }
 
   private triggerSavedToast() {
@@ -1319,5 +1630,26 @@ export class SettingsComponent {
     setTimeout(() => {
       this.savedToast.set(false);
     }, 3000);
+  }
+
+  openDeleteWorkspaceModal(project: Project) {
+    this.projectToDelete.set(project);
+    this.showDeleteWorkspaceModal.set(true);
+  }
+
+  closeDeleteWorkspaceModal() {
+    this.showDeleteWorkspaceModal.set(false);
+    this.projectToDelete.set(null);
+  }
+
+  async executeDeleteWorkspace() {
+    const proj = this.projectToDelete();
+    if (!proj) return;
+
+    const projId = proj.id;
+    this.closeDeleteWorkspaceModal();
+
+    await this.projectService.deleteProject(projId);
+    this.activeSection.set('overview');
   }
 }

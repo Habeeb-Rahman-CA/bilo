@@ -1,9 +1,11 @@
 import { Injectable, signal, effect } from '@angular/core';
 import { Task, Project } from '../models/project.model';
 import { getTaskKey } from '../utils/task-key.util';
+import { copyToClipboard } from '../utils/clipboard.util';
 import { TaskService } from './task.service';
 import { ProjectService } from './project.service';
 import { WorkspaceService } from './workspace.service';
+import { ToastService } from './toast.service';
 
 @Injectable({
   providedIn: 'root'
@@ -11,12 +13,16 @@ import { WorkspaceService } from './workspace.service';
 export class TaskShareService {
   toastMessage = signal<string | null>(null);
   activeSharedTask = signal<Task | null>(null);
+  lastCopiedTaskId = signal<string | null>(null);
+  lastCopiedTaskKey = signal<string | null>(null);
   private hasProcessedInitialUrl = false;
+  private copyTimer: any = null;
 
   constructor(
     private taskService: TaskService,
     private projectService: ProjectService,
-    private workspaceService: WorkspaceService
+    private workspaceService: WorkspaceService,
+    private toastService: ToastService
   ) {
     // Reactive effect: fires automatically whenever tasks() update/load
     effect(() => {
@@ -47,20 +53,23 @@ export class TaskShareService {
     const baseUrl = `${window.location.origin}${window.location.pathname}`;
     const shareUrl = `${baseUrl}?task=${key}`;
 
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(shareUrl);
-      } else {
-        const textarea = document.createElement('textarea');
-        textarea.value = shareUrl;
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textarea);
-      }
+    const success = await copyToClipboard(shareUrl);
+
+    this.lastCopiedTaskId.set(task.id);
+    this.lastCopiedTaskKey.set(key);
+
+    if (this.copyTimer) {
+      clearTimeout(this.copyTimer);
+    }
+    this.copyTimer = setTimeout(() => {
+      this.lastCopiedTaskId.set(null);
+      this.lastCopiedTaskKey.set(null);
+    }, 2000);
+
+    if (success) {
       this.showToast(`Link copied for ${key}!`);
-    } catch (e) {
-      console.error('Failed to copy share link', e);
+    } else {
+      console.warn('Failed to auto-copy share link to clipboard:', shareUrl);
       this.showToast(`Share URL: ${shareUrl}`);
     }
 
@@ -68,6 +77,9 @@ export class TaskShareService {
   }
 
   showToast(msg: string) {
+    if (this.toastService) {
+      this.toastService.show(msg, { type: 'success', icon: 'fi fi-rr-check-circle text-emerald' });
+    }
     this.toastMessage.set(msg);
     setTimeout(() => {
       if (this.toastMessage() === msg) {
@@ -80,6 +92,8 @@ export class TaskShareService {
    * Checks URL query params or hash for ?task=KEY or ?task=UUID
    */
   checkUrlForTaskParam() {
+    if (typeof window === 'undefined') return;
+
     const urlParams = new URLSearchParams(window.location.search);
     let taskParam = urlParams.get('task') || urlParams.get('taskId');
 
@@ -97,9 +111,12 @@ export class TaskShareService {
     }
 
     if (taskParam) {
+      this.hasProcessedInitialUrl = true;
       const opened = this.openTaskByParam(taskParam);
-      if (opened) {
-        this.hasProcessedInitialUrl = true;
+      if (!opened) {
+        // Clean up invalid task parameter from URL to prevent broken navigation state
+        const cleanUrl = window.location.pathname + (window.location.hash || '');
+        window.history.replaceState(null, '', cleanUrl);
       }
     }
   }
@@ -114,25 +131,41 @@ export class TaskShareService {
 
     if (tasks.length === 0) return false;
 
-    const matched = tasks.find(t => {
-      // 1. Direct UUID or prefix match
-      if (t.id.toUpperCase() === cleanParam || t.id.toUpperCase().startsWith(cleanParam)) return true;
-      // 2. Exact Key match (e.g. BIL-104)
-      const key = getTaskKey(t, projects).toUpperCase();
-      if (key === cleanParam) return true;
-      // 3. Numeric match if user passed e.g. ?task=104
-      const parts = key.split('-');
-      if (parts[1] && parts[1] === cleanParam) return true;
-      return false;
-    });
+    // 1. Exact UUID match (highest priority)
+    let matched = tasks.find(t => t.id.toUpperCase() === cleanParam);
+
+    // 2. UUID Prefix match (if param is at least 8 chars long)
+    if (!matched && cleanParam.length >= 8) {
+      matched = tasks.find(t => t.id.toUpperCase().startsWith(cleanParam));
+    }
+
+    // 3. Sequential Task Key match (e.g. BIL-1, BIL-104)
+    if (!matched) {
+      matched = tasks.find(t => {
+        const key = getTaskKey(t, projects, tasks).toUpperCase();
+        return key === cleanParam;
+      });
+    }
+
+    // 4. Fallback Task Key / Numeric match
+    if (!matched) {
+      matched = tasks.find(t => {
+        const key = getTaskKey(t, projects).toUpperCase();
+        if (key === cleanParam) return true;
+        const parts = key.split('-');
+        if (parts[1] && parts[1] === cleanParam) return true;
+        return false;
+      });
+    }
 
     if (matched) {
       this.activeSharedTask.set(matched);
-      const matchedKey = getTaskKey(matched, projects);
+      const matchedKey = getTaskKey(matched, projects, tasks);
       this.showToast(`Opened shared task ${matchedKey}`);
       return true;
     }
 
+    this.showToast(`Shared task "${cleanParam}" not found or may have been deleted`);
     return false;
   }
 

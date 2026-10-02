@@ -1,7 +1,7 @@
-import { Component, signal, computed, effect, OnInit } from '@angular/core';
+import { Component, signal, computed, effect, OnInit, OnDestroy, AfterViewInit, HostListener, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { DragDropModule, CdkDragDrop } from '@angular/cdk/drag-drop';
+import { DragDropModule, CdkDragDrop, CdkDragStart, CdkDragEnd, CdkDragMove, CdkDrag, CdkDragHandle } from '@angular/cdk/drag-drop';
 import { TaskService } from '../../core/services/task.service';
 import { ProjectService } from '../../core/services/project.service';
 import { WorkflowService } from '../../core/services/workflow.service';
@@ -9,6 +9,7 @@ import { WorkspaceService } from '../../core/services/workspace.service';
 import { TaskShareService } from '../../core/services/task-share.service';
 import { Project, Task, Workflow } from '../../core/models/project.model';
 import { getTaskKey } from '../../core/utils/task-key.util';
+import { compareDueDates, getLocalDateString } from '../../core/utils/date.util';
 import { TaskModalComponent } from '../../shared/components/task-modal';
 import { TaskDetailModalComponent } from '../../shared/components/task-detail-modal';
 import { SelectComponent, SelectOption } from '../../shared/components/select';
@@ -31,20 +32,29 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
         <div class="workflow-restriction-banner font-mono">
           <i class="fi fi-rr-lock text-amber"></i>
           <span>{{ restrictedToastMessage() }}</span>
-          <button type="button" class="btn-close-toast" (click)="restrictedToastMessage.set('')">&times;</button>
+          <button type="button" class="btn-close-toast" (click)="clearRestrictedToast()">&times;</button>
+        </div>
+      }
+
+      <!-- Concurrent Edit Conflict Notification -->
+      @if (taskService.concurrentConflictMessage()) {
+        <div class="concurrent-conflict-banner font-mono">
+          <i class="fi fi-rr-interrogation text-cyan"></i>
+          <span>{{ taskService.concurrentConflictMessage() }}</span>
+          <button type="button" class="btn-close-toast" (click)="taskService.clearConflictNotification()">&times;</button>
         </div>
       }
 
       <!-- 1. Standalone Top Header Bar -->
       <div class="view-header-strip paper-panel">
         <div class="view-header-left">
-          <span class="badge-mono">03 BOARD</span>
+          <span class="badge-mono">03 BOARD • {{ activeColumns().length }} COLUMNS</span>
           <h2 class="view-header-title">Kanban Board</h2>
         </div>
 
         <div class="view-header-right">
           <button
-            class="btn btn-primary btn-sm"
+            class="btn btn-primary btn-sm desktop-only"
             [disabled]="activeColumns().length === 0"
             (click)="workspaceService.openCreateTaskModal()"
           >
@@ -53,13 +63,26 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
         </div>
       </div>
 
-      <!-- 2. Standalone Filter Toolbar -->
-      <div class="filter-bar paper-panel font-mono">
-        <div class="filters-left">
+      <!-- 2. Standalone Filter Toolbar (Matching Backlog Layout) -->
+      <div class="filter-toolbar paper-panel font-mono">
+        <div class="search-box">
+          <i class="fi fi-rr-search search-icon"></i>
+          <input
+            type="text"
+            class="search-input font-mono"
+            placeholder="Search tasks by key, title, description..."
+            [ngModel]="rawSearchQuery()"
+            (ngModelChange)="onSearchInput($event)"
+          />
+          @if (rawSearchQuery()) {
+            <button class="btn-clear" (click)="clearSearch()"><i class="fi fi-rr-cross"></i></button>
+          }
+        </div>
 
+        <div class="filter-dropdowns">
           <!-- Issue Type Filter -->
           <div class="filter-group">
-            <label class="filter-label">TYPE</label>
+            <span class="filter-label">TYPE:</span>
             <app-select
               [options]="typeFilterOptions"
               [value]="selectedType()"
@@ -70,7 +93,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
 
           <!-- Priority Filter -->
           <div class="filter-group">
-            <label class="filter-label">PRIORITY</label>
+            <span class="filter-label">PRIORITY:</span>
             <app-select
               [options]="priorityFilterOptions"
               [value]="selectedPriority()"
@@ -81,7 +104,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
 
           <!-- Severity Filter -->
           <div class="filter-group">
-            <label class="filter-label">SEVERITY</label>
+            <span class="filter-label">SEVERITY:</span>
             <app-select
               [options]="severityFilterOptions"
               [value]="selectedSeverity()"
@@ -92,7 +115,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
 
           <!-- Reproducibility Filter -->
           <div class="filter-group">
-            <label class="filter-label">REPRO</label>
+            <span class="filter-label">REPRO:</span>
             <app-select
               [options]="reproducibilityFilterOptions"
               [value]="selectedReproducibility()"
@@ -103,7 +126,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
 
           <!-- Label Filter -->
           <div class="filter-group">
-            <label class="filter-label">LABEL</label>
+            <span class="filter-label">LABEL:</span>
             <app-select
               [options]="labelFilterOptions()"
               [value]="selectedLabel()"
@@ -114,7 +137,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
 
           <!-- Due Date Filter -->
           <div class="filter-group">
-            <label class="filter-label">DUE DATE</label>
+            <span class="filter-label">DUE:</span>
             <app-select
               [options]="dueDateFilterOptions"
               [value]="selectedDueDateFilter()"
@@ -125,7 +148,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
 
           <!-- Sort By & Direction -->
           <div class="filter-group sort-group">
-            <label class="filter-label">SORT</label>
+            <span class="filter-label">SORT:</span>
             <div class="sort-controls">
               <app-select
                 [options]="sortOptions"
@@ -147,24 +170,11 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
 
           @if (hasActiveFilters()) {
             <div class="filter-group reset-group">
-              <label class="filter-label">&nbsp;</label>
               <button class="btn btn-ghost btn-xs reset-btn" (click)="resetFilters()">
                 <i class="fi fi-rr-refresh"></i> Clear Filters
               </button>
             </div>
           }
-        </div>
-
-        <!-- Search Box -->
-        <div class="search-box">
-          <i class="fi fi-rr-search search-icon"></i>
-          <input
-            type="text"
-            class="form-input search-input"
-            placeholder="Search title, description..."
-            [ngModel]="searchQuery()"
-            (ngModelChange)="searchQuery.set($event)"
-          />
         </div>
       </div>
 
@@ -179,9 +189,61 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
           </button>
         </div>
       } @else {
-        <div class="kanban-board" cdkDropListGroup>
-          @for (col of activeColumns(); track col.id) {
-            <div class="kanban-column paper-panel">
+        @if (activeColumns().length > 3) {
+          <div class="column-quick-nav font-mono paper-panel">
+            <span class="quick-nav-label"><i class="fi fi-rr-list text-cyan"></i> WORKFLOW COLUMNS ({{ activeColumns().length }}):</span>
+            <div class="quick-nav-chips">
+              @for (col of activeColumns(); track col.id) {
+                <button
+                  type="button"
+                  class="col-nav-chip"
+                  (click)="scrollToColumn(col.id)"
+                  [title]="'Jump to column ' + col.name"
+                >
+                  <span class="status-dot-sm" [style.background-color]="col.color || '#0284c7'"></span>
+                  <span class="col-chip-name">{{ col.name }}</span>
+                  <span class="col-chip-count">{{ getColumnTasks(col.name).length }}</span>
+                </button>
+              }
+            </div>
+          </div>
+        }
+
+        <div class="kanban-board-wrapper">
+          <div class="board-scroll-indicators-sticky">
+            @if (canScrollLeft()) {
+              <button
+                type="button"
+                class="board-scroll-indicator left font-mono"
+                (click)="scrollBoard('left')"
+                title="Scroll left to view off-screen columns"
+              >
+                <i class="fi fi-rr-angle-left"></i>
+                <span>{{ offScreenLeftCount() }} OFF-SCREEN</span>
+              </button>
+            }
+
+            @if (canScrollRight()) {
+              <button
+                type="button"
+                class="board-scroll-indicator right font-mono"
+                (click)="scrollBoard('right')"
+                title="Scroll right to view off-screen columns"
+              >
+                <span>{{ offScreenRightCount() }} OFF-SCREEN</span>
+                <i class="fi fi-rr-angle-right"></i>
+              </button>
+            }
+          </div>
+
+          <div
+            #kanbanBoardContainer
+            class="kanban-board"
+            cdkDropListGroup
+            (scroll)="onBoardScroll($event)"
+          >
+            @for (col of activeColumns(); track col.id) {
+              <div class="kanban-column paper-panel" [id]="'col-' + col.id">
               <!-- Column Header -->
               <div class="column-header">
                 <div class="column-title">
@@ -203,6 +265,9 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                     class="task-card paper-panel"
                     cdkDrag
                     [cdkDragData]="t"
+                    (cdkDragStarted)="onDragStarted($event)"
+                    (cdkDragMoved)="onDragMoved($event)"
+                    (cdkDragEnded)="onDragEnded()"
                     (click)="openDetailModal(t)"
                   >
                     <!-- Card Top Row: Issue Type, Key, Priority, Drag Handle -->
@@ -213,16 +278,23 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                         </span>
                         <span
                           class="task-key font-mono clickable-key"
+                          [class.copied]="taskShareService.lastCopiedTaskId() === t.id"
                           (click)="taskShareService.copyTaskShareLink(t, $event)"
-                          title="Click to copy share link"
+                          [title]="taskShareService.lastCopiedTaskId() === t.id ? 'Copied link for ' + getTaskKeyStr(t) : 'Click to copy share link'"
                         >
-                          {{ getTaskKeyStr(t) }} <i class="fi fi-rr-link link-icon"></i>
+                          @if (taskShareService.lastCopiedTaskId() === t.id) {
+                            <span class="copied-pill text-emerald"><i class="fi fi-rr-check"></i> COPIED!</span>
+                          } @else {
+                            {{ getTaskKeyStr(t) }} <i class="fi fi-rr-link link-icon"></i>
+                          }
                         </span>
                         <span class="priority-badge" [class]="(t.priority || 'medium').toLowerCase()">
                           {{ t.priority || 'medium' }}
                         </span>
                       </div>
-                      <i class="fi fi-rr-grip-dots-vertical drag-grip" title="Drag to move"></i>
+                      <div class="drag-grip-wrap" title="Hold and drag card to move">
+                        <i class="fi fi-rr-grip-dots-vertical drag-grip"></i>
+                      </div>
                     </div>
 
                     <!-- Project Pill -->
@@ -247,7 +319,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                     <!-- Card Labels -->
                     @if (t.labels && t.labels.length > 0) {
                       <div class="card-labels font-mono">
-                        @for (lbl of t.labels; track lbl) {
+                        @for (lbl of t.labels.slice(0, 3); track lbl) {
                           <span
                             class="label-chip"
                             [class.active-label]="selectedLabel() === lbl"
@@ -255,6 +327,15 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                             title="Filter by #{{ lbl }}"
                           >
                             #{{ lbl }}
+                          </span>
+                        }
+                        @if (t.labels.length > 3) {
+                          <span
+                            class="label-chip label-chip-more"
+                            (click)="$event.stopPropagation(); openDetailModal(t)"
+                            [title]="'All labels (' + t.labels.length + '): ' + t.labels.join(', ')"
+                          >
+                            +{{ t.labels.length - 3 }} more
                           </span>
                         }
                       </div>
@@ -272,12 +353,29 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                         </span>
                       }
                     </div>
+
+                    <!-- Mobile / Touch Quick-Move Status Selector -->
+                    <div class="card-mobile-actions font-mono" (click)="$event.stopPropagation()">
+                      <span class="mobile-move-label"><i class="fi fi-rr-exchange-alt"></i> Move:</span>
+                      <select
+                        class="mobile-status-select font-mono"
+                        [ngModel]="t.status"
+                        (ngModelChange)="moveTaskStatus(t, $event)"
+                      >
+                        @for (col of activeColumns(); track col.id) {
+                          <option [value]="col.name">
+                            {{ col.name }}
+                          </option>
+                        }
+                      </select>
+                    </div>
                   </div>
                 }
               </div>
             </div>
           }
         </div>
+      </div>
       }
 
       <!-- Quick Create Modal -->
@@ -308,33 +406,58 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       padding: 1rem;
       width: 100%;
     }
-    .filter-bar {
+    .filter-toolbar {
       display: flex;
-      justify-content: space-between;
-      align-items: flex-end;
+      flex-direction: column;
+      gap: 0.75rem;
       padding: 0.75rem 1rem;
       background: var(--bg-surface-subtle);
+    }
+    .search-box {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-xs);
-      flex-wrap: wrap;
-      gap: 0.75rem;
+      padding: 0.4rem 0.75rem;
+      position: relative;
     }
-    .filters-left {
+    .search-icon {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    .search-input {
+      flex: 1;
+      border: none;
+      background: transparent;
+      font-size: 0.825rem;
+      color: var(--text-main);
+      outline: none;
+    }
+    .btn-clear {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 0.75rem;
+    }
+    .filter-dropdowns {
       display: flex;
-      gap: 0.65rem;
+      align-items: center;
+      gap: 0.85rem;
       flex-wrap: wrap;
-      align-items: flex-end;
     }
     .filter-group {
       display: flex;
-      flex-direction: column;
-      gap: 0.2rem;
+      align-items: center;
+      gap: 0.35rem;
     }
     .filter-label {
-      font-size: 0.675rem;
+      font-size: 0.65rem;
+      font-weight: 700;
       color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.05em;
     }
     .filter-select {
       width: 130px;
@@ -355,23 +478,6 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
     }
     .reset-btn {
       color: var(--accent-rose);
-    }
-    .search-box {
-      position: relative;
-      align-self: flex-end;
-    }
-    .search-icon {
-      position: absolute;
-      left: 0.55rem;
-      top: 50%;
-      transform: translateY(-50%);
-      color: var(--text-muted);
-      font-size: 0.8rem;
-    }
-    .search-input {
-      padding-left: 1.8rem;
-      width: 180px;
-      font-size: 0.775rem;
     }
     .empty-board {
       padding: 3rem 1.5rem;
@@ -395,11 +501,82 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       font-size: 0.825rem;
       max-width: 400px;
     }
+    .kanban-board-wrapper {
+      position: relative;
+      width: 100%;
+      border-radius: var(--radius-xs);
+    }
+    .column-quick-nav {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.5rem 0.85rem;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xs);
+      margin-bottom: 0.75rem;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+    .quick-nav-label {
+      font-size: 0.675rem;
+      color: var(--text-muted);
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-shrink: 0;
+    }
+    .quick-nav-chips {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      overflow-x: auto;
+      scrollbar-width: thin;
+    }
+    .col-nav-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.2rem 0.55rem;
+      font-size: 0.725rem;
+      font-weight: 600;
+      border-radius: var(--radius-xs);
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-main);
+      cursor: pointer;
+      transition: var(--transition-fast);
+      flex-shrink: 0;
+    }
+    .col-nav-chip:hover {
+      background: var(--bg-surface-hover);
+      border-color: var(--accent-cyan);
+      color: var(--accent-cyan);
+    }
+    .status-dot-sm {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+    .col-chip-count {
+      font-size: 0.65rem;
+      padding: 0.05rem 0.3rem;
+      background: var(--bg-surface-subtle);
+      border-radius: 4px;
+      color: var(--text-muted);
+    }
     .kanban-board {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      display: flex;
       gap: 1rem;
-      align-items: start;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 0.25rem 0.25rem 0.85rem 0.25rem;
+      scroll-behavior: smooth;
+      scrollbar-width: auto;
+      -webkit-overflow-scrolling: touch;
     }
     .kanban-column {
       display: flex;
@@ -407,7 +584,53 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       gap: 0.75rem;
       padding: 0.85rem;
       min-height: 520px;
+      width: 310px;
+      min-width: 310px;
+      max-width: 310px;
+      flex-shrink: 0;
       background: var(--bg-surface);
+    }
+    .board-scroll-indicators-sticky {
+      position: sticky;
+      top: 50vh;
+      left: 0;
+      right: 0;
+      height: 0;
+      z-index: 90;
+      pointer-events: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 0.75rem;
+    }
+    .board-scroll-indicator {
+      pointer-events: auto;
+      transform: translateY(-50%);
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.45rem 0.75rem;
+      font-size: 0.725rem;
+      font-weight: 700;
+      border-radius: 20px;
+      background: var(--bg-surface);
+      color: var(--accent-cyan);
+      border: 1px solid var(--accent-cyan);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      backdrop-filter: blur(8px);
+    }
+    .board-scroll-indicator:hover {
+      background: var(--accent-cyan);
+      color: #ffffff;
+      box-shadow: 0 6px 18px rgba(6, 182, 212, 0.4);
+    }
+    .board-scroll-indicator.left {
+      margin-right: auto;
+    }
+    .board-scroll-indicator.right {
+      margin-left: auto;
     }
     .column-header {
       display: flex;
@@ -475,6 +698,15 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       font-weight: 700;
       color: var(--text-subtle);
     }
+    .task-key.copied {
+      color: #10b981 !important;
+      animation: pulse-copy 0.3s ease-out;
+    }
+    @keyframes pulse-copy {
+      0% { transform: scale(0.92); }
+      50% { transform: scale(1.08); }
+      100% { transform: scale(1); }
+    }
     .priority-badge {
       font-size: 0.65rem;
       padding: 0.08rem 0.35rem;
@@ -487,14 +719,37 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
     .priority-badge.high { background: #fef3c7; color: #d97706; border-color: #fcd34d; }
     .priority-badge.medium { background: #e0f2fe; color: #0284c7; border-color: #7dd3fc; }
     .priority-badge.low { background: #f3f4f6; color: #4b5563; border-color: #d1d5db; }
+    .drag-grip-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      margin: -4px -4px -4px 0;
+      cursor: grab;
+      touch-action: none;
+      border-radius: var(--radius-xs);
+      transition: background-color 0.2s ease, color 0.2s ease;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+      flex-shrink: 0;
+    }
+    .drag-grip-wrap:hover, .drag-grip-wrap:active {
+      background: var(--bg-surface-hover);
+      color: var(--accent-cyan);
+    }
+    .drag-grip-wrap:active {
+      cursor: grabbing;
+    }
     .drag-grip {
       font-size: 0.85rem;
       color: var(--text-subtle);
-      cursor: grab;
-      opacity: 0.5;
+      opacity: 0.7;
     }
-    .drag-grip:hover {
+    .drag-grip-wrap:hover .drag-grip {
       opacity: 1;
+      color: var(--accent-cyan);
     }
     .card-project-row {
       display: flex;
@@ -545,6 +800,9 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       display: flex;
       gap: 0.3rem;
       flex-wrap: wrap;
+      align-items: center;
+      max-height: 2.3rem;
+      overflow: hidden;
     }
     .label-chip {
       font-size: 0.65rem;
@@ -554,9 +812,24 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       padding: 0.08rem 0.35rem;
       border-radius: var(--radius-xs);
       cursor: pointer;
+      max-width: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .label-chip:hover,
     .label-chip.active-label {
+      background: var(--accent-cyan);
+      color: #ffffff;
+      border-color: var(--accent-cyan);
+    }
+    .label-chip-more {
+      font-weight: 700;
+      color: var(--accent-cyan);
+      background: rgba(6, 182, 212, 0.12);
+      border-color: rgba(6, 182, 212, 0.35);
+    }
+    .label-chip-more:hover {
       background: var(--accent-cyan);
       color: #ffffff;
       border-color: var(--accent-cyan);
@@ -577,6 +850,42 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
     .due-date.overdue {
       color: var(--accent-rose);
       font-weight: 700;
+    }
+    .task-card {
+      touch-action: pan-y;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .card-mobile-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.4rem;
+      margin-top: 0.35rem;
+      padding-top: 0.35rem;
+      border-top: 1px dashed var(--border-subtle);
+    }
+    .mobile-move-label {
+      font-size: 0.675rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-weight: 700;
+    }
+    .mobile-status-select {
+      background: var(--bg-surface-subtle);
+      color: var(--text-main);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xs);
+      padding: 0.15rem 0.4rem;
+      font-size: 0.725rem;
+      font-weight: 600;
+      cursor: pointer;
+      outline: none;
+    }
+    .mobile-status-select:focus {
+      border-color: var(--accent-cyan);
     }
 
     .cdk-drag-preview {
@@ -611,6 +920,21 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       margin-bottom: 0.75rem;
       animation: fadeIn 0.2s ease-out;
     }
+    .concurrent-conflict-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.65rem;
+      background: rgba(6, 182, 212, 0.12);
+      border: 1px solid rgba(6, 182, 212, 0.35);
+      color: var(--accent-cyan);
+      padding: 0.65rem 1rem;
+      border-radius: var(--radius-xs);
+      font-size: 0.775rem;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+      animation: fadeIn 0.2s ease-out;
+    }
     .btn-close-toast {
       background: none;
       border: none;
@@ -623,9 +947,39 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
     .text-amber {
       color: #f59e0b;
     }
+
+    @media (max-width: 768px) {
+      .tasks-page-container {
+        padding: 0.5rem;
+        gap: 0.65rem;
+      }
+      .filter-toolbar {
+        padding: 0.5rem 0.65rem;
+        gap: 0.5rem;
+      }
+      .filter-dropdowns {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        padding-bottom: 0.2rem;
+        -webkit-overflow-scrolling: touch;
+      }
+      .filter-label {
+        display: none;
+      }
+      .filter-group {
+        flex-shrink: 0;
+      }
+    }
   `]
 })
-export class TasksComponent implements OnInit {
+export class TasksComponent implements OnInit, OnDestroy, AfterViewInit {
+  canScrollLeft = signal<boolean>(false);
+  canScrollRight = signal<boolean>(false);
+  offScreenLeftCount = signal<number>(0);
+  offScreenRightCount = signal<number>(0);
+
+  @ViewChild('kanbanBoardContainer') kanbanBoardContainer?: ElementRef<HTMLDivElement>;
+
   selectedProjectId = signal<string>('all');
   selectedType = signal<string>('all');
   selectedPriority = signal<string>('all');
@@ -635,7 +989,34 @@ export class TasksComponent implements OnInit {
   selectedDueDateFilter = signal<string>('all');
   sortBy = signal<string>('created_at');
   sortOrder = signal<'asc' | 'desc'>('desc');
+  rawSearchQuery = signal<string>('');
   searchQuery = signal<string>('');
+  private searchDebounceTimer: any = null;
+
+  onSearchInput(val: string): void {
+    this.rawSearchQuery.set(val);
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+    this.searchDebounceTimer = setTimeout(() => {
+      this.searchQuery.set(val);
+    }, 300);
+  }
+
+  clearSearch(): void {
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+    this.rawSearchQuery.set('');
+    this.searchQuery.set('');
+  }
+
+  ngOnDestroy(): void {
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+    this.clearRestrictedToast();
+  }
 
   projectFilterOptions = computed<SelectOption[]>(() => [
     { value: 'all', label: 'All Projects', icon: 'fi fi-rr-apps' },
@@ -734,6 +1115,25 @@ export class TasksComponent implements OnInit {
       };
       localStorage.setItem('bilo_board_filters', JSON.stringify(filters));
     });
+
+    // Deleted Project Safeguard:
+    // If selectedProjectId points to a project that was deleted, auto-fallback to 'all'
+    effect(() => {
+      const projId = this.selectedProjectId();
+      if (projId && projId !== 'all') {
+        const projects = this.projectService.projects();
+        if (projects.length > 0 && !projects.some(p => p.id === projId)) {
+          console.warn(`[TasksBoard] Selected project "${projId}" no longer exists. Falling back to "all".`);
+          this.selectedProjectId.set('all');
+        }
+      }
+    }, { allowSignalWrites: true });
+
+    effect(() => {
+      this.activeColumns();
+      this.filteredTasks();
+      setTimeout(() => this.updateScrollState(), 100);
+    });
   }
 
   toggleSortOrder() {
@@ -759,7 +1159,10 @@ export class TasksComponent implements OnInit {
           if (parsed.selectedDueDateFilter !== undefined) this.selectedDueDateFilter.set(parsed.selectedDueDateFilter);
           if (parsed.sortBy !== undefined) this.sortBy.set(parsed.sortBy);
           if (parsed.sortOrder !== undefined) this.sortOrder.set(parsed.sortOrder);
-          if (parsed.searchQuery !== undefined) this.searchQuery.set(parsed.searchQuery);
+          if (parsed.searchQuery !== undefined) {
+            this.rawSearchQuery.set(parsed.searchQuery);
+            this.searchQuery.set(parsed.searchQuery);
+          }
         } catch (e) {}
       } else {
         this.selectedProjectId.set('all');
@@ -770,10 +1173,7 @@ export class TasksComponent implements OnInit {
   onProjectChange(projId: string) {
     this.selectedProjectId.set(projId);
     if (projId !== 'all') {
-      const proj = this.projectService.projects().find(p => p.id === projId);
-      if (proj) {
-        this.projectService.activeProject.set(proj);
-      }
+      this.projectService.setActiveProject(projId);
     }
   }
 
@@ -806,6 +1206,7 @@ export class TasksComponent implements OnInit {
       this.selectedLabel() !== 'all' ||
       this.selectedDueDateFilter() !== 'all' ||
       this.sortOrder() !== 'desc' ||
+      this.rawSearchQuery().trim() !== '' ||
       this.searchQuery().trim() !== ''
     );
   });
@@ -826,7 +1227,7 @@ export class TasksComponent implements OnInit {
     const q = this.searchQuery().toLowerCase().trim();
     const sort = this.sortBy();
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
 
     list = list.filter(t => {
       if (projId !== 'all' && t.project_id !== projId) return false;
@@ -891,10 +1292,7 @@ export class TasksComponent implements OnInit {
         const sb = severityWeight[(b.severity || '').toLowerCase()] || 0;
         diff = sa - sb;
       } else if (sort === 'due_date') {
-        if (!a.due_date && !b.due_date) diff = 0;
-        else if (!a.due_date) diff = 1;
-        else if (!b.due_date) diff = -1;
-        else diff = a.due_date.localeCompare(b.due_date);
+        return compareDueDates(a.due_date, b.due_date, mult, a.created_at, b.created_at);
       } else if (sort === 'title') {
         diff = a.title.localeCompare(b.title);
       } else if (sort === 'status') {
@@ -917,7 +1315,7 @@ export class TasksComponent implements OnInit {
   }
 
   getTaskKeyStr(t: Task): string {
-    return getTaskKey(t, this.projectService.projects());
+    return getTaskKey(t, this.projectService.projects(), this.taskService.tasks());
   }
 
   getProjectName(projectId?: string): string {
@@ -980,28 +1378,177 @@ export class TasksComponent implements OnInit {
 
   isOverdue(dueDate?: string): boolean {
     if (!dueDate) return false;
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
     return dueDate < todayStr;
   }
 
+  private activeDragItem: CdkDrag<Task> | null = null;
+  private autoScrollFrameId: number | null = null;
+  private autoScrollSpeed: number = 0;
+
+  onDragStarted(event: CdkDragStart<Task>): void {
+    this.activeDragItem = event.source;
+  }
+
+  onDragMoved(event: CdkDragMove<Task>): void {
+    const container = this.kanbanBoardContainer?.nativeElement;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    const pointerX = event.pointerPosition.x;
+    const threshold = 100; // Edge threshold in px
+
+    const distLeft = pointerX - rect.left;
+    const distRight = rect.right - pointerX;
+
+    let speed = 0;
+
+    if (distLeft < threshold && container.scrollLeft > 0) {
+      const ratio = Math.max(0, (threshold - distLeft) / threshold);
+      speed = -Math.round(8 + ratio * 22);
+    } else if (distRight < threshold && (container.scrollLeft + container.clientWidth < container.scrollWidth - 5)) {
+      const ratio = Math.max(0, (threshold - distRight) / threshold);
+      speed = Math.round(8 + ratio * 22);
+    }
+
+    this.autoScrollSpeed = speed;
+
+    if (speed !== 0) {
+      if (!this.autoScrollFrameId) {
+        this.startAutoScrollLoop();
+      }
+    } else {
+      this.stopAutoScrollLoop();
+    }
+  }
+
+  private startAutoScrollLoop(): void {
+    const loop = () => {
+      const container = this.kanbanBoardContainer?.nativeElement;
+      if (container && this.autoScrollSpeed !== 0) {
+        container.scrollLeft += this.autoScrollSpeed;
+        this.updateScrollState(container);
+        this.autoScrollFrameId = requestAnimationFrame(loop);
+      } else {
+        this.stopAutoScrollLoop();
+      }
+    };
+    this.autoScrollFrameId = requestAnimationFrame(loop);
+  }
+
+  private stopAutoScrollLoop(): void {
+    if (this.autoScrollFrameId) {
+      cancelAnimationFrame(this.autoScrollFrameId);
+      this.autoScrollFrameId = null;
+    }
+    this.autoScrollSpeed = 0;
+  }
+
+  onDragEnded(): void {
+    this.activeDragItem = null;
+    this.stopAutoScrollLoop();
+    this.cleanupStrayDragElements();
+  }
+
+  @HostListener('window:blur')
+  @HostListener('document:visibilitychange')
+  onWindowBlurOrHide(): void {
+    if (this.activeDragItem) {
+      try {
+        this.activeDragItem.reset();
+      } catch (e) {}
+      this.activeDragItem = null;
+    }
+    this.cancelActiveDrag();
+  }
+
+  cancelActiveDrag(): void {
+    this.stopAutoScrollLoop();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true }));
+      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+    }
+    this.cleanupStrayDragElements();
+  }
+
+  cleanupStrayDragElements(): void {
+    if (typeof document !== 'undefined') {
+      const previews = document.querySelectorAll('.cdk-drag-preview');
+      previews.forEach(el => el.remove());
+      const placeholders = document.querySelectorAll('.cdk-drag-placeholder');
+      placeholders.forEach(el => el.remove());
+    }
+  }
+
+  private restrictedToastTimer: any = null;
+
+  showRestrictedToast(message: string, durationMs: number = 4000): void {
+    if (this.restrictedToastTimer) {
+      clearTimeout(this.restrictedToastTimer);
+      this.restrictedToastTimer = null;
+    }
+    this.restrictedToastMessage.set(message);
+    this.restrictedToastTimer = setTimeout(() => {
+      this.restrictedToastMessage.set('');
+      this.restrictedToastTimer = null;
+    }, durationMs);
+  }
+
+  clearRestrictedToast(): void {
+    if (this.restrictedToastTimer) {
+      clearTimeout(this.restrictedToastTimer);
+      this.restrictedToastTimer = null;
+    }
+    this.restrictedToastMessage.set('');
+  }
+
+  async moveTaskStatus(task: Task, newStatus: string): Promise<void> {
+    if (!task || task.status === newStatus) return;
+    const targetColumn = this.activeColumns().find(c => c.name === newStatus);
+    if (!targetColumn) return;
+
+    const allowed = this.workflowService.canTransition(task.status, targetColumn.id, task.project_id);
+    if (!allowed) {
+      this.showRestrictedToast(`Workflow Rule: Transitioning from "${task.status}" to "${newStatus}" is restricted.`);
+      return;
+    }
+
+    await this.taskService.updateTask(
+      task.id,
+      {
+        status: targetColumn.name,
+        workflow_id: targetColumn.id
+      },
+      task.updated_at
+    );
+  }
+
   async drop(event: CdkDragDrop<Task[]>, targetColumn: Workflow) {
+    this.activeDragItem = null;
+    this.stopAutoScrollLoop();
     const task: Task = event.item.data;
     if (task && task.status !== targetColumn.name) {
       const allowed = this.workflowService.canTransition(task.status, targetColumn.id, task.project_id);
       if (!allowed) {
-        this.restrictedToastMessage.set(`Workflow Rule: Transitioning from "${task.status}" to "${targetColumn.name}" is restricted.`);
-        setTimeout(() => this.restrictedToastMessage.set(''), 4500);
+        this.showRestrictedToast(`Workflow Rule: Transitioning from "${task.status}" to "${targetColumn.name}" is restricted.`);
+        this.cleanupStrayDragElements();
         return;
       }
 
-      await this.taskService.updateTask(task.id, {
-        status: targetColumn.name,
-        workflow_id: targetColumn.id
-      });
+      await this.taskService.updateTask(
+        task.id,
+        {
+          status: targetColumn.name,
+          workflow_id: targetColumn.id
+        },
+        task.updated_at
+      );
     }
+    this.cleanupStrayDragElements();
   }
 
   resetFilters() {
+    this.clearSearch();
     this.selectedProjectId.set('all');
     this.selectedType.set('all');
     this.selectedPriority.set('all');
@@ -1011,7 +1558,6 @@ export class TasksComponent implements OnInit {
     this.selectedDueDateFilter.set('all');
     this.sortBy.set('created_at');
     this.sortOrder.set('desc');
-    this.searchQuery.set('');
     localStorage.removeItem('bilo_board_filters');
   }
 
@@ -1034,6 +1580,54 @@ export class TasksComponent implements OnInit {
 
   openDetailModal(task: Task) {
     this.activeDetailTask.set(task);
+  }
+
+  ngAfterViewInit(): void {
+    setTimeout(() => this.updateScrollState(), 100);
+  }
+
+  @HostListener('window:resize')
+  onWindowResize(): void {
+    this.updateScrollState();
+  }
+
+  updateScrollState(el?: HTMLElement): void {
+    const container = el || this.kanbanBoardContainer?.nativeElement;
+    if (!container) return;
+
+    const scrollLeft = container.scrollLeft;
+    const scrollWidth = container.scrollWidth;
+    const clientWidth = container.clientWidth;
+
+    this.canScrollLeft.set(scrollLeft > 10);
+    this.canScrollRight.set(scrollLeft + clientWidth < scrollWidth - 10);
+
+    const colWidth = 326;
+    const leftCount = Math.max(0, Math.floor(scrollLeft / colWidth));
+    const rightCount = Math.max(0, Math.ceil((scrollWidth - scrollLeft - clientWidth) / colWidth));
+
+    this.offScreenLeftCount.set(leftCount);
+    this.offScreenRightCount.set(rightCount);
+  }
+
+  onBoardScroll(event: Event): void {
+    this.updateScrollState(event.target as HTMLElement);
+  }
+
+  scrollBoard(direction: 'left' | 'right'): void {
+    const container = this.kanbanBoardContainer?.nativeElement;
+    if (container) {
+      container.scrollBy({ left: direction === 'left' ? -340 : 340, behavior: 'smooth' });
+    }
+  }
+
+  scrollToColumn(columnId: string): void {
+    if (typeof document !== 'undefined') {
+      const el = document.getElementById(`col-${columnId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      }
+    }
   }
 
   closeDetailModal() {

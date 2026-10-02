@@ -1,4 +1,4 @@
-import { Component, signal, computed, effect, OnInit } from '@angular/core';
+import { Component, signal, computed, effect, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TaskService } from '../../core/services/task.service';
@@ -8,6 +8,8 @@ import { WorkspaceService } from '../../core/services/workspace.service';
 import { TaskShareService } from '../../core/services/task-share.service';
 import { Task } from '../../core/models/project.model';
 import { getTaskKey } from '../../core/utils/task-key.util';
+import { compareDueDates, getLocalDateString, getOffsetDateString } from '../../core/utils/date.util';
+import { ScrollingModule } from '@angular/cdk/scrolling';
 import { TaskDetailModalComponent } from '../../shared/components/task-detail-modal';
 import { TaskModalComponent } from '../../shared/components/task-modal';
 import { SelectComponent, SelectOption } from '../../shared/components/select';
@@ -16,9 +18,27 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
 @Component({
   selector: 'app-backlog',
   standalone: true,
-  imports: [CommonModule, FormsModule, TaskDetailModalComponent, TaskModalComponent, SelectComponent, ConfirmModalComponent],
+  imports: [CommonModule, FormsModule, ScrollingModule, TaskDetailModalComponent, TaskModalComponent, SelectComponent, ConfirmModalComponent],
   template: `
     <div class="backlog-workspace font-mono">
+      <!-- Restricted Transition Toast Notification -->
+      @if (restrictedToastMessage()) {
+        <div class="workflow-restriction-banner font-mono">
+          <i class="fi fi-rr-lock text-amber"></i>
+          <span>{{ restrictedToastMessage() }}</span>
+          <button type="button" class="btn-close-toast" (click)="clearRestrictedToast()">&times;</button>
+        </div>
+      }
+
+      <!-- Concurrent Edit Conflict Notification -->
+      @if (taskService.concurrentConflictMessage()) {
+        <div class="concurrent-conflict-banner font-mono">
+          <i class="fi fi-rr-interrogation text-cyan"></i>
+          <span>{{ taskService.concurrentConflictMessage() }}</span>
+          <button type="button" class="btn-close-toast" (click)="taskService.clearConflictNotification()">&times;</button>
+        </div>
+      }
+
       <!-- Top Banner Bar -->
       <div class="view-header-strip paper-panel">
         <div class="view-header-left">
@@ -28,7 +48,7 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
         </div>
 
         <div class="view-header-right">
-          <button class="btn btn-primary btn-sm" (click)="workspaceService.openCreateTaskModal()">
+          <button class="btn btn-primary btn-sm desktop-only" (click)="workspaceService.openCreateTaskModal()">
             <i class="fi fi-rr-plus"></i> New Task
           </button>
         </div>
@@ -42,10 +62,11 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
             type="text"
             class="search-input font-mono"
             placeholder="Search tasks by key, title, description..."
-            [(ngModel)]="searchQuery"
+            [ngModel]="rawSearchQuery()"
+            (ngModelChange)="onSearchInput($event)"
           />
-          @if (searchQuery()) {
-            <button class="btn-clear" (click)="searchQuery.set('')"><i class="fi fi-rr-cross"></i></button>
+          @if (rawSearchQuery()) {
+            <button class="btn-clear" (click)="clearSearch()"><i class="fi fi-rr-cross"></i></button>
           }
         </div>
 
@@ -155,10 +176,26 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
         </div>
       </div>
 
+      <!-- Batch Progress Bar Overlay -->
+      @if (taskService.batchProgress(); as progress) {
+        <div class="batch-progress-bar paper-panel font-mono">
+          <div class="batch-progress-info">
+            <span class="batch-progress-label">
+              <i class="fi fi-rr-spinner spinner-icon text-cyan"></i>
+              {{ progress.label }} ({{ progress.current }}/{{ progress.total }})
+            </span>
+            <span class="batch-progress-pct">{{ progress.percentage }}%</span>
+          </div>
+          <div class="batch-progress-track">
+            <div class="batch-progress-fill" [style.width.%]="progress.percentage"></div>
+          </div>
+        </div>
+      }
+
       <!-- Batch Selection Bar -->
-      @if (selectedTaskIds().length > 0) {
+      @if (visibleSelectedTaskIds().length > 0) {
         <div class="batch-bar paper-panel font-mono">
-          <span class="batch-text">{{ selectedTaskIds().length }} tasks selected</span>
+          <span class="batch-text">{{ visibleSelectedTaskIds().length }} task{{ visibleSelectedTaskIds().length > 1 ? 's' : '' }} selected</span>
           <div class="batch-actions">
             <button class="btn btn-secondary btn-xs" (click)="batchUpdateStatus('done')">
               <i class="fi fi-rr-check text-emerald"></i> Mark Done
@@ -200,15 +237,38 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
         <!-- Table Body -->
         <div class="table-body">
           @if (filteredTasks().length === 0) {
-            <div class="empty-backlog font-mono">
-              <i class="fi fi-rr-search text-muted"></i>
-              <span>No tasks found matching current filters.</span>
+            <div class="empty-state-card font-mono">
+              <div class="empty-state-icon-badge">
+                <i class="fi fi-rr-folder-open text-purple"></i>
+              </div>
+              <h4 class="empty-state-title">{{ hasActiveFilters() ? 'No Matching Backlog Tasks' : 'Backlog is Empty' }}</h4>
+              <p class="empty-state-subtitle">
+                {{ hasActiveFilters() ? 'No tasks matched your active status, priority, or search criteria. Try clearing filters or searching for another term.' : 'Your backlog workspace currently has no tasks. Add user stories, bug reports, or feature requests to build your product roadmap.' }}
+              </p>
               @if (hasActiveFilters()) {
-                <button class="btn btn-secondary btn-xs margin-top" (click)="resetFilters()">Clear Filters</button>
+                <div class="active-filter-summary font-mono">
+                  <span class="active-filter-title">ACTIVE FILTERS:</span>
+                  @if (selectedStatus() !== 'ALL') { <span class="filter-chip">Status: {{ selectedStatus() }}</span> }
+                  @if (selectedPriority() !== 'ALL') { <span class="filter-chip">Priority: {{ selectedPriority() }}</span> }
+                  @if (selectedType() !== 'ALL') { <span class="filter-chip">Type: {{ selectedType() }}</span> }
+                  @if (selectedDueDateFilter() !== 'ALL') { <span class="filter-chip">Due: {{ selectedDueDateFilter() }}</span> }
+                  @if (searchQuery()) { <span class="filter-chip">Search: "{{ searchQuery() }}"</span> }
+                </div>
+                <div class="empty-state-actions">
+                  <button class="btn btn-secondary btn-xs" (click)="resetFilters()">
+                    <i class="fi fi-rr-cross-small"></i> Clear Active Filters
+                  </button>
+                </div>
+              } @else {
+                <div class="empty-state-actions">
+                  <button class="btn btn-primary btn-xs" (click)="showCreateModal.set(true)">
+                    <i class="fi fi-rr-plus"></i> Add Task to Backlog
+                  </button>
+                </div>
               }
             </div>
           } @else {
-            @for (t of filteredTasks(); track t.id) {
+            @for (t of paginatedTasks(); track t.id) {
               <div
                 class="task-table-row"
                 [class.selected]="isTaskSelected(t.id)"
@@ -232,10 +292,15 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
                 <!-- Task Key / Identifier -->
                 <div
                   class="cell-key font-mono clickable-key"
+                  [class.copied]="taskShareService.lastCopiedTaskId() === t.id"
                   (click)="taskShareService.copyTaskShareLink(t, $event)"
-                  title="Click to copy share link"
+                  [title]="taskShareService.lastCopiedTaskId() === t.id ? 'Copied link for ' + getTaskKeyStr(t) : 'Click to copy share link'"
                 >
-                  <span>{{ getTaskKeyStr(t) }} <i class="fi fi-rr-link link-icon"></i></span>
+                  @if (taskShareService.lastCopiedTaskId() === t.id) {
+                    <span class="copied-pill text-emerald"><i class="fi fi-rr-check"></i> COPIED!</span>
+                  } @else {
+                    <span>{{ getTaskKeyStr(t) }} <i class="fi fi-rr-link link-icon"></i></span>
+                  }
                 </div>
 
                 <!-- Title / Summary -->
@@ -303,6 +368,67 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
           }
         </div>
       </div>
+
+      <!-- Pagination Controls Bar -->
+      @if (filteredTasks().length > 0) {
+        <div class="pagination-bar paper-panel font-mono">
+          <div class="pagination-info">
+            <span>
+              Showing <strong>{{ pageStartItem() }}</strong> – <strong>{{ pageEndItem() }}</strong> of <strong>{{ filteredTasks().length }}</strong> task{{ filteredTasks().length !== 1 ? 's' : '' }}
+            </span>
+            @if (filteredTasks().length !== taskService.tasks().length) {
+              <span class="filtered-total-text">(filtered from {{ taskService.tasks().length }} total)</span>
+            }
+          </div>
+
+          <div class="pagination-controls">
+            <div class="page-size-selector">
+              <span class="selector-label">ROWS PER PAGE:</span>
+              <app-select
+                [options]="pageSizeOptions"
+                [value]="pageSize().toString()"
+                (valueChange)="setPageSize($event)"
+              ></app-select>
+            </div>
+
+            <div class="page-nav-btns">
+              <button
+                class="btn btn-secondary btn-xs nav-btn"
+                [disabled]="currentPage() === 1"
+                (click)="goToPage(1)"
+                title="First Page"
+              >
+                <i class="fi fi-rr-angle-double-left"></i>
+              </button>
+              <button
+                class="btn btn-secondary btn-xs nav-btn"
+                [disabled]="currentPage() === 1"
+                (click)="goToPage(currentPage() - 1)"
+                title="Previous Page"
+              >
+                <i class="fi fi-rr-angle-left"></i>
+              </button>
+              <span class="page-indicator font-mono">{{ currentPage() }} / {{ totalPages() }}</span>
+              <button
+                class="btn btn-secondary btn-xs nav-btn"
+                [disabled]="currentPage() >= totalPages()"
+                (click)="goToPage(currentPage() + 1)"
+                title="Next Page"
+              >
+                <i class="fi fi-rr-angle-right"></i>
+              </button>
+              <button
+                class="btn btn-secondary btn-xs nav-btn"
+                [disabled]="currentPage() >= totalPages()"
+                (click)="goToPage(totalPages())"
+                title="Last Page"
+              >
+                <i class="fi fi-rr-angle-double-right"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      }
 
       <!-- Task Modals -->
       @if (showCreateModal()) {
@@ -436,8 +562,77 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
     .reset-btn {
       color: var(--accent-rose);
     }
+    .active-filter-summary {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+      margin-top: 0.5rem;
+      margin-bottom: 0.25rem;
+      font-size: 0.75rem;
+    }
+    .active-filter-title {
+      font-weight: 700;
+      color: var(--text-muted, #a1a1aa);
+      margin-right: 0.25rem;
+    }
+    .filter-chip {
+      background: var(--bg-tertiary, rgba(255, 255, 255, 0.08));
+      border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+      padding: 0.15rem 0.45rem;
+      border-radius: var(--radius-xs, 4px);
+      color: var(--text-main, #f4f4f5);
+      font-weight: 600;
+    }
 
     /* Batch Selection Bar */
+    .batch-progress-bar {
+      margin-bottom: 0.75rem;
+      padding: 0.75rem 1rem;
+      background: var(--bg-surface, #18181b);
+      border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+      border-radius: var(--radius-xs, 4px);
+    }
+    .batch-progress-info {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+      font-size: 0.8rem;
+    }
+    .batch-progress-label {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-weight: 600;
+      color: var(--text-main, #f4f4f5);
+    }
+    .batch-progress-pct {
+      font-weight: 700;
+      color: #38bdf8;
+    }
+    .batch-progress-track {
+      height: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .batch-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #0284c7 0%, #38bdf8 100%);
+      transition: width 0.15s ease-out;
+      border-radius: 3px;
+    }
+    .spinner-icon {
+      animation: spin 1s linear infinite;
+      display: inline-block;
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
     .batch-bar {
       display: flex;
       justify-content: space-between;
@@ -455,6 +650,63 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
       display: flex;
       align-items: center;
       gap: 0.5rem;
+    }
+
+    /* Pagination Controls Bar */
+    .pagination-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.75rem 1rem;
+      background: var(--bg-surface, #18181b);
+      border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+      border-radius: var(--radius-xs, 4px);
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .pagination-info {
+      font-size: 0.8rem;
+      color: var(--text-muted, #a1a1aa);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .pagination-info strong {
+      color: var(--text-main, #f4f4f5);
+    }
+    .filtered-total-text {
+      font-size: 0.75rem;
+      opacity: 0.8;
+    }
+    .pagination-controls {
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+      flex-wrap: wrap;
+    }
+    .page-size-selector {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .selector-label {
+      font-size: 0.75rem;
+      color: var(--text-muted, #a1a1aa);
+      font-weight: 600;
+    }
+    .page-nav-btns {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .nav-btn {
+      padding: 0.2rem 0.5rem;
+    }
+    .page-indicator {
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0 0.5rem;
+      color: var(--text-main, #f4f4f5);
     }
 
     /* Unified Backlog Table */
@@ -536,6 +788,20 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
       font-weight: 700;
       color: var(--text-muted);
       width: 85px;
+    }
+    .cell-key.copied {
+      color: #10b981 !important;
+      animation: pulse-copy 0.3s ease-out;
+    }
+    .copied-pill {
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+    }
+    @keyframes pulse-copy {
+      0% { transform: scale(0.92); }
+      50% { transform: scale(1.08); }
+      100% { transform: scale(1); }
     }
     .cell-summary {
       flex: 1;
@@ -828,8 +1094,28 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
     }
   `]
 })
-export class BacklogComponent implements OnInit {
+export class BacklogComponent implements OnInit, OnDestroy {
+  rawSearchQuery = signal<string>('');
   searchQuery = signal<string>('');
+  private searchDebounceTimer: any = null;
+
+  onSearchInput(val: string): void {
+    this.rawSearchQuery.set(val);
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+    this.searchDebounceTimer = setTimeout(() => {
+      this.searchQuery.set(val);
+    }, 300);
+  }
+
+  clearSearch(): void {
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+    this.rawSearchQuery.set('');
+    this.searchQuery.set('');
+  }
   selectedProject = signal<string>('ALL');
   selectedType = signal<string>('ALL');
   selectedPriority = signal<string>('ALL');
@@ -932,6 +1218,11 @@ export class BacklogComponent implements OnInit {
 
   selectedTaskIds = signal<string[]>([]);
 
+  visibleSelectedTaskIds = computed<string[]>(() => {
+    const visibleIds = new Set(this.filteredTasks().map(t => t.id));
+    return this.selectedTaskIds().filter(id => visibleIds.has(id));
+  });
+
   constructor(
     public taskService: TaskService,
     public projectService: ProjectService,
@@ -943,7 +1234,10 @@ export class BacklogComponent implements OnInit {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed.searchQuery !== undefined) this.searchQuery.set(parsed.searchQuery);
+        if (parsed.searchQuery !== undefined) {
+          this.rawSearchQuery.set(parsed.searchQuery);
+          this.searchQuery.set(parsed.searchQuery);
+        }
         if (parsed.selectedType !== undefined) this.selectedType.set(parsed.selectedType);
         if (parsed.selectedPriority !== undefined) this.selectedPriority.set(parsed.selectedPriority);
         if (parsed.selectedStatus !== undefined) this.selectedStatus.set(parsed.selectedStatus);
@@ -955,6 +1249,43 @@ export class BacklogComponent implements OnInit {
         if (parsed.sortOrder !== undefined) this.sortOrder.set(parsed.sortOrder);
       } catch (e) {}
     }
+
+    // Auto-prune selection when filters change so hidden/invisible items are deselected
+    effect(() => {
+      const visibleSet = new Set(this.filteredTasks().map(t => t.id));
+      const current = this.selectedTaskIds();
+      if (current.length > 0) {
+        const pruned = current.filter(id => visibleSet.has(id));
+        if (pruned.length !== current.length) {
+          this.selectedTaskIds.set(pruned);
+        }
+      }
+    }, { allowSignalWrites: true });
+
+    // Auto-adjust page if filters shrink total items
+    effect(() => {
+      const maxPages = this.totalPages();
+      if (this.currentPage() > maxPages) {
+        this.currentPage.set(maxPages);
+      }
+    }, { allowSignalWrites: true });
+
+    // Stale Status Filter Safeguard:
+    // If selectedStatus refers to a deleted workflow status that no longer exists
+    // in active workflows AND has zero matching tasks, automatically reset selectedStatus to 'ALL'
+    effect(() => {
+      const currentStatus = this.selectedStatus();
+      if (!currentStatus || currentStatus === 'ALL') return;
+
+      const activeWorkflows = this.workflowService.globalWorkflows();
+      const validWorkflowNames = new Set(activeWorkflows.map(w => w.name.toLowerCase()));
+      const matchingTaskExists = this.taskService.tasks().some(t => (t.status || '').toLowerCase() === currentStatus.toLowerCase());
+
+      if (!validWorkflowNames.has(currentStatus.toLowerCase()) && !matchingTaskExists) {
+        console.warn(`[BacklogFilter] Stale status filter "${currentStatus}" detected. Auto-resetting to "ALL".`);
+        this.selectedStatus.set('ALL');
+      }
+    }, { allowSignalWrites: true });
 
     effect(() => {
       const filters = {
@@ -973,22 +1304,86 @@ export class BacklogComponent implements OnInit {
     });
   }
 
+  pageSize = signal<number>(50);
+  currentPage = signal<number>(1);
+
+  pageSizeOptions: SelectOption[] = [
+    { value: '25', label: '25 / page' },
+    { value: '50', label: '50 / page' },
+    { value: '100', label: '100 / page' },
+    { value: '250', label: '250 / page' },
+    { value: '500', label: '500 / page' },
+    { value: '1000', label: '1000 / page' }
+  ];
+
+  totalPages = computed<number>(() => {
+    const total = this.filteredTasks().length;
+    const size = this.pageSize();
+    return Math.max(1, Math.ceil(total / size));
+  });
+
+  paginatedTasks = computed<Task[]>(() => {
+    const tasks = this.filteredTasks();
+    const size = this.pageSize();
+    const maxPages = Math.max(1, Math.ceil(tasks.length / size));
+    const page = Math.min(Math.max(1, this.currentPage()), maxPages);
+    const start = (page - 1) * size;
+    return tasks.slice(start, start + size);
+  });
+
+  pageStartItem = computed<number>(() => {
+    const total = this.filteredTasks().length;
+    if (total === 0) return 0;
+    const size = this.pageSize();
+    const page = Math.min(Math.max(1, this.currentPage()), this.totalPages());
+    return (page - 1) * size + 1;
+  });
+
+  pageEndItem = computed<number>(() => {
+    const total = this.filteredTasks().length;
+    if (total === 0) return 0;
+    const size = this.pageSize();
+    const page = Math.min(Math.max(1, this.currentPage()), this.totalPages());
+    return Math.min(total, page * size);
+  });
+
+  setPageSize(val: string) {
+    const size = parseInt(val, 10);
+    if (!isNaN(size) && size > 0) {
+      this.pageSize.set(size);
+      this.currentPage.set(1);
+    }
+  }
+
+  goToPage(page: number) {
+    const target = Math.min(Math.max(1, page), this.totalPages());
+    this.currentPage.set(target);
+  }
+
   toggleSortOrder() {
     this.sortOrder.update(o => o === 'asc' ? 'desc' : 'asc');
   }
 
   getTaskKeyStr(t: Task): string {
-    return getTaskKey(t, this.projectService.projects());
+    return getTaskKey(t, this.projectService.projects(), this.taskService.tasks());
   }
 
   ngOnInit() {
     this.taskService.loadTasksFromSupabase();
   }
 
+  ngOnDestroy(): void {
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+    this.clearRestrictedToast();
+  }
+
   allTasks = computed(() => this.taskService.tasks());
 
   hasActiveFilters = computed(() => {
     return (
+      this.rawSearchQuery().trim() !== '' ||
       this.searchQuery().trim() !== '' ||
       this.selectedType() !== 'ALL' ||
       this.selectedPriority() !== 'ALL' ||
@@ -1050,8 +1445,8 @@ export class BacklogComponent implements OnInit {
     }
 
     if (dueFilter !== 'all') {
-      const todayStr = new Date().toISOString().split('T')[0];
-      const weekAhead = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
+      const todayStr = getLocalDateString();
+      const weekAhead = getOffsetDateString(7);
       if (dueFilter === 'overdue') list = list.filter(t => t.due_date && t.due_date < todayStr && !t.completed);
       else if (dueFilter === 'today') list = list.filter(t => t.due_date === todayStr);
       else if (dueFilter === 'week') list = list.filter(t => t.due_date && t.due_date >= todayStr && t.due_date <= weekAhead);
@@ -1083,10 +1478,7 @@ export class BacklogComponent implements OnInit {
         const sb = severityWeight[(b.severity || '').toLowerCase()] || 0;
         diff = sa - sb;
       } else if (sort === 'due_date') {
-        if (!a.due_date && !b.due_date) diff = 0;
-        else if (!a.due_date) diff = 1;
-        else if (!b.due_date) diff = -1;
-        else diff = a.due_date.localeCompare(b.due_date);
+        return compareDueDates(a.due_date, b.due_date, mult, a.created_at, b.created_at);
       } else if (sort === 'title') {
         diff = a.title.localeCompare(b.title);
       } else if (sort === 'status') {
@@ -1099,7 +1491,7 @@ export class BacklogComponent implements OnInit {
   });
 
   resetFilters() {
-    this.searchQuery.set('');
+    this.clearSearch();
     this.selectedType.set('ALL');
     this.selectedPriority.set('ALL');
     this.selectedStatus.set('ALL');
@@ -1115,7 +1507,8 @@ export class BacklogComponent implements OnInit {
   isAllSelected(): boolean {
     const list = this.filteredTasks();
     if (list.length === 0) return false;
-    return list.every(t => this.selectedTaskIds().includes(t.id));
+    const selected = this.visibleSelectedTaskIds();
+    return list.every(t => selected.includes(t.id));
   }
 
   toggleSelectAll() {
@@ -1127,7 +1520,7 @@ export class BacklogComponent implements OnInit {
   }
 
   isTaskSelected(id: string): boolean {
-    return this.selectedTaskIds().includes(id);
+    return this.visibleSelectedTaskIds().includes(id);
   }
 
   toggleSelectTask(id: string) {
@@ -1145,42 +1538,76 @@ export class BacklogComponent implements OnInit {
   }
 
   async batchUpdateStatus(status: string) {
-    const ids = this.selectedTaskIds();
-    const isDoneVal = status.toLowerCase() === 'done';
-    for (const id of ids) {
-      await this.taskService.updateTask(id, { status, completed: isDoneVal });
-    }
+    const ids = this.visibleSelectedTaskIds();
+    if (ids.length === 0) return;
+    await this.taskService.batchUpdateTasks(ids, { status, completed: status.toLowerCase() === 'done' });
     this.clearSelection();
   }
 
   async batchUpdatePriority(priority: 'urgent' | 'high' | 'medium' | 'low') {
-    const ids = this.selectedTaskIds();
-    for (const id of ids) {
-      await this.taskService.updateTask(id, { priority });
-    }
+    const ids = this.visibleSelectedTaskIds();
+    if (ids.length === 0) return;
+    await this.taskService.batchUpdateTasks(ids, { priority });
     this.clearSelection();
   }
 
   confirmState = signal<{ open: boolean; title: string; message: string; action: () => void } | null>(null);
 
   batchDelete() {
-    const ids = this.selectedTaskIds();
+    const ids = this.visibleSelectedTaskIds();
     if (ids.length === 0) return;
     this.confirmState.set({
       open: true,
       title: 'Delete Selected Tasks',
-      message: `Are you sure you want to permanently delete ${ids.length} selected task${ids.length > 1 ? 's' : ''}?`,
+      message: `Are you sure you want to permanently delete ${ids.length} visible task${ids.length > 1 ? 's' : ''}?`,
       action: async () => {
-        for (const id of ids) {
-          await this.taskService.deleteTask(id);
-        }
+        await this.taskService.batchDeleteTasks(ids);
         this.clearSelection();
       }
     });
   }
 
+  restrictedToastMessage = signal<string>('');
+  private restrictedToastTimer: any = null;
+
+  showRestrictedToast(message: string, durationMs: number = 4000): void {
+    if (this.restrictedToastTimer) {
+      clearTimeout(this.restrictedToastTimer);
+      this.restrictedToastTimer = null;
+    }
+    this.restrictedToastMessage.set(message);
+    this.restrictedToastTimer = setTimeout(() => {
+      this.restrictedToastMessage.set('');
+      this.restrictedToastTimer = null;
+    }, durationMs);
+  }
+
+  clearRestrictedToast(): void {
+    if (this.restrictedToastTimer) {
+      clearTimeout(this.restrictedToastTimer);
+      this.restrictedToastTimer = null;
+    }
+    this.restrictedToastMessage.set('');
+  }
+
   async updateStatus(id: string, statusVal: string) {
-    await this.taskService.updateTask(id, { status: statusVal, completed: statusVal === 'done' });
+    const task = this.taskService.tasks().find(t => t.id === id);
+    if (task && task.status !== statusVal) {
+      const workflows = this.workflowService.getWorkflowsForProject(task.project_id);
+      const targetWf = workflows.find(w => w.name === statusVal);
+      if (targetWf) {
+        const allowed = this.workflowService.canTransition(task.status, targetWf.id, task.project_id);
+        if (!allowed) {
+          this.showRestrictedToast(`Workflow Rule: Transitioning from "${task.status}" to "${statusVal}" is restricted.`);
+          return;
+        }
+      }
+    }
+    await this.taskService.updateTask(
+      id,
+      { status: statusVal, completed: statusVal.toLowerCase() === 'done' },
+      task?.updated_at
+    );
   }
 
   deleteTask(t: Task) {
@@ -1195,10 +1622,14 @@ export class BacklogComponent implements OnInit {
     });
   }
 
-  handleConfirm() {
+  async handleConfirm() {
     const current = this.confirmState();
     if (current && current.action) {
-      current.action();
+      try {
+        await current.action();
+      } catch (e) {
+        console.error('Error executing confirmed action:', e);
+      }
     }
     this.confirmState.set(null);
   }

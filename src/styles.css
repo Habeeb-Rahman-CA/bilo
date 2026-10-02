@@ -16,13 +16,13 @@
   --bg-surface-active: #dfd9c8;
   /* Active state tone */
 
-  /* Text & Contrast Scale */
+  /* Text & Contrast Scale (WCAG 2.1 AA Compliant > 4.5:1 ratio) */
   --text-main: #1c1917;
-  /* Near black for maximum contrast */
-  --text-muted: #57534e;
-  /* Warm charcoal for secondary labels */
-  --text-subtle: #78716c;
-  /* Soft neutral for metadata */
+  /* Near black for maximum contrast (~18:1) */
+  --text-muted: #44403c;
+  /* Dark warm charcoal (~9.2:1 contrast against surface) */
+  --text-subtle: #57534e;
+  /* Warm slate charcoal (~6.7:1 contrast against surface, ~5.8:1 on subtle surface) */
 
   /* Precision Crisp Borders (1px rule) */
   --border-subtle: #e7e2d4;
@@ -78,13 +78,13 @@ body.dark-theme,
   --bg-surface-active: #3f3f46;
   /* Active / pressed state tone */
 
-  /* Text & Contrast Scale */
-  --text-main: #f4f4f5;
-  /* Crisp bright off-white for main text */
-  --text-muted: #a1a1aa;
-  /* Refined neutral grey for labels */
-  --text-subtle: #71717a;
-  /* Soft neutral grey for metadata */
+  /* Text & Contrast Scale (WCAG 2.1 AA Compliant > 4.5:1 ratio) */
+  --text-main: #fafafa;
+  /* Crisp bright off-white for main text (~17:1 contrast) */
+  --text-muted: #d4d4d8;
+  /* Refined light zinc grey for labels (~11.5:1 contrast) */
+  --text-subtle: #a1a1aa;
+  /* High-contrast slate zinc grey for metadata (~6.8:1 on dark surface, ~5.5:1 on hover cards) */
 
   /* Precision Crisp Metallic Dark Borders (1px rule) */
   --border-subtle: #27272a;
@@ -152,6 +152,24 @@ body.dark-theme .priority-badge.low {
   border-color: rgba(113, 113, 122, 0.35) !important;
 }
 
+body.dark-theme .badge-sky {
+  background: rgba(14, 165, 233, 0.18) !important;
+  color: #38bdf8 !important;
+  border-color: rgba(14, 165, 233, 0.35) !important;
+}
+
+body.dark-theme .badge-rose {
+  background: rgba(244, 63, 94, 0.18) !important;
+  color: #fb7185 !important;
+  border-color: rgba(244, 63, 94, 0.35) !important;
+}
+
+body.dark-theme .badge-violet {
+  background: rgba(139, 92, 246, 0.18) !important;
+  color: #a78bfa !important;
+  border-color: rgba(139, 92, 246, 0.35) !important;
+}
+
 body.dark-theme .pill-created,
 body.dark-theme .filter-pill.active.pill-created-toggle {
   background: rgba(168, 85, 247, 0.18) !important;
@@ -183,22 +201,31 @@ body.dark-theme .day-cell.drag-over {
   border-color: var(--accent-purple) !important;
 }
 
-/* Sleek Dark Scrollbar */
-body.dark-theme ::-webkit-scrollbar {
+/* ==========================================================================
+   Cross-Browser Custom Scrollbar System (Firefox, Safari, Chrome, Edge)
+   ========================================================================== */
+html,
+body,
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-medium) var(--bg-canvas);
+}
+
+::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
-body.dark-theme ::-webkit-scrollbar-track {
+::-webkit-scrollbar-track {
   background: var(--bg-canvas);
 }
 
-body.dark-theme ::-webkit-scrollbar-thumb {
+::-webkit-scrollbar-thumb {
   background: var(--border-medium);
   border-radius: var(--radius-xs);
 }
 
-body.dark-theme ::-webkit-scrollbar-thumb:hover {
+::-webkit-scrollbar-thumb:hover {
   background: var(--text-subtle);
 }
 
@@ -304,6 +331,31 @@ pre,
   border-color: var(--border-medium);
 }
 
+.btn-danger {
+  background: rgba(225, 29, 72, 0.12);
+  color: var(--accent-rose);
+  border-color: rgba(225, 29, 72, 0.35);
+  font-weight: 600;
+}
+
+.btn-danger:hover {
+  background: var(--accent-rose);
+  color: #ffffff;
+  border-color: var(--accent-rose);
+}
+
+.btn-ghost.btn-danger {
+  background: transparent;
+  border-color: transparent;
+  color: var(--accent-rose);
+}
+
+.btn-ghost.btn-danger:hover {
+  background: rgba(225, 29, 72, 0.15);
+  color: var(--accent-rose);
+  border-color: rgba(225, 29, 72, 0.3);
+}
+
 .btn-ghost {
   background: transparent;
   border-color: transparent;
@@ -383,6 +435,24 @@ pre,
   background: #fef3c7;
   color: #d97706;
   border-color: #fcd34d;
+}
+
+.badge-sky {
+  background: #e0f2fe;
+  color: #0284c7;
+  border-color: #7dd3fc;
+}
+
+.badge-rose {
+  background: #fee2e2;
+  color: #dc2626;
+  border-color: #fca5a5;
+}
+
+.badge-violet {
+  background: #ede9fe;
+  color: #7c3aed;
+  border-color: #c4b5fd;
 }
 
 .badge-medium {
@@ -601,19 +671,51 @@ pre,
    Accessibility (a11y) & Focus Ring Utilities (WCAG 2.1 AA)
    ========================================================================== */
 
-:focus-visible {
-  outline: 2px solid var(--accent-cyan, #06b6d4) !important;
-  outline-offset: 2px !important;
+/* Remove default focus outline on mouse clicks, but retain for keyboard navigation */
+:focus:not(:focus-visible),
+*:focus:not(:focus-visible) {
+  outline: none;
 }
 
+:focus-visible,
+*:focus-visible,
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
-[tabindex]:focus-visible {
+summary:focus-visible,
+[tabindex]:focus-visible,
+[role="button"]:focus-visible,
+[role="tab"]:focus-visible,
+[role="option"]:focus-visible,
+[role="checkbox"]:focus-visible,
+[role="menuitem"]:focus-visible,
+[contenteditable]:focus-visible {
   outline: 2px solid var(--accent-cyan, #06b6d4) !important;
   outline-offset: 2px !important;
+  box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.4) !important;
+  transition: outline-offset 0.15s ease, box-shadow 0.15s ease;
+}
+
+body.dark-theme :focus-visible,
+body.dark-theme *:focus-visible,
+body.dark-theme button:focus-visible,
+body.dark-theme a:focus-visible,
+body.dark-theme input:focus-visible,
+body.dark-theme select:focus-visible,
+body.dark-theme textarea:focus-visible,
+body.dark-theme summary:focus-visible,
+body.dark-theme [tabindex]:focus-visible,
+body.dark-theme [role="button"]:focus-visible,
+body.dark-theme [role="tab"]:focus-visible,
+body.dark-theme [role="option"]:focus-visible,
+body.dark-theme [role="checkbox"]:focus-visible,
+body.dark-theme [role="menuitem"]:focus-visible,
+body.dark-theme [contenteditable]:focus-visible {
+  outline: 2px solid var(--accent-cyan, #06b6d4) !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.6) !important;
 }
 
 .sr-only {
@@ -626,4 +728,185 @@ textarea:focus-visible,
   clip: rect(0, 0, 0, 0) !important;
   white-space: nowrap !important;
   border: 0 !important;
+}
+
+/* Universal Empty State Design System */
+.empty-state-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 3rem 1.5rem;
+  background: var(--bg-surface-subtle);
+  border: 1px dashed var(--border-medium);
+  border-radius: var(--radius-xs);
+  margin: 1rem 0;
+  gap: 0.75rem;
+}
+
+.empty-state-icon-badge {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-medium);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  margin-bottom: 0.25rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.empty-state-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.empty-state-subtitle {
+  font-size: 0.775rem;
+  color: var(--text-subtle);
+  max-width: 440px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.empty-state-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 0.5rem;
+}
+
+/* ==========================================================================
+   Comprehensive Accessible Keyboard Navigation (:focus-visible System)
+   ========================================================================== */
+*:focus-visible {
+  outline: 2px solid var(--accent-cyan, #06b6d4) !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.25) !important;
+}
+
+body.dark-theme *:focus-visible,
+[data-theme="dark"] *:focus-visible {
+  outline: 2px solid var(--accent-cyan, #06b6d4) !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.35) !important;
+}
+
+button:focus-visible,
+.btn:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible,
+.select-trigger:focus-visible,
+.ws-item-btn:focus-visible,
+.sidebar-tab-btn:focus-visible,
+.bottom-tab-btn:focus-visible,
+.task-card:focus-visible,
+.project-card:focus-visible,
+.option-item:focus-visible,
+.palette-item:focus-visible {
+  outline: 2px solid var(--accent-cyan, #06b6d4) !important;
+  outline-offset: 2px !important;
+}
+
+/* ==========================================================================
+   Image Lazy Loading & Intersection Observer Transitions
+   ========================================================================== */
+.lazy-image-init {
+  transition: opacity 0.3s ease-out, filter 0.3s ease-out;
+}
+
+.lazy-loading {
+  opacity: 0.4;
+  filter: blur(4px);
+}
+
+.lazy-loaded {
+  opacity: 1;
+  filter: blur(0);
+}
+
+.lazy-error {
+  opacity: 0.6;
+  filter: grayscale(100%);
+}
+
+/* ==========================================================================
+   Accessibility: Prefers-Reduced-Motion System (WCAG 2.1 SC 2.3.3)
+   Disables/pauses all animations, keyframes, transitions, and smooth scrolling
+   when user operating system or browser requests reduced motion.
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Completely stop infinite spinners, loading indicators, and skeleton pulses */
+  .spinner,
+  .spinner-icon,
+  .spin,
+  .spinning,
+  .dropzone-icon.spinner,
+  [class*="spin"],
+  [class*="spinner"],
+  .skeleton-line,
+  .skeleton-box,
+  .skeleton-card {
+    animation: none !important;
+    animation-play-state: paused !important;
+    transform: none !important;
+    opacity: 0.85 !important;
+  }
+
+  /* Disable lazy-image blur/fade transitions */
+  .lazy-image-init,
+  .lazy-loading,
+  .lazy-loaded,
+  .lazy-error {
+    transition: none !important;
+    filter: none !important;
+  }
+
+  /* Disable modal / popover slide & fade-in keyframes */
+  .user-menu-popover,
+  .notification-menu-popover,
+  .toast-item,
+  .mobile-sidebar-backdrop,
+  .modal-overlay,
+  .lightbox-overlay {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ==========================================================================
+   Global Desktop / Mobile View Visibility Utility Classes
+   ========================================================================== */
+.desktop-only {
+  display: inline-flex !important;
+}
+
+.mobile-only {
+  display: none !important;
+}
+
+@media (max-width: 768px) {
+  .desktop-only {
+    display: none !important;
+  }
+  .mobile-only {
+    display: inline-flex !important;
+  }
 }

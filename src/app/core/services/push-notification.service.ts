@@ -1,4 +1,5 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, computed } from '@angular/core';
+import { ToastService } from './toast.service';
 
 export interface PushNotificationLog {
   id: string;
@@ -13,6 +14,7 @@ export interface PushNotificationLog {
 })
 export class PushNotificationService {
   permissionStatus = signal<'default' | 'granted' | 'denied' | 'unsupported'>('default');
+  isSupported = computed(() => this.permissionStatus() !== 'unsupported');
   isSubscribed = signal<boolean>(false);
   notificationsEnabled = signal<boolean>(false);
   
@@ -25,8 +27,35 @@ export class PushNotificationService {
 
   private swRegistration: ServiceWorkerRegistration | null = null;
 
-  constructor() {
+  private currentUserId: string | null = null;
+
+  constructor(private toastService: ToastService) {
     this.init();
+  }
+
+  getHistoryStorageKey(userId?: string | null): string {
+    const uid = userId !== undefined ? userId : this.currentUserId;
+    return uid ? `bilo_notification_history_${uid}` : 'bilo_notification_history';
+  }
+
+  loadHistoryFromStorage(userId?: string | null) {
+    this.currentUserId = userId || null;
+    const key = this.getHistoryStorageKey(userId);
+    const storedHistory = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+    if (storedHistory) {
+      try {
+        this.notificationHistory.set(JSON.parse(storedHistory));
+        return;
+      } catch (e) {
+        console.error('[bilo Push] Error reading notification history:', e);
+      }
+    }
+    this.notificationHistory.set([]);
+  }
+
+  resetState() {
+    this.currentUserId = null;
+    this.notificationHistory.set([]);
   }
 
   async init() {
@@ -54,14 +83,7 @@ export class PushNotificationService {
     if (storedStatus !== null) this.notifyOnStatusChange.set(storedStatus === 'true');
 
     // 3. Load stored notification history
-    const storedHistory = localStorage.getItem('bilo_notification_history');
-    if (storedHistory) {
-      try {
-        this.notificationHistory.set(JSON.parse(storedHistory));
-      } catch (e) {
-        console.error('[bilo Push] Error reading notification history:', e);
-      }
-    }
+    this.loadHistoryFromStorage();
 
     // 4. Attach Service Worker registration if active
     if ('serviceWorker' in navigator) {
@@ -136,6 +158,11 @@ export class PushNotificationService {
   }
 
   toggleNotifications(enable?: boolean) {
+    if (this.permissionStatus() === 'unsupported') {
+      this.showToast('Push Notifications are not supported in this browser');
+      return;
+    }
+
     const targetState = enable !== undefined ? enable : !this.notificationsEnabled();
 
     if (targetState && this.permissionStatus() !== 'granted') {
@@ -154,6 +181,10 @@ export class PushNotificationService {
   }
 
   toggleSetting(key: 'create' | 'status_change') {
+    if (this.permissionStatus() === 'unsupported') {
+      return;
+    }
+
     if (key === 'create') {
       const val = !this.notifyOnTaskCreate();
       this.notifyOnTaskCreate.set(val);
@@ -165,13 +196,30 @@ export class PushNotificationService {
     }
   }
 
+  syncPermissionState(): 'default' | 'granted' | 'denied' | 'unsupported' {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      this.permissionStatus.set('unsupported');
+      return 'unsupported';
+    }
+
+    const current = Notification.permission;
+    this.permissionStatus.set(current);
+    if (current !== 'granted') {
+      this.notificationsEnabled.set(false);
+      localStorage.setItem('bilo_push_enabled', 'false');
+    }
+    return current;
+  }
+
   async sendNotification(
     title: string,
     body: string,
     type: 'test' | 'reminder' | 'created' | 'completed' | 'status_change' | 'system' = 'system',
     data: any = {}
   ): Promise<boolean> {
-    if (!this.notificationsEnabled() || this.permissionStatus() !== 'granted') {
+    const livePermission = this.syncPermissionState();
+
+    if (!this.notificationsEnabled() || livePermission !== 'granted') {
       console.log('[bilo Push] Notification skipped: Permission not granted or notifications disabled.');
       return false;
     }
@@ -192,8 +240,12 @@ export class PushNotificationService {
       try {
         await this.swRegistration.showNotification(title, options);
         sent = true;
-      } catch (err) {
+      } catch (err: any) {
         console.warn('[bilo Push] SW showNotification failed, falling back to window Notification:', err);
+        if (err?.name === 'NotAllowedError' || String(err?.message).includes('denied') || String(err?.message).includes('permission')) {
+          this.syncPermissionState();
+          return false;
+        }
       }
     }
 
@@ -206,8 +258,12 @@ export class PushNotificationService {
           notif.close();
         };
         sent = true;
-      } catch (err) {
+      } catch (err: any) {
         console.error('[bilo Push] Notification creation failed:', err);
+        if (err?.name === 'NotAllowedError' || String(err?.message).includes('denied') || String(err?.message).includes('permission')) {
+          this.syncPermissionState();
+          return false;
+        }
       }
     }
 
@@ -221,28 +277,42 @@ export class PushNotificationService {
       };
 
       this.notificationHistory.update(list => [logEntry, ...list.slice(0, 19)]);
-      localStorage.setItem('bilo_notification_history', JSON.stringify(this.notificationHistory()));
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(this.getHistoryStorageKey(), JSON.stringify(this.notificationHistory()));
+      }
     }
 
     return sent;
   }
 
-  async sendTestNotification() {
-    if (this.permissionStatus() !== 'granted') {
-      const granted = await this.requestPermission();
-      if (!granted) return;
-    }
+  isSendingTest = signal<boolean>(false);
 
-    const success = await this.sendNotification(
-      'bilo Push Notification Test',
-      'Push notifications active for task creation & status updates!',
-      'test'
-    );
+  async sendTestNotification(): Promise<boolean> {
+    if (this.isSendingTest()) return false;
+    this.isSendingTest.set(true);
 
-    if (success) {
-      this.showToast('Test Notification triggered successfully!');
-    } else {
-      this.showToast('Failed to trigger test notification. Check browser settings.');
+    try {
+      if (this.permissionStatus() !== 'granted') {
+        const granted = await this.requestPermission();
+        if (!granted) return false;
+      }
+
+      const success = await this.sendNotification(
+        'bilo Push Notification Test',
+        'Push notifications active for task creation & status updates!',
+        'test'
+      );
+
+      if (success) {
+        this.showToast('Test Notification triggered successfully!');
+      } else {
+        this.showToast('Failed to trigger test notification. Check browser settings.');
+      }
+      return success;
+    } finally {
+      setTimeout(() => {
+        this.isSendingTest.set(false);
+      }, 1500);
     }
   }
 
@@ -266,11 +336,17 @@ export class PushNotificationService {
 
   clearHistory() {
     this.notificationHistory.set([]);
-    localStorage.removeItem('bilo_notification_history');
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(this.getHistoryStorageKey());
+      localStorage.removeItem('bilo_notification_history');
+    }
     this.showToast('Notification log cleared');
   }
 
   showToast(message: string) {
+    if (this.toastService) {
+      this.toastService.show(message, { type: 'info', icon: 'fi fi-rr-bell text-amber' });
+    }
     this.toastMessage.set(message);
     setTimeout(() => {
       if (this.toastMessage() === message) {

@@ -3,6 +3,13 @@ export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 export type TaskSeverity = 'critical' | 'major' | 'minor' | 'trivial';
 export type TaskReproducibility = 'always' | 'often' | 'sometimes' | 'rarely' | 'unable';
 
+export type TaskAttachmentType = 'url' | 'base64' | 'unknown';
+export interface ParsedTaskAttachment {
+  type: TaskAttachmentType;
+  value: string;
+  mimeType?: string;
+}
+
 export type ProjectRole = 'owner' | 'admin' | 'member' | 'viewer';
 
 export interface UserProfile {
@@ -82,6 +89,8 @@ export interface Task {
   position: number;
   is_next: boolean;
   completed: boolean;
+  estimated_hours?: number;
+  logged_hours?: number;
   created_at: string;
   updated_at: string;
 }
@@ -95,6 +104,14 @@ export interface TaskComment {
   attachments?: string[];
   created_at: string;
   updated_at?: string;
+}
+
+export interface PaginatedCommentsResult {
+  comments: TaskComment[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
 }
 
 export interface TaskStatusHistory {

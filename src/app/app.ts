@@ -15,8 +15,10 @@ import { TaskModalComponent } from './shared/components/task-modal';
 
 import { TaskShareService } from './core/services/task-share.service';
 import { PushNotificationService } from './core/services/push-notification.service';
+import { ToastService } from './core/services/toast.service';
 import { ThemeService } from './core/services/theme.service';
 import { AuthService } from './core/services/auth.service';
+import { SupabaseService } from './core/services/supabase.service';
 import { ProjectService } from './core/services/project.service';
 import { TaskDetailModalComponent } from './shared/components/task-detail-modal';
 import { PushNotificationModalComponent } from './shared/components/push-notification-modal';
@@ -29,9 +31,15 @@ import { JoinWorkspaceModalComponent } from './shared/components/join-workspace-
 import { ReportIssueModalComponent } from './shared/components/report-issue-modal';
 import { EditProfileModalComponent } from './shared/components/edit-profile-modal';
 import { AuthPageComponent } from './features/auth/auth-page';
+import { LandingPageComponent } from './features/landing/landing-page';
+import { TaskService } from './core/services/task.service';
 import { Task, ProjectRole, Project } from './core/models/project.model';
+import { verifySecureInviteToken, VerifiedInvitePayload } from './core/utils/invite-token.util';
+import { registerOpenPopover, unregisterOpenPopover, ClosablePopover } from './shared/components/select';
 
 import { MaintenanceComponent } from './features/maintenance/maintenance';
+
+import { ProgressOverlayComponent } from './shared/components/progress-overlay';
 
 @Component({
   selector: 'app-root',
@@ -39,6 +47,7 @@ import { MaintenanceComponent } from './features/maintenance/maintenance';
   imports: [
     CommonModule,
     BiloLogoComponent,
+    ProgressOverlayComponent,
     WorkspaceSwitcherComponent,
     ProjectModalComponent,
     JoinWorkspaceModalComponent,
@@ -56,13 +65,14 @@ import { MaintenanceComponent } from './features/maintenance/maintenance';
     AuthModalComponent,
     ProjectAccessModalComponent,
     EditProfileModalComponent,
-    AuthPageComponent
+    AuthPageComponent,
+    LandingPageComponent
   ],
   templateUrl: './app.html',
   styleUrl: './app.css'
 })
 export class App implements OnInit {
-  readonly appVersion = 'v1.1.1';
+  readonly appVersion = 'v1.2.0';
   sidebarCollapsed = signal<boolean>(false);
   mobileMenuOpen = signal<boolean>(false);
   editingSharedTask = signal<Task | null>(null);
@@ -72,11 +82,34 @@ export class App implements OnInit {
   editProfileModalOpen = signal<boolean>(false);
   userMenuOpen = signal<boolean>(false);
   notificationMenuOpen = signal<boolean>(false);
+  notificationsExpanded = signal<boolean>(false);
+  mobileMoreMenuOpen = signal<boolean>(false);
+  retryingConnection = signal<boolean>(false);
+  showAuthPage = signal<boolean>(false);
+
+  private userMenuPopoverInstance: ClosablePopover = {
+    closePopover: () => this.closeUserMenu()
+  };
+
+  private notificationMenuPopoverInstance: ClosablePopover = {
+    closePopover: () => this.closeNotificationMenu()
+  };
+
+  private mobileMoreMenuPopoverInstance: ClosablePopover = {
+    closePopover: () => this.closeMobileMoreMenu()
+  };
+
+  isMoreWorkspaceActive = computed(() => {
+    const ws = this.workspaceService.activeWorkspace();
+    return ws === '04 CALENDAR' || ws === '05 ARCHIVE' || ws === '06 SETTINGS';
+  });
 
   // Incoming Invite Link State
   incomingInviteProjectId = signal<string | null>(null);
   incomingInviteRole = signal<ProjectRole>('member');
   incomingInviteProject = signal<Project | null>(null);
+  incomingInviteIssuedAt = signal<number | undefined>(undefined);
+  incomingInviteToken = signal<string | null>(null);
 
   userName = computed(() => {
     const u = this.authService.user();
@@ -97,10 +130,27 @@ export class App implements OnInit {
     public updateService: UpdateService,
     public taskShareService: TaskShareService,
     public pushService: PushNotificationService,
+    public toastService: ToastService,
     public themeService: ThemeService,
     public authService: AuthService,
-    public projectService: ProjectService
+    public projectService: ProjectService,
+    public taskService: TaskService,
+    public supabaseService: SupabaseService
   ) {}
+
+  async retryConnection() {
+    if (this.retryingConnection()) return;
+    this.retryingConnection.set(true);
+    try {
+      const restored = await this.syncService.retryConnection();
+      if (restored) {
+        await this.taskService.loadTasksFromSupabase();
+        await this.projectService.loadFromSupabase();
+      }
+    } finally {
+      this.retryingConnection.set(false);
+    }
+  }
 
   async ngOnInit() {
     this.checkIncomingInviteLink();
@@ -109,15 +159,39 @@ export class App implements OnInit {
   async checkIncomingInviteLink() {
     try {
       const params = new URLSearchParams(window.location.search);
-      const inviteId = params.get('invite');
-      const role = (params.get('role') || 'member') as ProjectRole;
+      const token = params.get('token');
+      const rawInvite = params.get('invite');
+      const rawRole = (params.get('role') || 'member') as ProjectRole;
 
-      if (inviteId) {
-        this.incomingInviteProjectId.set(inviteId);
-        this.incomingInviteRole.set(role);
+      let verifiedPayload: VerifiedInvitePayload | null = null;
+
+      if (token) {
+        verifiedPayload = await verifySecureInviteToken(token);
+        if (!verifiedPayload) {
+          console.warn('[Auth/Invite] Invalid, tampered, or expired workspace invite token');
+          this.taskShareService.showToast('Workspace invite link is invalid or expired.');
+          return;
+        }
+        this.incomingInviteToken.set(token);
+      } else if (rawInvite) {
+        // Fallback for valid legacy UUID links
+        if (this.syncService.isValidUuid(rawInvite)) {
+          verifiedPayload = {
+            projectId: rawInvite,
+            role: rawRole,
+            expiresAt: Date.now() + 86400000,
+            nonce: 'legacy'
+          };
+        }
+      }
+
+      if (verifiedPayload) {
+        this.incomingInviteProjectId.set(verifiedPayload.projectId);
+        this.incomingInviteRole.set(verifiedPayload.role);
+        this.incomingInviteIssuedAt.set(verifiedPayload.issuedAt);
 
         // Fetch workspace details for confirmation modal preview
-        const proj = await this.projectService.fetchProjectById(inviteId);
+        const proj = await this.projectService.fetchProjectById(verifiedPayload.projectId);
         this.incomingInviteProject.set(proj);
       }
     } catch (e) {
@@ -128,11 +202,17 @@ export class App implements OnInit {
   async acceptWorkspaceInvite() {
     const projId = this.incomingInviteProjectId();
     const role = this.incomingInviteRole();
+    const iat = this.incomingInviteIssuedAt();
+    const token = this.incomingInviteToken();
 
     if (projId) {
-      const joinedProj = await this.projectService.joinProjectViaInvite(projId, role);
-      if (joinedProj) {
-        this.taskShareService.showToast(`Joined workspace "${joinedProj.name}" successfully!`);
+      const result = await this.projectService.joinProjectViaInvite(projId, role, iat, token || undefined);
+      if (result.success && result.project) {
+        this.taskShareService.showToast(`Joined workspace "${result.project.name}" successfully!`);
+      } else if (result.error) {
+        this.taskShareService.showToast(result.error);
+      } else {
+        this.taskShareService.showToast('Failed to join workspace.');
       }
     }
 
@@ -142,6 +222,8 @@ export class App implements OnInit {
   clearInviteState() {
     this.incomingInviteProjectId.set(null);
     this.incomingInviteProject.set(null);
+    this.incomingInviteIssuedAt.set(undefined);
+    this.incomingInviteToken.set(null);
 
     // Clean up query param from URL without refreshing page
     if (window.history && window.history.replaceState) {
@@ -154,32 +236,91 @@ export class App implements OnInit {
   onDocumentClick(event: MouseEvent) {
     const target = event.target as HTMLElement;
     if (this.userMenuOpen() && !target.closest('.user-menu-container')) {
-      this.userMenuOpen.set(false);
+      this.closeUserMenu();
     }
     if (this.notificationMenuOpen() && !target.closest('.notification-menu-container')) {
-      this.notificationMenuOpen.set(false);
+      this.closeNotificationMenu();
     }
+    if (this.mobileMoreMenuOpen() && !target.closest('.mobile-more-menu-container')) {
+      this.closeMobileMoreMenu();
+    }
+  }
+
+  openUserMenu() {
+    registerOpenPopover(this.userMenuPopoverInstance);
+    this.userMenuOpen.set(true);
+  }
+
+  closeUserMenu() {
+    if (this.userMenuOpen()) {
+      unregisterOpenPopover(this.userMenuPopoverInstance);
+      this.userMenuOpen.set(false);
+      this.notificationsExpanded.set(false);
+    }
+  }
+
+  toggleNotificationsExpanded() {
+    this.notificationsExpanded.update(v => !v);
   }
 
   toggleUserMenu(event: MouseEvent) {
     event.stopPropagation();
-    this.notificationMenuOpen.set(false);
-    this.userMenuOpen.update(v => !v);
+    if (this.userMenuOpen()) {
+      this.closeUserMenu();
+    } else {
+      this.openUserMenu();
+    }
+  }
+
+  openNotificationMenu() {
+    registerOpenPopover(this.notificationMenuPopoverInstance);
+    this.notificationMenuOpen.set(true);
+  }
+
+  closeNotificationMenu() {
+    if (this.notificationMenuOpen()) {
+      unregisterOpenPopover(this.notificationMenuPopoverInstance);
+      this.notificationMenuOpen.set(false);
+    }
   }
 
   toggleNotificationMenu(event: MouseEvent) {
     event.stopPropagation();
-    this.userMenuOpen.set(false);
-    this.notificationMenuOpen.update(v => !v);
+    if (this.notificationMenuOpen()) {
+      this.closeNotificationMenu();
+    } else {
+      this.openNotificationMenu();
+    }
+  }
+
+  openMobileMoreMenu() {
+    registerOpenPopover(this.mobileMoreMenuPopoverInstance);
+    this.mobileMoreMenuOpen.set(true);
+  }
+
+  closeMobileMoreMenu() {
+    if (this.mobileMoreMenuOpen()) {
+      unregisterOpenPopover(this.mobileMoreMenuPopoverInstance);
+      this.mobileMoreMenuOpen.set(false);
+    }
+  }
+
+  toggleMobileMoreMenu(event: MouseEvent) {
+    event.stopPropagation();
+    if (this.mobileMoreMenuOpen()) {
+      this.closeMobileMoreMenu();
+    } else {
+      this.openMobileMoreMenu();
+    }
   }
 
   openNotificationSettings() {
-    this.notificationMenuOpen.set(false);
+    this.closeNotificationMenu();
     this.selectWorkspace('06 SETTINGS');
   }
 
   signOutUser() {
-    this.userMenuOpen.set(false);
+    this.closeUserMenu();
     this.authService.signOut();
   }
 
@@ -215,6 +356,7 @@ export class App implements OnInit {
   selectWorkspace(wsId: WorkspaceSection) {
     this.workspaceService.setWorkspace(wsId);
     this.mobileMenuOpen.set(false);
+    this.closeMobileMoreMenu();
   }
 
   onEditSharedTask(task: Task) {

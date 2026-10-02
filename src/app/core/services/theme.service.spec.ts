@@ -57,4 +57,25 @@ describe('ThemeService', () => {
     expect(localStorage.getItem('bilo_theme')).toBe('dark');
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
   });
+
+  it('should evict corrupted localStorage value on initialization', () => {
+    localStorage.setItem('bilo_theme', 'corrupted_theme_value');
+    service = new ThemeService();
+    expect(service.theme()).toBe('dark');
+    expect(localStorage.getItem('bilo_theme')).toBeNull();
+  });
+
+  it('should clean up matchMedia listener on ngOnDestroy', () => {
+    const removeEventListenerMock = vi.fn();
+    window.matchMedia = vi.fn().mockReturnValue({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: removeEventListenerMock
+    });
+
+    service = new ThemeService();
+    service.ngOnDestroy();
+
+    expect(removeEventListenerMock).toHaveBeenCalledWith('change', expect.any(Function));
+  });
 });

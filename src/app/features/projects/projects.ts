@@ -1,4 +1,4 @@
-import { Component, signal, computed } from '@angular/core';
+import { Component, signal, computed, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ProjectService } from '../../core/services/project.service';
@@ -6,9 +6,11 @@ import { TaskService } from '../../core/services/task.service';
 import { WorkflowService } from '../../core/services/workflow.service';
 import { WorkspaceService } from '../../core/services/workspace.service';
 import { Project, Task } from '../../core/models/project.model';
+import { isDueSoon, isOverdue } from '../../core/utils/date.util';
 import { ProjectModalComponent } from '../../shared/components/project-modal';
 import { WorkflowModalComponent } from '../../shared/components/workflow-modal';
-
+import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
+import { LazyImageDirective } from '../../shared/directives/lazy-image.directive';
 
 @Component({
   selector: 'app-projects',
@@ -17,7 +19,9 @@ import { WorkflowModalComponent } from '../../shared/components/workflow-modal';
     CommonModule,
     FormsModule,
     ProjectModalComponent,
-    WorkflowModalComponent
+    WorkflowModalComponent,
+    ConfirmModalComponent,
+    LazyImageDirective
   ],
   template: `
     <div class="projects-workspace font-mono">
@@ -36,9 +40,12 @@ import { WorkflowModalComponent } from '../../shared/components/workflow-modal';
               type="text"
               class="form-input search-input font-mono"
               placeholder="Search projects..."
-              [ngModel]="searchQuery()"
-              (ngModelChange)="searchQuery.set($event)"
+              [ngModel]="rawSearchQuery()"
+              (ngModelChange)="onSearchInput($event)"
             />
+            @if (rawSearchQuery()) {
+              <button class="btn-clear" (click)="clearSearch()" style="position: absolute; right: 0.5rem; background: none; border: none; color: var(--text-muted); cursor: pointer;"><i class="fi fi-rr-cross"></i></button>
+            }
           </div>
 
           <button class="btn btn-secondary btn-sm" (click)="openGlobalWorkflowModal()" title="Configure global status workflows">
@@ -63,6 +70,32 @@ import { WorkflowModalComponent } from '../../shared/components/workflow-modal';
             </div>
           }
         </div>
+      } @else if (projectService.projects().length === 0) {
+        <div class="empty-projects-hero paper-panel font-mono">
+          <div class="empty-icon-wrap">
+            <i class="fi fi-rr-folder-open empty-hero-icon"></i>
+          </div>
+          <h3 class="empty-hero-title">No Projects Found</h3>
+          <p class="empty-hero-desc">
+            You don't have any projects in your workspace yet. Create your first project to start tracking tasks, managing backlog, and configuring custom workflow pipelines.
+          </p>
+          <button class="btn btn-primary btn-sm" (click)="openCreateProjectModal()">
+            <i class="fi fi-rr-folder-add"></i> Create Your First Project
+          </button>
+        </div>
+      } @else if (filteredProjects().length === 0) {
+        <div class="empty-projects-hero paper-panel font-mono">
+          <div class="empty-icon-wrap">
+            <i class="fi fi-rr-search empty-hero-icon text-amber"></i>
+          </div>
+          <h3 class="empty-hero-title">No Matching Projects</h3>
+          <p class="empty-hero-desc">
+            No projects matched your search for "{{ searchQuery() }}". Try adjusting your search query or clear the filter.
+          </p>
+          <button class="btn btn-secondary btn-sm" (click)="clearSearch()">
+            <i class="fi fi-rr-cross"></i> Clear Search Filter
+          </button>
+        </div>
       } @else {
         <div class="projects-grid">
           @for (p of filteredProjects(); track p.id) {
@@ -75,7 +108,7 @@ import { WorkflowModalComponent } from '../../shared/components/workflow-modal';
               <div class="title-group">
                 @let projImg = p.image_url || p.icon;
                 @if (isImageIcon(projImg)) {
-                  <img [src]="projImg" class="project-icon-avatar" alt="Project Image" />
+                  <img [appLazyImage]="projImg" class="project-icon-avatar" alt="Project Image" />
                 } @else if (projImg) {
                   <i [class]="projImg" class="project-icon-symbol" [style.color]="p.color || 'var(--accent-cyan)'"></i>
                 } @else {
@@ -156,6 +189,13 @@ import { WorkflowModalComponent } from '../../shared/components/workflow-modal';
                 >
                   <i class="fi fi-rr-edit text-muted"></i> Edit
                 </button>
+                <button
+                  class="btn btn-ghost btn-xs text-rose"
+                  (click)="confirmDeleteProject(p)"
+                  title="Delete Project"
+                >
+                  <i class="fi fi-rr-trash text-rose"></i> Delete
+                </button>
               </div>
 
               <button
@@ -195,6 +235,17 @@ import { WorkflowModalComponent } from '../../shared/components/workflow-modal';
           (close)="closeWorkflowModal()"
         ></app-workflow-modal>
       }
+
+      <app-confirm-modal
+        [isOpen]="showDeleteConfirmModal()"
+        title="Delete Project"
+        [message]="'Are you sure you want to delete project &quot;' + (projectToDelete()?.name || '') + '&quot;? This will permanently delete the project and all associated tasks, workflows, and activities.'"
+        confirmText="Delete Project"
+        cancelText="Cancel"
+        type="danger"
+        (confirm)="executeDeleteProject()"
+        (cancel)="cancelDeleteProject()"
+      ></app-confirm-modal>
     </div>
   `,
   styles: [`
@@ -491,13 +542,84 @@ import { WorkflowModalComponent } from '../../shared/components/workflow-modal';
       max-width: 220px;
       line-height: 1.35;
     }
+
+    /* Empty State Hero Card */
+    .empty-projects-hero {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 3.5rem 1.5rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-medium);
+      border-radius: var(--radius-xs);
+      gap: 0.85rem;
+      margin-top: 0.5rem;
+    }
+    .empty-icon-wrap {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 0.25rem;
+    }
+    .empty-hero-icon {
+      font-size: 1.5rem;
+      color: var(--accent-cyan);
+    }
+    .empty-hero-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--text-main);
+      margin: 0;
+    }
+    .empty-hero-desc {
+      font-size: 0.825rem;
+      color: var(--text-muted);
+      max-width: 420px;
+      line-height: 1.5;
+      margin: 0;
+    }
   `]
 })
-export class ProjectsComponent {
+export class ProjectsComponent implements OnDestroy {
+  rawSearchQuery = signal<string>('');
   searchQuery = signal<string>('');
+  private searchDebounceTimer: any = null;
+
+  onSearchInput(val: string): void {
+    this.rawSearchQuery.set(val);
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+    this.searchDebounceTimer = setTimeout(() => {
+      this.searchQuery.set(val);
+    }, 300);
+  }
+
+  clearSearch(): void {
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+    this.rawSearchQuery.set('');
+    this.searchQuery.set('');
+  }
+
+  ngOnDestroy(): void {
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+  }
   showProjectModal = signal<boolean>(false);
   editingProject = signal<Project | null>(null);
   showWorkflowModal = signal<boolean>(false);
+  projectToDelete = signal<Project | null>(null);
+  showDeleteConfirmModal = signal<boolean>(false);
 
   constructor(
     public projectService: ProjectService,
@@ -515,21 +637,37 @@ export class ProjectsComponent {
     const q = this.searchQuery().toLowerCase().trim();
     const all = this.projectService.projects();
     if (!q) return all;
-    return all.filter(p =>
-      p.name.toLowerCase().includes(q) ||
-      (p.description || '').toLowerCase().includes(q)
-    );
+    return all.filter(p => {
+      const nameMatch = (p.name || '').toLowerCase().includes(q);
+      const descMatch = (p.description || '').toLowerCase().includes(q);
+      const slugMatch = (p.slug || '').toLowerCase().includes(q);
+      const repoMatch = (p.repository_url || '').toLowerCase().includes(q);
+      const statusMatch = (p.status || '').toLowerCase().includes(q);
+      const labelMatch = (p.labels || []).some(l => (l || '').toLowerCase().includes(q));
+
+      return nameMatch || descMatch || slugMatch || repoMatch || statusMatch || labelMatch;
+    });
   });
 
   getProjectSummary(projectId: string) {
-    const tasks = this.taskService.tasks().filter(t => t.project_id === projectId);
+    const allTasks = this.taskService.tasks() || [];
+    const tasks = allTasks.filter(t => t && t.project_id === projectId);
     const totalTasks = tasks.length;
-    const completedTasks = tasks.filter(t => t.completed || (t.status || '').toLowerCase() === 'done').length;
-    const percent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-    const openBugs = tasks.filter(t => !t.completed && (t.status || '').toLowerCase() !== 'done' && t.type === 'bug').length;
+    if (!totalTasks || totalTasks <= 0) {
+      return {
+        totalTasks: 0,
+        completedTasks: 0,
+        percent: 0,
+        openBugs: 0,
+        dueSoon: 0
+      };
+    }
 
-    const todayStr = new Date().toISOString().split('T')[0];
-    const dueSoon = tasks.filter(t => !t.completed && (t.status || '').toLowerCase() !== 'done' && t.due_date && t.due_date <= todayStr).length;
+    const completedTasks = tasks.filter(t => t && (t.completed || (t.status || '').toLowerCase() === 'done')).length;
+    const rawPercent = Math.round((completedTasks / totalTasks) * 100);
+    const percent = Number.isFinite(rawPercent) ? Math.min(100, Math.max(0, rawPercent)) : 0;
+    const openBugs = tasks.filter(t => t && !t.completed && (t.status || '').toLowerCase() !== 'done' && t.type === 'bug').length;
+    const dueSoon = tasks.filter(t => t && !t.completed && (t.status || '').toLowerCase() !== 'done' && (isDueSoon(t.due_date, false, 7) || isOverdue(t.due_date, false))).length;
 
     return {
       totalTasks,
@@ -565,10 +703,25 @@ export class ProjectsComponent {
 
   openProjectBoard(projectId: string) {
     this.projectService.explicitBoardProjectId.set(projectId);
-    const proj = this.projectService.projects().find(p => p.id === projectId);
-    if (proj) {
-      this.projectService.activeProject.set(proj);
-    }
+    this.projectService.setActiveProject(projectId);
     this.workspaceService.setWorkspace('03 TASKS');
+  }
+
+  confirmDeleteProject(p: Project) {
+    this.projectToDelete.set(p);
+    this.showDeleteConfirmModal.set(true);
+  }
+
+  cancelDeleteProject() {
+    this.showDeleteConfirmModal.set(false);
+    this.projectToDelete.set(null);
+  }
+
+  async executeDeleteProject() {
+    const proj = this.projectToDelete();
+    if (proj) {
+      await this.projectService.deleteProject(proj.id);
+    }
+    this.cancelDeleteProject();
   }
 }

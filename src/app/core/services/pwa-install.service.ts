@@ -36,9 +36,13 @@ export class PwaInstallService {
     const promptEvent = this.deferredPrompt();
     if (!promptEvent) return;
 
-    promptEvent.prompt();
-    const result = await promptEvent.userChoice;
-    if (result && result.outcome === 'accepted') {
+    try {
+      promptEvent.prompt();
+      await promptEvent.userChoice;
+    } catch (err) {
+      console.warn('[bilo PWA] Error triggering install prompt:', err);
+    } finally {
+      // Consumed BeforeInstallPromptEvent cannot be re-used. Always clear state to prevent dead install button.
       this.canInstallPwa.set(false);
       this.deferredPrompt.set(null);
     }

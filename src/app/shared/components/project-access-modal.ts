@@ -1,18 +1,20 @@
-import { Component, Input, signal, OnInit, Output, EventEmitter } from '@angular/core';
+import { Component, Input, signal, OnInit, OnDestroy, Output, EventEmitter, HostListener, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ProjectService } from '../../core/services/project.service';
 import { AuthService } from '../../core/services/auth.service';
 import { Project, ProjectMember, ProjectRole } from '../../core/models/project.model';
+import { copyToClipboard } from '../../core/utils/clipboard.util';
 import { ConfirmModalComponent } from './confirm-modal';
 import { SelectComponent, SelectOption } from './select';
+import { registerModal, unregisterModal, isTopModal, getModalZIndex } from '../../core/utils/modal-stack.util';
 
 @Component({
   selector: 'app-project-access-modal',
   standalone: true,
   imports: [CommonModule, FormsModule, ConfirmModalComponent, SelectComponent],
   template: `
-    <div class="modal-overlay" (click)="closeModal()">
+    <div class="modal-overlay" [style.z-index]="modalZIndex" (click)="closeModal()">
       <div class="modal-card access-modal-card paper-panel" (click)="$event.stopPropagation()">
         <!-- Header -->
         <div class="modal-header">
@@ -38,14 +40,28 @@ import { SelectComponent, SelectOption } from './select';
 
         <!-- Invite via Link Section -->
         <div class="invite-link-section paper-panel font-mono">
-          <label class="form-label">
-            <i class="fi fi-rr-link text-cyan"></i> INVITE VIA LINK
-          </label>
+          <div class="invite-header">
+            <label class="form-label">
+              <i class="fi fi-rr-link text-cyan"></i> INVITE VIA LINK
+            </label>
+            <span class="expiration-hint text-cyan">
+              <i class="fi fi-rr-clock"></i> Expires in {{ getExpirationLabel() }}
+            </span>
+          </div>
           <div class="invite-link-controls">
             <app-select
               class="role-select"
               [options]="roleOptions"
               [(value)]="inviteRole"
+              (valueChange)="onInviteRoleChange($event)"
+              [searchable]="false"
+              [compact]="true"
+            ></app-select>
+            <app-select
+              class="expiration-select"
+              [options]="expirationOptions"
+              [(value)]="inviteExpirationMs"
+              (valueChange)="onInviteExpirationChange($event)"
               [searchable]="false"
               [compact]="true"
             ></app-select>
@@ -53,7 +69,7 @@ import { SelectComponent, SelectOption } from './select';
               type="text"
               class="form-input link-input"
               readonly
-              [value]="getGeneratedInviteLink()"
+              [value]="generatedInviteLink()"
               (click)="copyInviteLink()"
             />
             <button class="btn btn-secondary btn-sm copy-btn" (click)="copyInviteLink()">
@@ -63,6 +79,12 @@ import { SelectComponent, SelectOption } from './select';
                 <i class="fi fi-rr-copy"></i> Copy
               }
             </button>
+          </div>
+          <div class="revoke-bar">
+            <button type="button" class="btn btn-ghost btn-xs text-rose" (click)="revokeInviteLinks()" title="Revoke all previous invite links for this project">
+              <i class="fi fi-rr-cross-circle"></i> Revoke Old Links
+            </button>
+            <span class="collaborator-notice">Former collaborators cannot rejoin via old links</span>
           </div>
         </div>
 
@@ -104,8 +126,12 @@ import { SelectComponent, SelectOption } from './select';
               <i class="fi fi-rr-spinner spinner-icon"></i> Loading project members...
             </div>
           } @else if (members().length === 0) {
-            <div class="empty-state">
-              <p>No explicit team members added. Only project owner has default access.</p>
+            <div class="empty-state-card compact">
+              <div class="empty-state-icon-badge warning">
+                <i class="fi fi-rr-users-slash"></i>
+              </div>
+              <h4 class="empty-state-title">Solo Workspace</h4>
+              <p class="empty-state-subtitle">No explicit team members added yet. Invite team members using the invite link or User ID / Email above to collaborate.</p>
             </div>
           } @else {
             <div class="members-list">
@@ -125,7 +151,7 @@ import { SelectComponent, SelectOption } from './select';
                     @if (isOwner() && m.role !== 'owner') {
                       <button
                         class="btn btn-ghost btn-xs text-amber"
-                        (click)="transferOwnership(m.user_id)"
+                        (click)="transferOwnership(m)"
                         title="Transfer project ownership"
                       >
                         Transfer
@@ -158,8 +184,9 @@ import { SelectComponent, SelectOption } from './select';
         [isOpen]="cs.open"
         [title]="cs.title"
         [message]="cs.message"
-        confirmText="Confirm"
-        type="danger"
+        [confirmText]="cs.confirmText || 'Confirm'"
+        [type]="cs.type || 'danger'"
+        [requireText]="cs.requireText"
         (confirm)="handleConfirm()"
         (cancel)="confirmState.set(null)"
       />
@@ -205,10 +232,44 @@ import { SelectComponent, SelectOption } from './select';
       margin-bottom: 0.85rem;
       background: var(--bg-surface-subtle);
     }
+    .invite-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.35rem;
+    }
+    .invite-header .form-label {
+      margin-bottom: 0;
+    }
+    .expiration-hint {
+      font-size: 0.65rem;
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      opacity: 0.9;
+    }
     .invite-link-controls {
       display: flex;
-      gap: 0.5rem;
+      gap: 0.4rem;
       margin-top: 0.35rem;
+    }
+    .expiration-select {
+      width: 105px;
+      min-width: 105px;
+      flex-shrink: 0;
+    }
+    .revoke-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 0.5rem;
+      padding-top: 0.35rem;
+      border-top: 1px dashed var(--border-subtle);
+    }
+    .collaborator-notice {
+      font-size: 0.625rem;
+      color: var(--text-muted);
+      font-style: italic;
     }
     .link-input {
       flex: 1;
@@ -238,8 +299,8 @@ import { SelectComponent, SelectOption } from './select';
       flex: 1;
     }
     .role-select {
-      width: 110px;
-      min-width: 110px;
+      width: 105px;
+      min-width: 105px;
       flex-shrink: 0;
     }
     .members-section {
@@ -343,9 +404,57 @@ import { SelectComponent, SelectOption } from './select';
     }
   `]
 })
-export class ProjectAccessModalComponent implements OnInit {
+export class ProjectAccessModalComponent implements OnInit, OnDestroy {
   @Input() project!: Project;
   @Output() close = new EventEmitter<void>();
+
+  private readonly modalId = 'project-access-modal-' + Math.random().toString(36).substring(2, 9);
+
+  get modalZIndex(): number {
+    return getModalZIndex(this.modalId);
+  }
+
+  @HostListener('window:keydown', ['$event'])
+  handleGlobalKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && isTopModal(this.modalId)) {
+      e.preventDefault();
+      this.closeModal();
+      return;
+    }
+
+    if (e.key === 'Tab' && isTopModal(this.modalId)) {
+      this.trapFocus(e);
+    }
+  }
+
+  private trapFocus(e: KeyboardEvent) {
+    const container = this.elementRef?.nativeElement;
+    if (!container) return;
+
+    const focusables = (Array.from(
+      container.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ) as HTMLElement[]).filter(el => el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement);
+
+    if (focusables.length === 0) return;
+
+    const firstEl = focusables[0];
+    const lastEl = focusables[focusables.length - 1];
+    const activeEl = document.activeElement;
+
+    if (e.shiftKey) {
+      if (activeEl === firstEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        lastEl.focus();
+      }
+    } else {
+      if (activeEl === lastEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        firstEl.focus();
+      }
+    }
+  }
 
   members = signal<ProjectMember[]>([]);
   loading = signal<boolean>(true);
@@ -353,6 +462,7 @@ export class ProjectAccessModalComponent implements OnInit {
   newUserId = '';
   newRole: ProjectRole = 'member';
   inviteRole: ProjectRole = 'member';
+  inviteExpirationMs: number = 604800000; // 7 days default
   linkCopied = signal<boolean>(false);
 
   roleOptions: SelectOption[] = [
@@ -361,33 +471,73 @@ export class ProjectAccessModalComponent implements OnInit {
     { value: 'viewer', label: 'Viewer' }
   ];
 
+  expirationOptions: SelectOption[] = [
+    { value: 86400000, label: '24 Hours' },
+    { value: 604800000, label: '7 Days' },
+    { value: 2592000000, label: '30 Days' }
+  ];
+
   message = signal<string>('');
   isError = signal<boolean>(false);
+  generatedInviteLink = signal<string>('');
 
-  getGeneratedInviteLink(): string {
-    if (!this.project) return '';
-    return this.projectService.generateInviteLink(this.project.id, this.inviteRole);
+  getExpirationLabel(): string {
+    const found = this.expirationOptions.find(o => String(o.value) === String(this.inviteExpirationMs));
+    return found ? found.label : '7 Days';
+  }
+
+  async updateInviteLink() {
+    if (!this.project) return;
+    const link = await this.projectService.generateInviteLink(this.project.id, this.inviteRole, Number(this.inviteExpirationMs));
+    this.generatedInviteLink.set(link);
+  }
+
+  async onInviteRoleChange(role: ProjectRole) {
+    this.inviteRole = role;
+    await this.updateInviteLink();
+  }
+
+  async onInviteExpirationChange(expMs: number) {
+    this.inviteExpirationMs = Number(expMs);
+    await this.updateInviteLink();
+  }
+
+  async revokeInviteLinks() {
+    if (!this.project) return;
+    this.projectService.revokeInviteLinks(this.project.id);
+    await this.updateInviteLink();
+    this.message.set('Previous invite links revoked. A new link has been generated.');
+    this.isError.set(false);
   }
 
   async copyInviteLink() {
-    const link = this.getGeneratedInviteLink();
+    let link = this.generatedInviteLink();
+    if (!link && this.project) {
+      link = await this.projectService.generateInviteLink(this.project.id, this.inviteRole, Number(this.inviteExpirationMs));
+      this.generatedInviteLink.set(link);
+    }
     if (!link) return;
-    try {
-      await navigator.clipboard.writeText(link);
+    const success = await copyToClipboard(link);
+    if (success) {
       this.linkCopied.set(true);
       setTimeout(() => this.linkCopied.set(false), 3000);
-    } catch (e) {
-      console.warn('Failed to copy to clipboard:', e);
     }
   }
 
   constructor(
     public projectService: ProjectService,
-    public authService: AuthService
+    public authService: AuthService,
+    private elementRef: ElementRef
   ) {}
 
-  ngOnInit() {
+  async ngOnInit() {
+    registerModal(this.modalId);
     this.loadMembers();
+    await this.updateInviteLink();
+  }
+
+  ngOnDestroy() {
+    unregisterModal(this.modalId);
   }
 
   isOwner(): boolean {
@@ -499,30 +649,41 @@ export class ProjectAccessModalComponent implements OnInit {
     this.message.set('');
     this.isError.set(false);
 
-    const success = await this.projectService.addProjectMember(
+    const result = await this.projectService.addProjectMemberDetailed(
       this.project.id,
       this.newUserId.trim(),
       this.newRole
     );
 
-    if (success) {
-      this.message.set('Member added successfully.');
+    if (result.success) {
+      this.message.set(result.message || 'Member added successfully.');
+      this.isError.set(false);
       this.newUserId = '';
       await this.loadMembers();
     } else {
       this.isError.set(true);
-      this.message.set('Failed to add member. Check user ID / permissions.');
+      this.message.set(result.error || 'Failed to add member.');
     }
     this.submitting.set(false);
   }
 
-  confirmState = signal<{ open: boolean; title: string; message: string; action: () => void } | null>(null);
+  confirmState = signal<{
+    open: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    type?: 'danger' | 'warning' | 'info';
+    requireText?: string;
+    action: () => void;
+  } | null>(null);
 
   removeMember(memberId: string) {
     this.confirmState.set({
       open: true,
       title: 'Remove Member',
       message: 'Are you sure you want to remove this member from the project?',
+      confirmText: 'Remove',
+      type: 'danger',
       action: async () => {
         const success = await this.projectService.removeProjectMember(this.project.id, memberId);
         if (success) {
@@ -537,11 +698,19 @@ export class ProjectAccessModalComponent implements OnInit {
     });
   }
 
-  transferOwnership(targetUserId: string) {
+  transferOwnership(target: ProjectMember | string) {
+    const targetUserId = typeof target === 'string' ? target : target.user_id;
+    const recipientName = typeof target === 'string' 
+      ? target 
+      : this.getUserDisplayName(target);
+
     this.confirmState.set({
       open: true,
-      title: 'Transfer Ownership',
-      message: `Are you sure you want to transfer project ownership of "${this.project.name}" to ${targetUserId}?`,
+      title: 'Transfer Project Ownership',
+      message: `PERMANENT ACTION: You are transferring ownership of project "${this.project.name}" to ${recipientName}. You will lose owner administrative privileges. This transfer cannot be undone.`,
+      confirmText: 'Transfer Ownership',
+      type: 'warning',
+      requireText: this.project.name,
       action: async () => {
         const success = await this.projectService.transferOwnership(this.project.id, targetUserId);
         if (success) {
@@ -556,10 +725,14 @@ export class ProjectAccessModalComponent implements OnInit {
     });
   }
 
-  handleConfirm() {
+  async handleConfirm() {
     const current = this.confirmState();
     if (current && current.action) {
-      current.action();
+      try {
+        await current.action();
+      } catch (e) {
+        console.error('Error executing confirmed action:', e);
+      }
     }
     this.confirmState.set(null);
   }

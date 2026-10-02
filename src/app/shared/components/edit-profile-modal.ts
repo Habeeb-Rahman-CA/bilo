@@ -1,15 +1,17 @@
-import { Component, EventEmitter, HostListener, OnInit, Output, signal } from '@angular/core';
+import { Component, EventEmitter, HostListener, ElementRef, OnInit, OnDestroy, Output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
 import { TaskShareService } from '../../core/services/task-share.service';
+import { isRealImageFile } from '../../core/utils/image-compressor.util';
+import { registerModal, unregisterModal, isTopModal, getModalZIndex } from '../../core/utils/modal-stack.util';
 
 @Component({
   selector: 'app-edit-profile-modal',
   standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
-    <div class="modal-overlay" (click)="close.emit()">
+    <div class="modal-overlay" [style.z-index]="modalZIndex" (click)="close.emit()">
       <div class="modal-card paper-panel font-mono" (click)="$event.stopPropagation()">
         <!-- Modal Header -->
         <div class="modal-header">
@@ -26,10 +28,10 @@ import { TaskShareService } from '../../core/services/task-share.service';
 
         <form (ngSubmit)="saveProfile()" class="modal-form">
           <div class="form-body">
-            @if (submitted && !displayName.trim()) {
+            @if (submitted && displayNameError) {
               <div class="form-error-banner font-mono">
                 <i class="fi fi-rr-triangle-warning"></i>
-                <span>Please enter a display name.</span>
+                <span>{{ displayNameError }}</span>
               </div>
             }
 
@@ -102,16 +104,28 @@ import { TaskShareService } from '../../core/services/task-share.service';
 
             <!-- Display Name -->
             <div class="form-group">
-              <label class="form-label">DISPLAY NAME <span class="text-rose">*</span></label>
+              <div class="label-with-hint">
+                <label class="form-label">DISPLAY NAME <span class="text-rose">*</span></label>
+                <span class="desc-hint font-mono" [class.text-rose]="displayName.length > 20">
+                  {{ displayName.length }}/20
+                </span>
+              </div>
               <input
                 type="text"
                 class="form-input font-mono"
-                [class.input-error]="submitted && !displayName.trim()"
+                [class.input-error]="submitted && !!displayNameError"
                 [(ngModel)]="displayName"
                 name="displayName"
                 placeholder="e.g. Habeeb Rahman or Alex Smith"
+                minlength="2"
+                maxlength="20"
                 required
               />
+              @if (submitted && displayNameError) {
+                <span class="field-error-text font-mono text-rose" style="font-size: 0.7rem; margin-top: 0.2rem;">
+                  <i class="fi fi-rr-exclamation"></i> {{ displayNameError }}
+                </span>
+              }
             </div>
 
             <!-- Email Address (Read-Only) -->
@@ -161,7 +175,6 @@ import { TaskShareService } from '../../core/services/task-share.service';
       bottom: 0;
       background: rgba(0, 0, 0, 0.65);
       backdrop-filter: blur(4px);
-      z-index: 9999;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -373,8 +386,14 @@ import { TaskShareService } from '../../core/services/task-share.service';
     }
   `]
 })
-export class EditProfileModalComponent implements OnInit {
+export class EditProfileModalComponent implements OnInit, OnDestroy {
   @Output() close = new EventEmitter<void>();
+
+  private readonly modalId = 'edit-profile-modal-' + Math.random().toString(36).substring(2, 9);
+
+  get modalZIndex(): number {
+    return getModalZIndex(this.modalId);
+  }
 
   displayName: string = '';
   avatarUrl: string | null = null;
@@ -387,17 +406,60 @@ export class EditProfileModalComponent implements OnInit {
 
   constructor(
     public authService: AuthService,
-    private taskShareService: TaskShareService
+    private taskShareService: TaskShareService,
+    private elementRef: ElementRef
   ) {}
 
   ngOnInit() {
+    registerModal(this.modalId);
     this.displayName = this.authService.userName();
     this.avatarUrl = this.authService.userAvatar();
   }
 
-  @HostListener('document:keydown.escape')
-  onEscape() {
-    this.close.emit();
+  ngOnDestroy() {
+    unregisterModal(this.modalId);
+  }
+
+  @HostListener('window:keydown', ['$event'])
+  handleGlobalKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && isTopModal(this.modalId)) {
+      e.preventDefault();
+      this.close.emit();
+      return;
+    }
+
+    if (e.key === 'Tab' && isTopModal(this.modalId)) {
+      this.trapFocus(e);
+    }
+  }
+
+  private trapFocus(e: KeyboardEvent) {
+    const container = this.elementRef?.nativeElement;
+    if (!container) return;
+
+    const focusables = (Array.from(
+      container.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ) as HTMLElement[]).filter(el => el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement);
+
+    if (focusables.length === 0) return;
+
+    const firstEl = focusables[0];
+    const lastEl = focusables[focusables.length - 1];
+    const activeEl = document.activeElement;
+
+    if (e.shiftKey) {
+      if (activeEl === firstEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        lastEl.focus();
+      }
+    } else {
+      if (activeEl === lastEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        firstEl.focus();
+      }
+    }
   }
 
   onDragOver(e: DragEvent) {
@@ -429,19 +491,27 @@ export class EditProfileModalComponent implements OnInit {
     }
   }
 
-  private handleFiles(files: File[]) {
-    const imageFile = files.find(f => f.type.startsWith('image/'));
-    if (!imageFile) {
-      this.taskShareService.showToast('Please select a valid image file (PNG, JPG, WebP).');
+  private async handleFiles(files: File[]) {
+    if (!files || files.length === 0) return;
+
+    const candidate = files[0];
+    if (candidate.size > 10 * 1024 * 1024) {
+      this.taskShareService.showToast(`File "${candidate.name}" exceeds maximum size limit of 10MB.`);
       return;
     }
 
-    this.pendingFile = imageFile;
+    const isValidImage = await isRealImageFile(candidate);
+    if (!isValidImage) {
+      this.taskShareService.showToast(`File "${candidate.name}" is not a valid or decodable image file.`);
+      return;
+    }
+
+    this.pendingFile = candidate;
     // Create instant local blob object URL for UI preview without heavy base64 strings
     if (this.avatarUrl && this.avatarUrl.startsWith('blob:')) {
       URL.revokeObjectURL(this.avatarUrl);
     }
-    this.avatarUrl = URL.createObjectURL(imageFile);
+    this.avatarUrl = URL.createObjectURL(candidate);
     this.taskShareService.showToast('Image selected. Click "Save Profile" to update.');
   }
 
@@ -453,10 +523,30 @@ export class EditProfileModalComponent implements OnInit {
     this.pendingFile = null;
   }
 
+  get displayNameError(): string | null {
+    const trimmed = (this.displayName || '').trim();
+    if (!trimmed) {
+      return 'Display name is required.';
+    }
+    if (trimmed.length < 2) {
+      return 'Display name must be at least 2 characters long.';
+    }
+    if (trimmed.length > 20) {
+      return 'Display name cannot exceed 20 characters.';
+    }
+    return null;
+  }
+
   async saveProfile() {
     this.submitted = true;
-    if (!this.displayName.trim() || this.saving()) return;
+    if (this.displayNameError || this.saving()) {
+      if (this.displayNameError) {
+        this.taskShareService.showToast(this.displayNameError);
+      }
+      return;
+    }
 
+    const trimmed = this.displayName.trim();
     this.saving.set(true);
     try {
       let finalAvatarUrl = this.avatarUrl;
@@ -471,15 +561,15 @@ export class EditProfileModalComponent implements OnInit {
       }
 
       await this.authService.updateProfile({
-        display_name: this.displayName.trim(),
+        display_name: trimmed,
         avatar_url: finalAvatarUrl
       });
 
       this.taskShareService.showToast('Profile updated successfully!');
       this.close.emit();
-    } catch (e) {
+    } catch (e: any) {
       console.error('Error updating profile:', e);
-      this.taskShareService.showToast('Failed to update profile. Please try again.');
+      this.taskShareService.showToast(e?.message || 'Failed to update profile. Please try again.');
     } finally {
       this.saving.set(false);
       this.uploadingAvatar.set(false);

@@ -1,6 +1,8 @@
-import { Injectable, signal, computed } from '@angular/core';
+import { Injectable, signal, computed, Injector } from '@angular/core';
 import { SupabaseService } from './supabase.service';
+import { TaskService } from './task.service';
 import { Workflow } from '../models/project.model';
+import { validateAndSanitizeWorkflow } from '../utils/data-validator.util';
 
 export const DEFAULT_GLOBAL_WORKFLOWS: Workflow[] = [
   { id: 'wf-backlog', project_id: 'global', name: 'Backlog', color: '#64748b', position: 0, created_at: '' },
@@ -37,7 +39,10 @@ export class WorkflowService {
     return DEFAULT_GLOBAL_WORKFLOWS;
   });
 
-  constructor(private supabaseService: SupabaseService) {
+  constructor(
+    private supabaseService: SupabaseService,
+    private injector?: Injector
+  ) {
     this.loadFromStorage();
     this.loadAllWorkflows();
   }
@@ -48,7 +53,15 @@ export class WorkflowService {
       try {
         const data = JSON.parse(cached);
         if (data && typeof data === 'object') {
-          this.workflowsByProject.set(data);
+          const sanitizedMap: Record<string, Workflow[]> = {};
+          for (const [projId, list] of Object.entries(data)) {
+            if (Array.isArray(list)) {
+              sanitizedMap[projId] = list
+                .map(w => validateAndSanitizeWorkflow(w))
+                .filter((w): w is Workflow => w !== null);
+            }
+          }
+          this.workflowsByProject.set(sanitizedMap);
           return;
         }
       } catch (e) {
@@ -57,11 +70,55 @@ export class WorkflowService {
     }
   }
 
-  private saveToStorage() {
+  private saveTimeoutTimer: any = null;
+
+  saveToStorage(delayMs: number = 100) {
+    if (delayMs <= 0) {
+      this.saveToStorageImmediate();
+      return;
+    }
+
+    if (this.saveTimeoutTimer) {
+      clearTimeout(this.saveTimeoutTimer);
+      this.saveTimeoutTimer = null;
+    }
+
+    this.saveTimeoutTimer = setTimeout(() => {
+      this.saveToStorageImmediate();
+    }, delayMs);
+  }
+
+  saveToStorageImmediate() {
+    if (typeof localStorage === 'undefined') return;
+    if (this.saveTimeoutTimer) {
+      clearTimeout(this.saveTimeoutTimer);
+      this.saveTimeoutTimer = null;
+    }
     localStorage.setItem('bilo_workflows_by_project', JSON.stringify(this.workflowsByProject()));
   }
 
+  deleteWorkflowsForProject(projectId: string) {
+    if (!projectId) return;
+    this.workflowsByProject.update(map => {
+      const updated = { ...map };
+      delete updated[projectId];
+      return updated;
+    });
+    this.saveToStorage();
+
+    if (this.supabaseService.isConfigured && this.supabaseService.supabase) {
+      this.supabaseService.supabase
+        .from('workflows')
+        .delete()
+        .eq('project_id', projectId)
+        .then(({ error }) => {
+          if (error) console.warn('[WorkflowService] Remote workflows deletion warning:', error.message);
+        });
+    }
+  }
+
   async loadAllWorkflows() {
+    if (!this.supabaseService.isConfigured) return;
     this.loading.set(true);
     try {
       const { data, error } = await this.supabaseService.supabase
@@ -98,12 +155,21 @@ export class WorkflowService {
   async createWorkflow(projectId: string, name: string, color: string = '#06b6d4'): Promise<Workflow> {
     const key = projectId || 'global';
     const current = this.getWorkflowsForProject(key);
+    const cleanName = (name || '').trim() || 'New Status';
+
+    let finalName = cleanName;
+    let counter = 1;
+    while (current.some(w => w.name.trim().toLowerCase() === finalName.toLowerCase())) {
+      finalName = `${cleanName} (${counter})`;
+      counter++;
+    }
+
     const generatedId = crypto.randomUUID();
 
     const newWorkflow: Workflow = {
       id: generatedId,
       project_id: key,
-      name: name.trim(),
+      name: finalName,
       color: color || '#06b6d4',
       position: current.length,
       created_at: new Date().toISOString()
@@ -136,6 +202,19 @@ export class WorkflowService {
   async updateWorkflow(id: string, updates: Partial<Workflow>, projectId?: string): Promise<Workflow | null> {
     let updatedWf: Workflow | null = null;
     const targetProj = projectId || 'global';
+    const currentWorkflows = this.getWorkflowsForProject(targetProj);
+
+    const finalUpdates = { ...updates };
+    if (updates.name !== undefined) {
+      const cleanName = updates.name.trim() || 'Status';
+      let finalName = cleanName;
+      let counter = 1;
+      while (currentWorkflows.some(w => w.id !== id && w.name.trim().toLowerCase() === finalName.toLowerCase())) {
+        finalName = `${cleanName} (${counter})`;
+        counter++;
+      }
+      finalUpdates.name = finalName;
+    }
 
     this.workflowsByProject.update(map => {
       const result: Record<string, Workflow[]> = { ...map };
@@ -143,7 +222,7 @@ export class WorkflowService {
         if (!projectId || p === targetProj) {
           result[p] = result[p].map(w => {
             if (w.id === id) {
-              updatedWf = { ...w, ...updates };
+              updatedWf = { ...w, ...finalUpdates };
               return updatedWf;
             }
             return w;
@@ -155,6 +234,19 @@ export class WorkflowService {
 
     if (updatedWf) {
       this.saveToStorage();
+      if (updates.name && this.injector) {
+        try {
+          const taskService = this.injector.get(TaskService);
+          const newName = updates.name.trim();
+          const targetWfId = id;
+          const matchingTasks = taskService.tasks().filter(
+            t => t.workflow_id === targetWfId || (t.project_id === targetProj && t.status.toLowerCase() === (updatedWf?.name.toLowerCase() || ''))
+          );
+          for (const t of matchingTasks) {
+            taskService.updateTask(t.id, { status: newName, workflow_id: targetWfId });
+          }
+        } catch (e) {}
+      }
     }
 
     try {
@@ -169,18 +261,123 @@ export class WorkflowService {
     return updatedWf;
   }
 
-  async deleteWorkflow(id: string, projectId?: string) {
+  getTaskCountForWorkflow(workflowId: string, projectId?: string): number {
+    if (!this.injector) return 0;
+    try {
+      const taskService = this.injector.get(TaskService);
+      if (!taskService) return 0;
+
+      const list = this.workflowsByProject()[projectId || 'global'] || [];
+      const targetWf = list.find(w => w.id === workflowId);
+      const targetNameLower = targetWf?.name?.trim().toLowerCase();
+
+      return taskService.tasks().filter(t => {
+        const matchesWfId = t.workflow_id === workflowId;
+        const matchesStatusId = t.status === workflowId;
+        const matchesStatusName = !!(targetNameLower && t.status?.trim().toLowerCase() === targetNameLower);
+        const matchesProject = !projectId || projectId === 'global' || t.project_id === projectId;
+        return (matchesWfId || matchesStatusId || matchesStatusName) && matchesProject;
+      }).length;
+    } catch {
+      return 0;
+    }
+  }
+
+  async deleteWorkflow(id: string, projectId?: string, fallbackWorkflowId?: string) {
+    let targetProjectId = projectId;
+    let deletedWf: Workflow | undefined;
+
+    for (const [p, list] of Object.entries(this.workflowsByProject())) {
+      const found = list.find(w => w.id === id);
+      if (found) {
+        deletedWf = found;
+        if (!targetProjectId) targetProjectId = p;
+        break;
+      }
+    }
+
+    targetProjectId = targetProjectId || 'global';
+    const currentList = this.workflowsByProject()[targetProjectId] || [];
+    const remainingWorkflows = currentList.filter(w => w.id !== id);
+
+    let fallbackWf: Workflow | undefined;
+    if (fallbackWorkflowId) {
+      fallbackWf = remainingWorkflows.find(w => w.id === fallbackWorkflowId || w.name === fallbackWorkflowId);
+    }
+    if (!fallbackWf && remainingWorkflows.length > 0) {
+      fallbackWf = remainingWorkflows[0];
+    }
+    if (!fallbackWf) {
+      const defaults = createDefaultWorkflowsForProject(targetProjectId);
+      fallbackWf = defaults[0];
+    }
+
+    // 1) Reassign all affected tasks FIRST before removing column from signal state
+    if (this.injector && fallbackWf) {
+      try {
+        const taskService = this.injector.get(TaskService);
+        if (taskService) {
+          const allTasks = taskService.tasks();
+          const deletedWfNameLower = deletedWf?.name?.trim().toLowerCase();
+
+          const affectedTasks = allTasks.filter(t => {
+            const matchesWfId = t.workflow_id === id;
+            const matchesStatusId = t.status === id;
+            const matchesStatusName = !!(deletedWfNameLower && t.status?.trim().toLowerCase() === deletedWfNameLower);
+            const matchesProject = targetProjectId === 'global' || !t.project_id || t.project_id === targetProjectId || !projectId;
+
+            return (matchesWfId || matchesStatusId || matchesStatusName) && matchesProject;
+          });
+
+          for (const t of affectedTasks) {
+            await taskService.updateTask(t.id, {
+              workflow_id: fallbackWf.id,
+              status: fallbackWf.name
+            });
+          }
+
+          if (this.supabaseService.supabase && affectedTasks.length > 0) {
+            const affectedIds = affectedTasks.map(t => t.id);
+            await this.supabaseService.supabase
+              .from('tasks')
+              .update({
+                workflow_id: fallbackWf.id,
+                status: fallbackWf.name,
+                updated_at: new Date().toISOString()
+              })
+              .in('id', affectedIds);
+          }
+        }
+      } catch (e) {
+        console.warn('Task migration during workflow deletion warning:', e);
+      }
+    }
+
+    // 2) Remove column from signal state & local storage after task reassignment, and scrub deleted ID from allowed_transitions
     this.workflowsByProject.update(map => {
       const result: Record<string, Workflow[]> = { ...map };
       for (const p in result) {
-        if (!projectId || p === projectId) {
-          result[p] = result[p].filter(w => w.id !== id);
+        if (!projectId || p === targetProjectId) {
+          const filtered = result[p].filter(w => w.id !== id);
+          result[p] = filtered.map(w => {
+            if (w.allowed_transitions && w.allowed_transitions.includes(id)) {
+              const newAllowed = w.allowed_transitions.filter(targetId => targetId !== id);
+              const newAllowAll = newAllowed.length === 0 ? true : (w.allow_all_transitions !== false);
+              return {
+                ...w,
+                allowed_transitions: newAllowed,
+                allow_all_transitions: newAllowAll
+              };
+            }
+            return w;
+          });
         }
       }
       return result;
     });
     this.saveToStorage();
 
+    // 3) Remove workflow from database
     try {
       await this.supabaseService.supabase
         .from('workflows')
@@ -205,11 +402,21 @@ export class WorkflowService {
     }));
     this.saveToStorage();
 
-    for (const w of updated) {
+    if (this.supabaseService.supabase && updated.length > 0) {
       try {
+        const batchRecords = updated.map(w => ({
+          id: w.id,
+          project_id: key,
+          position: w.position,
+          name: w.name,
+          color: w.color,
+          allow_all_transitions: w.allow_all_transitions !== false,
+          allowed_transitions: w.allowed_transitions || []
+        }));
+
         await this.supabaseService.supabase
           .from('workflows')
-          .upsert({ id: w.id, project_id: key, position: w.position, name: w.name, color: w.color });
+          .upsert(batchRecords);
       } catch (e) {
         console.warn('Supabase workflow position update warning:', e);
       }
@@ -218,12 +425,89 @@ export class WorkflowService {
 
   async resetToDefaultWorkflows(projectId: string): Promise<Workflow[]> {
     const key = projectId || 'global';
+    const oldWorkflows = this.getWorkflowsForProject(key);
     const defaults = createDefaultWorkflowsForProject(key);
+
+    // 1) Migrate all project tasks FIRST to matching default workflows BEFORE replacing signal state
+    if (this.injector) {
+      try {
+        const taskService = this.injector.get(TaskService);
+        if (taskService) {
+          const allTasks = taskService.tasks();
+          const projectTasks = allTasks.filter(t => key === 'global' || t.project_id === key);
+
+          const findBestMatchingDefault = (t: any): Workflow => {
+            if (t.workflow_id) {
+              const exactWf = defaults.find(d => d.id === t.workflow_id);
+              if (exactWf) return exactWf;
+            }
+
+            let statusName = (t.status || '').trim().toLowerCase();
+            if (t.workflow_id) {
+              const oldWf = oldWorkflows.find(w => w.id === t.workflow_id);
+              if (oldWf) statusName = oldWf.name.trim().toLowerCase();
+            }
+
+            if (statusName) {
+              const exactName = defaults.find(d => d.name.toLowerCase() === statusName);
+              if (exactName) return exactName;
+
+              if (statusName.includes('backlog')) return defaults.find(d => d.name === 'Backlog') || defaults[0];
+              if (statusName.includes('todo') || statusName === 'to do' || statusName === 'open') return defaults.find(d => d.name === 'To Do') || defaults[1];
+              if (statusName.includes('progress') || statusName.includes('doing') || statusName === 'wip') return defaults.find(d => d.name === 'In Progress') || defaults[2];
+              if (statusName.includes('review') || statusName.includes('testing') || statusName.includes('qa')) return defaults.find(d => d.name === 'In Review') || defaults[3];
+              if (statusName.includes('done') || statusName.includes('complete') || statusName.includes('closed')) return defaults.find(d => d.name === 'Done') || defaults[4];
+            }
+
+            return defaults[0];
+          };
+
+          for (const t of projectTasks) {
+            const targetDefault = findBestMatchingDefault(t);
+            await taskService.updateTask(t.id, {
+              workflow_id: targetDefault.id,
+              status: targetDefault.name
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('Task migration during resetToDefaultWorkflows warning:', e);
+      }
+    }
+
+    // 2) Update workflowsByProject signal state & local storage after tasks are safely migrated
     this.workflowsByProject.update(map => ({
       ...map,
       [key]: defaults
     }));
     this.saveToStorage();
+
+    // 3) Delete old workflows and batch insert new defaults in Supabase
+    if (this.supabaseService.supabase) {
+      try {
+        const oldIds = oldWorkflows.map(w => w.id);
+        if (oldIds.length > 0) {
+          await this.supabaseService.supabase
+            .from('workflows')
+            .delete()
+            .eq('project_id', key);
+        }
+        const batchDefaults = defaults.map(w => ({
+          id: w.id,
+          project_id: key,
+          name: w.name,
+          color: w.color,
+          position: w.position
+        }));
+
+        await this.supabaseService.supabase
+          .from('workflows')
+          .upsert(batchDefaults);
+      } catch (e) {
+        console.warn('Supabase resetToDefaultWorkflows warning:', e);
+      }
+    }
+
     return defaults;
   }
 
@@ -241,13 +525,18 @@ export class WorkflowService {
     if (!targetWf) return true; // If target status is unknown, allow by default
     if (targetWf.allow_all_transitions !== false) return true; // Allow all by default unless explicitly disabled
 
+    const activeWfIds = new Set(workflows.map(w => w.id));
+    const validAllowed = (targetWf.allowed_transitions || []).filter(id => activeWfIds.has(id));
+
+    // If all configured allowed transitions were deleted or invalid, fall back to allowing transitions
+    if (validAllowed.length === 0) return true;
+
     const fromWf = workflows.find(
       w => w.id === fromStatusNameOrId || w.name.trim().toLowerCase() === fromStatusNameOrId.trim().toLowerCase()
     );
 
-    const allowed = targetWf.allowed_transitions || [];
-    if (fromWf && allowed.includes(fromWf.id)) return true;
-    if (allowed.includes(fromStatusNameOrId)) return true;
+    if (fromWf && validAllowed.includes(fromWf.id)) return true;
+    if (validAllowed.includes(fromStatusNameOrId)) return true;
 
     return false;
   }
@@ -309,15 +598,20 @@ export class WorkflowService {
     }));
     this.saveToStorage();
 
-    for (const w of updated) {
+    if (this.supabaseService.supabase && updated.length > 0) {
       try {
+        const batchRecords = updated.map(w => ({
+          id: w.id,
+          project_id: key,
+          position: w.position,
+          name: w.name,
+          color: w.color,
+          allow_all_transitions: w.allow_all_transitions,
+          allowed_transitions: w.allowed_transitions
+        }));
         await this.supabaseService.supabase
           .from('workflows')
-          .update({
-            allow_all_transitions: w.allow_all_transitions,
-            allowed_transitions: w.allowed_transitions
-          })
-          .eq('id', w.id);
+          .upsert(batchRecords);
       } catch (e) {
         console.warn('Supabase sequential pipeline update warning:', e);
       }
@@ -338,6 +632,31 @@ export class WorkflowService {
       [key]: updated
     }));
     this.saveToStorage();
+
+    if (this.supabaseService.supabase && updated.length > 0) {
+      try {
+        const batchRecords = updated.map(w => ({
+          id: w.id,
+          project_id: key,
+          position: w.position,
+          name: w.name,
+          color: w.color,
+          allow_all_transitions: true,
+          allowed_transitions: []
+        }));
+        await this.supabaseService.supabase
+          .from('workflows')
+          .upsert(batchRecords);
+      } catch (e) {
+        console.warn('Supabase allow all transitions update warning:', e);
+      }
+    }
+  }
+
+  resetState() {
+    localStorage.removeItem('bilo_workflows_by_project');
+    this.workflowsByProject.set({ global: [...DEFAULT_GLOBAL_WORKFLOWS] });
+    this.loading.set(false);
   }
 }
 

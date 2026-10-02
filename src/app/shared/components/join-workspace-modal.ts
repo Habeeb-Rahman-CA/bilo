@@ -1,6 +1,7 @@
-import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges, OnInit, OnDestroy, HostListener, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Project, ProjectRole } from '../../core/models/project.model';
+import { registerModal, unregisterModal, isTopModal, getModalZIndex } from '../../core/utils/modal-stack.util';
 
 @Component({
   selector: 'app-join-workspace-modal',
@@ -8,7 +9,7 @@ import { Project, ProjectRole } from '../../core/models/project.model';
   imports: [CommonModule],
   template: `
     @if (isOpen) {
-      <div class="modal-overlay" (click)="onCancel()">
+      <div class="modal-overlay" [style.z-index]="modalZIndex" (click)="onCancel()">
         <div class="modal-card join-card paper-panel font-mono" (click)="$event.stopPropagation()">
           <div class="modal-header">
             <div class="header-left">
@@ -18,12 +19,19 @@ import { Project, ProjectRole } from '../../core/models/project.model';
                 <span class="subtext">You've been invited to join a workspace</span>
               </div>
             </div>
-            <button type="button" class="btn btn-ghost btn-xs" (click)="onCancel()" title="Decline & Close">
+            <button type="button" class="btn btn-ghost btn-xs" (click)="onCancel()" [disabled]="isSubmitting" title="Decline & Close">
               <i class="fi fi-rr-cross"></i>
             </button>
           </div>
 
           <div class="modal-body">
+            @if (validationError) {
+              <div class="join-alert font-mono error">
+                <i class="fi fi-rr-shield-exclamation text-rose"></i>
+                <span>{{ validationError }}</span>
+              </div>
+            }
+
             @if (project) {
               <div class="workspace-preview-box">
                 <div class="avatar-large" [style.border-color]="project.color || 'var(--accent-cyan)'">
@@ -63,11 +71,15 @@ import { Project, ProjectRole } from '../../core/models/project.model';
           </div>
 
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary btn-sm" (click)="onCancel()">
+            <button type="button" class="btn btn-secondary btn-sm" (click)="onCancel()" [disabled]="isSubmitting">
               Decline
             </button>
-            <button type="button" class="btn btn-primary btn-sm" [disabled]="!project" (click)="onJoin()">
-              <i class="fi fi-rr-check"></i> Accept & Join Workspace
+            <button type="button" class="btn btn-primary btn-sm" [disabled]="!project || !!validationError || isSubmitting" (click)="onJoin()">
+              @if (isSubmitting) {
+                <i class="fi fi-rr-spinner spinner"></i> Joining...
+              } @else {
+                <i class="fi fi-rr-check"></i> Accept & Join Workspace
+              }
             </button>
           </div>
         </div>
@@ -116,6 +128,19 @@ import { Project, ProjectRole } from '../../core/models/project.model';
 
     .modal-body {
       padding: 1.25rem 1.15rem;
+    }
+
+    .join-alert {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.6rem 0.85rem;
+      border-radius: var(--radius-xs);
+      font-size: 0.775rem;
+      margin-bottom: 0.85rem;
+      background: rgba(244, 63, 94, 0.12);
+      border: 1px solid rgba(244, 63, 94, 0.3);
+      color: #fb7185;
     }
 
     .workspace-preview-box {
@@ -228,19 +253,90 @@ import { Project, ProjectRole } from '../../core/models/project.model';
     }
   `]
 })
-export class JoinWorkspaceModalComponent {
+export class JoinWorkspaceModalComponent implements OnChanges, OnInit, OnDestroy {
   @Input() isOpen = false;
   @Input() project: Project | null = null;
   @Input() role: ProjectRole = 'member';
+  @Input() validationError: string | null = null;
 
   @Output() join = new EventEmitter<void>();
   @Output() cancel = new EventEmitter<void>();
 
+  private readonly modalId = 'join-workspace-modal-' + Math.random().toString(36).substring(2, 9);
+
+  get modalZIndex(): number {
+    return getModalZIndex(this.modalId);
+  }
+
+  isSubmitting = false;
+
+  ngOnInit() {
+    registerModal(this.modalId);
+  }
+
+  ngOnDestroy() {
+    unregisterModal(this.modalId);
+  }
+
+  constructor(private elementRef: ElementRef) {}
+
+  @HostListener('window:keydown', ['$event'])
+  handleGlobalKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && this.isOpen && isTopModal(this.modalId)) {
+      e.preventDefault();
+      this.onCancel();
+      return;
+    }
+
+    if (e.key === 'Tab' && this.isOpen && isTopModal(this.modalId)) {
+      this.trapFocus(e);
+    }
+  }
+
+  private trapFocus(e: KeyboardEvent) {
+    const container = this.elementRef?.nativeElement;
+    if (!container) return;
+
+    const focusables = (Array.from(
+      container.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ) as HTMLElement[]).filter(el => el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement);
+
+    if (focusables.length === 0) return;
+
+    const firstEl = focusables[0];
+    const lastEl = focusables[focusables.length - 1];
+    const activeEl = document.activeElement;
+
+    if (e.shiftKey) {
+      if (activeEl === firstEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        lastEl.focus();
+      }
+    } else {
+      if (activeEl === lastEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        firstEl.focus();
+      }
+    }
+  }
+
+  ngOnChanges(changes: SimpleChanges) {
+    if (changes['isOpen']) {
+      this.isSubmitting = false;
+    }
+  }
+
   onJoin() {
+    if (this.isSubmitting || !this.project || !!this.validationError) return;
+    this.isSubmitting = true;
     this.join.emit();
   }
 
   onCancel() {
+    if (this.isSubmitting) return;
     this.cancel.emit();
   }
 }
+

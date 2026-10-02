@@ -1,4 +1,4 @@
-import { Component, Input } from '@angular/core';
+import { Component, Input, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ThemeService } from '../../core/services/theme.service';
 
@@ -9,7 +9,18 @@ import { ThemeService } from '../../core/services/theme.service';
   template: `
     <div class="bilo-logo-wrapper" [ngClass]="['size-' + size, classNames]" [class.compact]="compact">
       <div class="bilo-logo-mark" title="bilo Developer Project Manager">
-        <img [src]="themeService.isDarkMode() ? 'bilo-icon-dark.png' : 'bilo-icon-light.png'" class="bilo-logo-img" alt="bilo Logo" />
+        <img
+          src="bilo-icon-dark.png"
+          class="bilo-logo-img logo-dark-variant"
+          [style.display]="themeService.isDarkMode() ? 'block' : 'none'"
+          alt="bilo Logo"
+        />
+        <img
+          src="bilo-icon-light.png"
+          class="bilo-logo-img logo-light-variant"
+          [style.display]="themeService.isDarkMode() ? 'none' : 'block'"
+          alt="bilo Logo"
+        />
       </div>
     </div>
   `,
@@ -86,7 +97,7 @@ import { ThemeService } from '../../core/services/theme.service';
     }
   `]
 })
-export class BiloLogoComponent {
+export class BiloLogoComponent implements OnInit {
   @Input() size: 'xs' | 'sm' | 'md' | 'lg' | 'xl' = 'sm';
   @Input() showText = true;
   @Input() compact = false;
@@ -94,5 +105,18 @@ export class BiloLogoComponent {
   @Input() classNames = '';
 
   constructor(public themeService: ThemeService) {}
+
+  ngOnInit() {
+    this.preloadLogoVariants();
+  }
+
+  private preloadLogoVariants() {
+    if (typeof window !== 'undefined' && typeof window.Image !== 'undefined') {
+      const darkImg = new window.Image();
+      darkImg.src = 'bilo-icon-dark.png';
+      const lightImg = new window.Image();
+      lightImg.src = 'bilo-icon-light.png';
+    }
+  }
 }
 

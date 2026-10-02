@@ -12,6 +12,12 @@ export interface WorkspaceItem {
   desc: string;
 }
 
+export interface GlobalShortcutItem {
+  title: string;
+  desc: string;
+  keys: string[];
+}
+
 const WORKSPACE_HASH_MAP: Record<string, WorkspaceSection> = {
   'today': '01 TODAY',
   'dashboard': '01 TODAY',
@@ -52,16 +58,61 @@ export class WorkspaceService {
     { id: '06 SETTINGS', key: '6', name: 'SETTINGS', code: '06', icon: 'fi fi-rr-settings', desc: 'Workspace settings & status workflow' }
   ];
 
+  readonly globalShortcuts: GlobalShortcutItem[] = [
+    { title: 'Command Palette Search', desc: 'Search tasks, projects, or trigger actions', keys: ['⌘', 'K'] },
+    { title: 'Create New Task', desc: 'Open quick task creation modal in any workspace', keys: ['N'] },
+    { title: 'System Reference Guide', desc: 'Toggle this help & documentation overlay', keys: ['?'] },
+    { title: 'Toggle Dark / Light Theme', desc: 'Switch between Black & Grey Dark Theme and Light Theme', keys: ['T'] },
+    { title: 'Close Modal / Dismiss Overlay', desc: 'Exit open dialogs, drawers, or palettes', keys: ['ESC'] }
+  ];
+
+  get workspaceKeyRange(): string {
+    if (!this.workspaces || this.workspaces.length === 0) return '';
+    const firstKey = this.workspaces[0].key;
+    const lastKey = this.workspaces[this.workspaces.length - 1].key;
+    return firstKey === lastKey ? firstKey : `${firstKey}-${lastKey}`;
+  }
+
   constructor(public themeService: ThemeService) {
     this.initKeyboardListeners();
     this.initHashListener();
   }
 
+  private cleanHash(hashOrHref: string): string {
+    if (!hashOrHref) return '';
+    let hash = hashOrHref;
+    if (hash.includes('#')) {
+      hash = hash.split('#').pop() || '';
+    }
+    if (hash.includes('?')) {
+      hash = hash.split('?')[0];
+    }
+    return hash.replace(/^\/+/, '').replace(/\/+$/, '').toLowerCase().trim();
+  }
+
+  private getSavedOrDefaultWorkspace(): WorkspaceSection {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('bilo_active_workspace') as WorkspaceSection;
+      if (saved && WORKSPACE_SECTION_TO_HASH[saved]) {
+        return saved;
+      }
+    }
+    return '01 TODAY';
+  }
+
   private getInitialWorkspace(): WorkspaceSection {
     if (typeof window !== 'undefined') {
-      const hash = window.location.hash.replace('#', '').toLowerCase().trim();
-      if (hash && WORKSPACE_HASH_MAP[hash]) {
-        return WORKSPACE_HASH_MAP[hash];
+      const rawHash = this.cleanHash(window.location.hash || window.location.href);
+      if (rawHash) {
+        if (WORKSPACE_HASH_MAP[rawHash]) {
+          return WORKSPACE_HASH_MAP[rawHash];
+        } else {
+          // Invalid or unknown hash: fallback to saved or default workspace and correct the URL
+          const fallback = this.getSavedOrDefaultWorkspace();
+          const correctedHash = WORKSPACE_SECTION_TO_HASH[fallback] || 'today';
+          window.history.replaceState(null, '', '#' + correctedHash);
+          return fallback;
+        }
       }
 
       const saved = localStorage.getItem('bilo_active_workspace') as WorkspaceSection;
@@ -86,9 +137,12 @@ export class WorkspaceService {
   private initHashListener() {
     if (typeof window === 'undefined') return;
     window.addEventListener('hashchange', () => {
-      const hash = window.location.hash.replace('#', '').toLowerCase().trim();
+      const hash = this.cleanHash(window.location.hash);
       if (hash && WORKSPACE_HASH_MAP[hash]) {
         this.setWorkspace(WORKSPACE_HASH_MAP[hash], false);
+      } else {
+        const fallback = this.activeWorkspace() || this.getSavedOrDefaultWorkspace();
+        this.setWorkspace(fallback, true);
       }
     });
   }
@@ -127,11 +181,20 @@ export class WorkspaceService {
     window.addEventListener('keydown', (e: KeyboardEvent) => {
       // Don't intercept shortcuts when typing in inputs/textareas/contenteditable
       const target = e.target as HTMLElement;
-      const isInput = target && (
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.tagName === 'SELECT' ||
-        target.isContentEditable
+      const isInput = !!(
+        target && (
+          target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable ||
+          (typeof target.closest === 'function' && (
+            !!target.closest('[contenteditable="true"]') ||
+            !!target.closest('[contenteditable=""]') ||
+            !!target.closest('.ProseMirror') ||
+            !!target.closest('.ql-editor') ||
+            !!target.closest('[role="textbox"]')
+          ))
+        )
       );
 
       // Global hotkeys (Cmd+K / Ctrl+K)
@@ -170,13 +233,11 @@ export class WorkspaceService {
         return;
       }
 
-      // Numeric shortcuts 1-6 for switching workspace
-      if (['1', '2', '3', '4', '5', '6'].includes(e.key)) {
-        const item = this.workspaces.find(w => w.key === e.key);
-        if (item) {
-          e.preventDefault();
-          this.setWorkspace(item.id);
-        }
+      // Numeric shortcuts for switching workspace based on workspaces array
+      const navItem = this.workspaces.find(w => w.key === e.key);
+      if (navItem && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        this.setWorkspace(navItem.id);
         return;
       }
 

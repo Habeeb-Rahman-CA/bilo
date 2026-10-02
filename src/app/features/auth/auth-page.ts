@@ -1,10 +1,11 @@
-import { Component, signal, Input, Output, EventEmitter } from '@angular/core';
+import { Component, signal, Input, Output, EventEmitter, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
 import { WorkspaceService } from '../../core/services/workspace.service';
 import { ThemeService } from '../../core/services/theme.service';
 import { BiloLogoComponent } from '../../shared/components/bilo-logo';
+import { formatAuthError } from '../../core/utils/auth-error.util';
 
 @Component({
   selector: 'app-auth-page',
@@ -15,14 +16,25 @@ import { BiloLogoComponent } from '../../shared/components/bilo-logo';
       <!-- Theme Switcher Top Header Bar -->
       <header class="auth-page-header">
         <app-bilo-logo size="md" [showText]="true"></app-bilo-logo>
-        <button
-          class="btn btn-ghost btn-sm theme-toggle-btn"
-          (click)="themeService.toggleTheme()"
-          [title]="themeService.isDarkMode() ? 'Switch to Light Theme' : 'Switch to Dark Theme'"
-        >
-          <i [class]="themeService.isDarkMode() ? 'fi fi-rr-sun' : 'fi fi-rr-moon-stars'"></i>
-          <span class="font-mono text-xs">{{ themeService.isDarkMode() ? 'Light Mode' : 'Dark Mode' }}</span>
-        </button>
+        <div class="auth-header-actions">
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm font-mono"
+            (click)="backToLanding.emit()"
+            title="Back to Landing Page"
+          >
+            <i class="fi fi-rr-arrow-left"></i> Home
+          </button>
+
+          <button
+            class="btn btn-ghost btn-sm theme-toggle-btn"
+            (click)="themeService.toggleTheme()"
+            [title]="themeService.isDarkMode() ? 'Switch to Light Theme' : 'Switch to Dark Theme'"
+          >
+            <i [class]="themeService.isDarkMode() ? 'fi fi-rr-sun' : 'fi fi-rr-moon-stars'"></i>
+            <span class="font-mono text-xs">{{ themeService.isDarkMode() ? 'Light Mode' : 'Dark Mode' }}</span>
+          </button>
+        </div>
       </header>
 
       <!-- Main Split Auth Box -->
@@ -31,7 +43,7 @@ import { BiloLogoComponent } from '../../shared/components/bilo-logo';
           <!-- Left Feature Showcase Banner (Desktop) -->
           <div class="auth-hero-banner font-mono">
             <div class="hero-content">
-              <span class="hero-badge"><i class="fi fi-rr-shield-check"></i> RLS ISOLATED WORKSPACE</span>
+              <span class="hero-badge"><i class="fi fi-rr-shield-check"></i> CLOUD SECURE WORKSPACE</span>
               <h1 class="hero-title">Developer Project & Kanban Hub</h1>
               <p class="hero-desc">
                 Minimalist personal workspace with backlog, custom workflows, offline PWA sync, and row-level security.
@@ -48,7 +60,7 @@ import { BiloLogoComponent } from '../../shared/components/bilo-logo';
                 </div>
                 <div class="feature-item">
                   <i class="fi fi-rr-check-circle text-amber"></i>
-                  <span>Supabase Authentication & Row Level Security</span>
+                  <span>Secure Multi-Tenant Auth & Isolated Workspace Data</span>
                 </div>
               </div>
             </div>
@@ -83,6 +95,13 @@ import { BiloLogoComponent } from '../../shared/components/bilo-logo';
             </div>
 
             <!-- Error / Success Alerts -->
+            @if (!authService.isSupabaseConfigured) {
+              <div class="auth-alert error-alert font-mono">
+                <i class="fi fi-rr-exclamation text-rose"></i>
+                <span>Cloud database unconfigured. Running in local storage mode; cloud sync is disabled.</span>
+              </div>
+            }
+
             @if (errorMessage()) {
               <div class="auth-alert error-alert font-mono">
                 <i class="fi fi-rr-exclamation text-rose"></i>
@@ -111,6 +130,7 @@ import { BiloLogoComponent } from '../../shared/components/bilo-logo';
                     name="email"
                     required
                     autocomplete="email"
+                    [disabled]="submitting()"
                   />
                 </div>
               </div>
@@ -127,18 +147,38 @@ import { BiloLogoComponent } from '../../shared/components/bilo-logo';
                     name="password"
                     required
                     autocomplete="current-password"
+                    [disabled]="submitting()"
                   />
                   <button
                     type="button"
                     class="pwd-toggle-btn btn btn-ghost btn-xs"
-                    (click)="showPassword.set(!showPassword())"
+                    (click)="togglePasswordVisibility()"
                     title="Toggle password visibility"
                     aria-label="Toggle password visibility"
                     [attr.aria-pressed]="showPassword()"
+                    [disabled]="submitting()"
                   >
                     <i [class]="showPassword() ? 'fi fi-rr-eye-crossed' : 'fi fi-rr-eye'"></i>
                   </button>
                 </div>
+                @if (mode() === 'signup') {
+                  <div class="password-requirements font-mono">
+                    <div class="req-item" [class.valid]="password.length >= 6">
+                      <i [class]="password.length >= 6 ? 'fi fi-rr-check-circle text-emerald' : 'fi fi-rr-info text-amber'"></i>
+                      <span>Password requirement: At least 6 characters</span>
+                    </div>
+                    @if (password.length > 0) {
+                      <div class="strength-meter">
+                        <div class="meter-bar">
+                          <div class="meter-fill" [style.width]="passwordStrengthWidth()" [class]="passwordStrengthClass()"></div>
+                        </div>
+                        <span class="strength-text" [class]="passwordStrengthClass()">
+                          {{ passwordStrengthLabel() }}
+                        </span>
+                      </div>
+                    }
+                  </div>
+                }
               </div>
 
               @if (mode() === 'signup') {
@@ -154,6 +194,7 @@ import { BiloLogoComponent } from '../../shared/components/bilo-logo';
                       name="confirmPassword"
                       required
                       autocomplete="new-password"
+                      [disabled]="submitting()"
                     />
                   </div>
                 </div>
@@ -162,7 +203,7 @@ import { BiloLogoComponent } from '../../shared/components/bilo-logo';
               <button
                 type="submit"
                 class="btn btn-primary btn-submit font-mono"
-                [disabled]="submitting() || !email || !password"
+                [disabled]="submitting() || !email || !password || (mode() === 'signup' && (!confirmPassword || password !== confirmPassword || password.length < 6))"
               >
                 @if (submitting()) {
                   <i class="fi fi-rr-spinner spinner-icon"></i> Processing...
@@ -186,7 +227,7 @@ import { BiloLogoComponent } from '../../shared/components/bilo-logo';
       </main>
 
       <footer class="auth-page-footer font-mono">
-        <span>bilo Developer Workspace • Built with Supabase RLS & Angular</span>
+        <span>bilo Developer Workspace • High Performance Local & Cloud Sync</span>
       </footer>
     </div>
   `,
@@ -207,6 +248,11 @@ import { BiloLogoComponent } from '../../shared/components/bilo-logo';
       padding: 1rem 1.5rem;
       border-bottom: 1px solid var(--border-subtle);
       background: var(--bg-surface);
+    }
+    .auth-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
     }
 
     .auth-card-wrapper {
@@ -404,6 +450,54 @@ import { BiloLogoComponent } from '../../shared/components/bilo-logo';
       color: var(--text-subtle);
     }
 
+    .password-requirements {
+      margin-top: 0.35rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      font-size: 0.7rem;
+    }
+    .req-item {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      color: var(--text-muted);
+    }
+    .req-item.valid {
+      color: var(--text-main);
+    }
+    .strength-meter {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.15rem;
+    }
+    .meter-bar {
+      flex: 1;
+      height: 4px;
+      background: var(--bg-surface-subtle);
+      border-radius: 2px;
+      overflow: hidden;
+      border: 1px solid var(--border-subtle);
+    }
+    .meter-fill {
+      height: 100%;
+      transition: width 0.25s ease;
+    }
+    .meter-fill.text-rose {
+      background: #fb7185;
+    }
+    .meter-fill.text-cyan {
+      background: var(--accent-cyan);
+    }
+    .meter-fill.text-emerald {
+      background: #4ade80;
+    }
+    .strength-text {
+      font-size: 0.675rem;
+      font-weight: 600;
+    }
+
     .btn-submit {
       width: 100%;
       height: 40px;
@@ -453,9 +547,10 @@ import { BiloLogoComponent } from '../../shared/components/bilo-logo';
     }
   `]
 })
-export class AuthPageComponent {
+export class AuthPageComponent implements OnDestroy {
   @Input() initialMode: 'login' | 'signup' = 'login';
   @Output() authenticated = new EventEmitter<void>();
+  @Output() backToLanding = new EventEmitter<void>();
 
   mode = signal<'login' | 'signup'>(this.initialMode);
   email = '';
@@ -465,6 +560,7 @@ export class AuthPageComponent {
   submitting = signal<boolean>(false);
   errorMessage = signal<string>('');
   successMessage = signal<string>('');
+  private pwdVisibilityTimer: any = null;
 
   constructor(
     public authService: AuthService,
@@ -472,18 +568,94 @@ export class AuthPageComponent {
     public themeService: ThemeService
   ) {}
 
+  togglePasswordVisibility(): void {
+    const nextState = !this.showPassword();
+    if (this.pwdVisibilityTimer) {
+      clearTimeout(this.pwdVisibilityTimer);
+      this.pwdVisibilityTimer = null;
+    }
+
+    this.showPassword.set(nextState);
+
+    if (nextState) {
+      // Auto-hide visible password after 5 seconds to mitigate shoulder-surfing risk
+      this.pwdVisibilityTimer = setTimeout(() => {
+        this.showPassword.set(false);
+        this.pwdVisibilityTimer = null;
+      }, 5000);
+    }
+  }
+
+  ngOnDestroy(): void {
+    if (this.pwdVisibilityTimer) {
+      clearTimeout(this.pwdVisibilityTimer);
+      this.pwdVisibilityTimer = null;
+    }
+  }
+
+  passwordStrengthWidth(): string {
+    if (!this.password) return '0%';
+    if (this.password.length < 6) return '33%';
+    if (this.password.length >= 10 && /[A-Z]/.test(this.password) && /[0-9!@#$%^&*]/.test(this.password)) return '100%';
+    return '66%';
+  }
+
+  passwordStrengthClass(): string {
+    if (!this.password || this.password.length < 6) return 'text-rose';
+    if (this.password.length >= 10 && /[A-Z]/.test(this.password) && /[0-9!@#$%^&*]/.test(this.password)) return 'text-emerald';
+    return 'text-cyan';
+  }
+
+  passwordStrengthLabel(): string {
+    if (!this.password || this.password.length < 6) return 'Too short (min 6 chars)';
+    if (this.password.length >= 10 && /[A-Z]/.test(this.password) && /[0-9!@#$%^&*]/.test(this.password)) return 'Strong';
+    return 'Good';
+  }
+
   setMode(m: 'login' | 'signup') {
     this.mode.set(m);
     this.errorMessage.set('');
     this.successMessage.set('');
   }
 
+  async onSendMagicLink() {
+    if (this.submitting()) return;
+    if (!this.email) {
+      this.errorMessage.set('Please enter your email address to receive a magic link.');
+      return;
+    }
+
+    this.submitting.set(true);
+    this.errorMessage.set('');
+    this.successMessage.set('');
+
+    try {
+      const { error } = await this.authService.signInWithMagicLink(this.email);
+      if (error) {
+        this.errorMessage.set(formatAuthError(error));
+      } else {
+        this.successMessage.set('Magic link sent successfully! Check your email inbox.');
+      }
+    } catch (e: any) {
+      this.errorMessage.set(formatAuthError(e));
+    } finally {
+      this.submitting.set(false);
+    }
+  }
+
   async onSubmit() {
+    if (this.submitting()) return;
     if (!this.email || !this.password) return;
 
-    if (this.mode() === 'signup' && this.password !== this.confirmPassword) {
-      this.errorMessage.set('Passwords do not match. Please re-enter.');
-      return;
+    if (this.mode() === 'signup') {
+      if (this.password.length < 6) {
+        this.errorMessage.set('Password must be at least 6 characters long.');
+        return;
+      }
+      if (this.password !== this.confirmPassword) {
+        this.errorMessage.set('Passwords do not match. Please re-enter.');
+        return;
+      }
     }
 
     this.submitting.set(true);
@@ -494,7 +666,7 @@ export class AuthPageComponent {
       if (this.mode() === 'login') {
         const { error } = await this.authService.signInWithEmailPassword(this.email, this.password);
         if (error) {
-          this.errorMessage.set(error.message || 'Invalid email or password.');
+          this.errorMessage.set(formatAuthError(error));
         } else {
           this.successMessage.set('Authenticated! Redirecting to Today Dashboard...');
           this.workspaceService.setWorkspace('01 TODAY');
@@ -503,7 +675,7 @@ export class AuthPageComponent {
       } else {
         const { data, error } = await this.authService.signUpWithEmailPassword(this.email, this.password);
         if (error) {
-          this.errorMessage.set(error.message || 'Registration failed.');
+          this.errorMessage.set(formatAuthError(error));
         } else if (data?.user && !data?.session) {
           this.successMessage.set('Account created! Please check your email to confirm registration.');
         } else {
@@ -513,7 +685,7 @@ export class AuthPageComponent {
         }
       }
     } catch (e: any) {
-      this.errorMessage.set(e?.message || 'Authentication error occurred.');
+      this.errorMessage.set(formatAuthError(e));
     } finally {
       this.submitting.set(false);
     }

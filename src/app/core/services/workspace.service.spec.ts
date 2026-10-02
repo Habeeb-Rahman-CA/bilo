@@ -98,4 +98,66 @@ describe('WorkspaceService', () => {
 
     expect(spy).toHaveBeenCalled();
   });
+
+  it('should ignore N and T shortcuts when target is inside a contenteditable rich text element', () => {
+    const spy = vi.spyOn(themeService, 'toggleTheme');
+    const contentEditableDiv = document.createElement('div');
+    contentEditableDiv.setAttribute('contenteditable', 'true');
+    const childSpan = document.createElement('span');
+    contentEditableDiv.appendChild(childSpan);
+    document.body.appendChild(contentEditableDiv);
+
+    const eventN = new KeyboardEvent('keydown', { key: 'n', bubbles: true });
+    Object.defineProperty(eventN, 'target', { value: childSpan });
+    window.dispatchEvent(eventN);
+
+    expect(service.globalCreateTaskModalOpen()).toBe(false);
+
+    const eventT = new KeyboardEvent('keydown', { key: 't', bubbles: true });
+    Object.defineProperty(eventT, 'target', { value: childSpan });
+    window.dispatchEvent(eventT);
+
+    expect(spy).not.toHaveBeenCalled();
+
+    document.body.removeChild(contentEditableDiv);
+  });
+
+  it('should sanitize invalid initial URL hash and correct address bar hash to default or saved workspace', () => {
+    window.location.hash = '#invalid_route_999';
+    const newService = new WorkspaceService(themeService);
+
+    expect(newService.activeWorkspace()).toBe('01 TODAY');
+    expect(window.location.hash).toBe('#today');
+  });
+
+  it('should initialize active workspace correctly when URL contains slashes or parameters in hash (e.g. #/tasks, #/board)', () => {
+    window.location.hash = '#/tasks';
+    const s1 = new WorkspaceService(themeService);
+    expect(s1.activeWorkspace()).toBe('03 TASKS');
+
+    window.location.hash = '#/board';
+    const s2 = new WorkspaceService(themeService);
+    expect(s2.activeWorkspace()).toBe('03 TASKS');
+
+    window.location.hash = '#/calendar';
+    const s3 = new WorkspaceService(themeService);
+    expect(s3.activeWorkspace()).toBe('04 CALENDAR');
+
+    window.location.hash = '#/backlog';
+    const s4 = new WorkspaceService(themeService);
+    expect(s4.activeWorkspace()).toBe('02 BACKLOG');
+  });
+
+  it('should sanitize invalid hashchange event and reset active workspace to valid route', () => {
+    service.setWorkspace('03 TASKS');
+    expect(window.location.hash).toBe('#tasks');
+
+    window.location.hash = '#unknown_hash';
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+
+    expect(service.activeWorkspace()).toBe('03 TASKS');
+    expect(window.location.hash).toBe('#tasks');
+  });
 });
+
+

@@ -1,8 +1,14 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, Injector } from '@angular/core';
 import { SupabaseService } from './supabase.service';
 import { SyncService } from './sync.service';
 import { AuthService } from './auth.service';
+import { TaskService } from './task.service';
+import { WorkflowService } from './workflow.service';
 import { Project, ProjectActivity, Task, ProjectMember, ProjectRole } from '../models/project.model';
+import { compressImageFile, MAX_ATTACHMENT_FILE_SIZE_BYTES } from '../utils/image-compressor.util';
+import { createSecureInviteToken, verifySecureInviteToken } from '../utils/invite-token.util';
+import { validateAndSanitizeProject } from '../utils/data-validator.util';
+import { sanitizeLabels } from '../utils/label.util';
 
 @Injectable({
   providedIn: 'root'
@@ -18,10 +24,16 @@ export class ProjectService {
   constructor(
     private supabaseService: SupabaseService,
     private syncService: SyncService,
-    private authService: AuthService
+    private authService: AuthService,
+    private injector: Injector
   ) {
     this.loadFromStorage();
     this.loadFromSupabase();
+
+    this.syncService.onConnectionRestored(() => {
+      console.log('[ProjectService] Connection restored. Reloading remote projects...');
+      this.loadFromSupabase();
+    });
   }
 
   loadFromStorage() {
@@ -36,24 +48,26 @@ export class ProjectService {
 
     const cached = localStorage.getItem(`bilo_projects_data_${currentUser.id}`);
     const savedActiveId = localStorage.getItem('bilo_active_project_id');
-    const defaultProjName = this.getDefaultWorkspaceName();
 
     if (cached) {
       try {
         const data = JSON.parse(cached);
         if (data.projects && Array.isArray(data.projects) && data.projects.length > 0) {
-          const cleanProjects = data.projects.filter((p: Project) => p.id !== 'proj-default-1');
-          cleanProjects.forEach((p: Project) => {
-            if (p.name === 'bilo' || (p.id === 'proj-bilo-main' && p.name === 'bilo')) {
-              p.name = defaultProjName;
-              p.slug = this.generateSlug(defaultProjName);
-            }
-          });
+          const cleanProjects = data.projects
+            .map((p: any) => validateAndSanitizeProject(p))
+            .filter((p: Project | null): p is Project => p !== null && p.id !== 'proj-default-1');
           this.projects.set(cleanProjects);
           const found = savedActiveId ? cleanProjects.find((p: Project) => p.id === savedActiveId) : null;
           this.activeProject.set(found || cleanProjects[0] || null);
           if (data.activities && Array.isArray(data.activities)) {
-            this.activities.set(data.activities);
+            const sanitized = data.activities
+              .filter((a: any) => a && typeof a === 'object' && typeof a.action === 'string')
+              .map((a: ProjectActivity) => ({
+                ...a,
+                action: this.sanitizeActivityText(a.action),
+                description: this.sanitizeActivityText(a.description || '')
+              }));
+            this.activities.set(sanitized);
           }
           return;
         }
@@ -62,7 +76,8 @@ export class ProjectService {
       }
     }
 
-    // Auto-initialize a default workspace for the user if none exists
+    // Auto-initialize a default workspace for a new user ONLY if no project exists at all
+    const defaultProjName = this.getDefaultWorkspaceName();
     const defaultProj: Project = {
       id: 'proj-bilo-main',
       user_id: currentUser.id,
@@ -106,7 +121,73 @@ export class ProjectService {
       .replace(/(^-|-$)/g, '') || 'workspace';
   }
 
-  private saveToStorage() {
+  generateUniqueName(name: string, excludeProjectId?: string): string {
+    const trimmed = (name || 'Untitled Project').trim();
+    const existingNames = new Set(
+      this.projects()
+        .filter(p => p.id !== excludeProjectId)
+        .map(p => (p.name || '').trim().toLowerCase())
+    );
+
+    if (!existingNames.has(trimmed.toLowerCase())) {
+      return trimmed;
+    }
+
+    let counter = 2;
+    let candidate = `${trimmed} (${counter})`;
+    while (existingNames.has(candidate.toLowerCase())) {
+      counter++;
+      candidate = `${trimmed} (${counter})`;
+    }
+    return candidate;
+  }
+
+  generateUniqueSlug(nameOrSlug: string, excludeProjectId?: string): string {
+    const baseSlug = this.generateSlug(nameOrSlug);
+    const existingSlugs = new Set(
+      this.projects()
+        .filter(p => p.id !== excludeProjectId)
+        .map(p => (p.slug || '').trim().toLowerCase())
+    );
+
+    if (!existingSlugs.has(baseSlug.toLowerCase())) {
+      return baseSlug;
+    }
+
+    let counter = 2;
+    let candidate = `${baseSlug}-${counter}`;
+    while (existingSlugs.has(candidate.toLowerCase())) {
+      counter++;
+      candidate = `${baseSlug}-${counter}`;
+    }
+    return candidate;
+  }
+
+  private saveTimeoutTimer: any = null;
+
+  saveToStorage(delayMs: number = 100) {
+    if (delayMs <= 0) {
+      this.saveToStorageImmediate();
+      return;
+    }
+
+    if (this.saveTimeoutTimer) {
+      clearTimeout(this.saveTimeoutTimer);
+      this.saveTimeoutTimer = null;
+    }
+
+    this.saveTimeoutTimer = setTimeout(() => {
+      this.saveToStorageImmediate();
+    }, delayMs);
+  }
+
+  saveToStorageImmediate() {
+    if (typeof localStorage === 'undefined') return;
+    if (this.saveTimeoutTimer) {
+      clearTimeout(this.saveTimeoutTimer);
+      this.saveTimeoutTimer = null;
+    }
+
     const currentUser = this.authService.user();
     if (!currentUser?.id) return;
     localStorage.setItem(`bilo_projects_data_${currentUser.id}`, JSON.stringify({
@@ -119,7 +200,7 @@ export class ProjectService {
   }
 
   async loadFromSupabase() {
-    if (!this.syncService.isOnline()) return;
+    if (!this.syncService.isOnline() || !this.supabaseService.isConfigured) return;
 
     const currentUser = this.authService.user();
     if (!currentUser) {
@@ -139,13 +220,6 @@ export class ProjectService {
 
       if (!error && data && data.length > 0) {
         const projects = data as Project[];
-        const defaultProjName = this.getDefaultWorkspaceName();
-        projects.forEach((p: Project) => {
-          if (p.name === 'bilo' || (p.id === 'proj-bilo-main' && p.name === 'bilo')) {
-            p.name = defaultProjName;
-            p.slug = this.generateSlug(defaultProjName);
-          }
-        });
         this.projects.set(projects);
         const savedActiveId = localStorage.getItem('bilo_active_project_id');
         const found = savedActiveId ? projects.find(p => p.id === savedActiveId) : null;
@@ -171,12 +245,16 @@ export class ProjectService {
         .limit(100);
 
       if (!actError && actData) {
-        this.activities.set(actData as ProjectActivity[]);
+        const sanitized = (actData as ProjectActivity[]).map(a => ({
+          ...a,
+          action: this.sanitizeActivityText(a.action),
+          description: this.sanitizeActivityText(a.description)
+        }));
+        this.activities.set(sanitized);
       } else {
         this.activities.set([]);
       }
 
-      this.saveToStorage();
     } catch (e) {
       console.warn('Could not load data from Supabase', e);
     } finally {
@@ -184,20 +262,73 @@ export class ProjectService {
     }
   }
 
+  setActiveProject(projectIdOrProject: string | Project | null | undefined): boolean {
+    if (!projectIdOrProject) {
+      const current = this.activeProject();
+      if (current && this.projects().some(p => p.id === current.id)) {
+        return false;
+      }
+      const fallback = this.projects()[0] || null;
+      this.activeProject.set(fallback);
+      this.saveToStorage();
+      return fallback !== null;
+    }
+
+    if (typeof projectIdOrProject === 'object') {
+      const projId = projectIdOrProject.id;
+      const found = this.projects().find(p => p.id === projId) || projectIdOrProject;
+      if (found && !this.projects().some(p => p.id === found.id)) {
+        this.projects.update(list => [found, ...list]);
+      }
+      this.activeProject.set(found);
+      this.saveToStorage();
+      return true;
+    }
+
+    if (typeof projectIdOrProject === 'string') {
+      const found = this.projects().find(p => p.id === projectIdOrProject || p.slug === projectIdOrProject);
+      if (found) {
+        this.activeProject.set(found);
+        this.saveToStorage();
+        return true;
+      }
+    }
+
+    // Invalid or unknown project ID provided
+    const current = this.activeProject();
+    if (current && this.projects().some(p => p.id === current.id)) {
+      console.warn(`[ProjectService] setActiveProject called with non-matching ID "${projectIdOrProject}". Retaining active project "${current.name}".`);
+      return false;
+    }
+
+    const fallback = this.projects()[0] || null;
+    console.warn(`[ProjectService] setActiveProject called with non-matching ID "${projectIdOrProject}". Falling back to project "${fallback?.name || 'none'}".`);
+    this.activeProject.set(fallback);
+    this.saveToStorage();
+    return fallback !== null;
+  }
+
   // --- CRUD Operations ---
 
   async createProject(projectData: Partial<Project>): Promise<Project> {
     const currentUser = this.authService.user();
     const generatedId = crypto.randomUUID();
+
+    const rawName = (projectData.name || 'Untitled Project').trim();
+    const uniqueName = this.generateUniqueName(rawName);
+    const uniqueSlug = projectData.slug
+      ? this.generateUniqueSlug(projectData.slug)
+      : this.generateUniqueSlug(uniqueName);
+
     const newProj: Project = {
       id: generatedId,
       user_id: currentUser?.id,
-      name: projectData.name || 'Untitled Project',
-      slug: (projectData.name || 'untitled').toLowerCase().replace(/\s+/g, '-'),
+      name: uniqueName,
+      slug: uniqueSlug,
       description: projectData.description || '',
       repository_url: projectData.repository_url || '',
       status: projectData.status || 'active',
-      labels: projectData.labels || [],
+      labels: sanitizeLabels(projectData.labels),
       color: projectData.color || '#06b6d4',
       image_url: projectData.image_url || '',
       icon: projectData.icon || '',
@@ -263,23 +394,25 @@ export class ProjectService {
   }
 
   async uploadProjectImage(file: File): Promise<string> {
-    const fileToDataUrl = (): Promise<string> => {
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve((e.target?.result as string) || '');
-        reader.onerror = () => resolve('');
-        reader.readAsDataURL(file);
-      });
-    };
+    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
+    if (!file || !allowedMimeTypes.includes((file.type || '').toLowerCase())) {
+      console.warn('[ProjectService] Invalid or untrusted image file type:', file?.type);
+      return '';
+    }
 
-    if (this.syncService.isOnline()) {
+    const MAX_PROJECT_IMAGE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB limit for project logos
+    if (file.size > MAX_PROJECT_IMAGE_SIZE_BYTES) {
+      console.warn(`[ProjectService] Image size (${(file.size / 1024 / 1024).toFixed(1)}MB) exceeds 5MB limit`);
+      return '';
+    }
+
+    if (this.syncService.isOnline() && this.supabaseService.isConfigured) {
       try {
         const fileExt = file.name.split('.').pop() || 'png';
         const fileName = `project-${crypto.randomUUID()}.${fileExt}`;
 
-        // Timeout promise after 4 seconds to prevent UI hanging
         const timeoutPromise = new Promise<{ data: null; error: any }>((resolve) => {
-          setTimeout(() => resolve({ data: null, error: new Error('Upload request timed out after 4s') }), 4000);
+          setTimeout(() => resolve({ data: null, error: new Error('Upload request timed out after 15s') }), 15000);
         });
 
         const uploadPromise = this.supabaseService.supabase.storage
@@ -307,44 +440,66 @@ export class ProjectService {
       }
     }
 
-    // Fallback: Read file as Data URL (base64) so it works offline or before bucket exists
-    return await fileToDataUrl();
+    // Lightweight Compressed Fallback: Downscale project avatar to 300x300, 0.70 quality (~15-30KB)
+    try {
+      const compressed = await compressImageFile(file, 300, 300, 0.70);
+      if (compressed && compressed.length > 150000) {
+        return await compressImageFile(file, 150, 150, 0.50);
+      }
+      return compressed;
+    } catch (e) {
+      console.warn('Failed to compress project image fallback:', e);
+      return '';
+    }
   }
 
   async updateProject(id: string, updates: Partial<Project>): Promise<Project | null> {
-    const updatedFields = {
+    const currentProj = this.projects().find(p => p.id === id);
+    if (!currentProj) return null;
+
+    let finalName = updates.name ? updates.name.trim() : undefined;
+    let finalSlug = updates.slug ? updates.slug.trim() : undefined;
+
+    if (finalSlug) {
+      finalSlug = this.generateUniqueSlug(finalSlug, id);
+      if (finalName && currentProj.name.trim().toLowerCase() !== finalName.toLowerCase()) {
+        finalName = this.generateUniqueName(finalName, id);
+      }
+    } else if (finalName && currentProj.name.trim().toLowerCase() !== finalName.toLowerCase()) {
+      finalName = this.generateUniqueName(finalName, id);
+      finalSlug = this.generateUniqueSlug(finalName, id);
+    }
+
+    const updatedProj: Project = {
+      ...currentProj,
       ...updates,
+      ...(updates.labels !== undefined ? { labels: sanitizeLabels(updates.labels) } : {}),
+      ...(finalName ? { name: finalName } : {}),
+      ...(finalSlug ? { slug: finalSlug } : {}),
       updated_at: new Date().toISOString()
     };
 
-    let updatedProj: Project | null = null;
-    this.projects.update(list => list.map(p => {
-      if (p.id === id) {
-        updatedProj = { ...p, ...updatedFields };
-        return updatedProj;
-      }
-      return p;
-    }));
+    this.projects.update(list => list.map(p => (p.id === id ? updatedProj : p)));
 
-    if (updatedProj) {
-      if (this.activeProject()?.id === id) this.activeProject.set(updatedProj);
-      this.logActivity(id, 'Updated', `Project metadata updated`);
-      this.saveToStorage();
-
-      this.syncService.enqueue('UPDATE_PROJECT', {
-        id,
-        name: updates.name,
-        slug: updates.name ? updates.name.toLowerCase().replace(/\s+/g, '-') : undefined,
-        description: updates.description,
-        repository_url: updates.repository_url,
-        status: updates.status,
-        labels: updates.labels,
-        color: updates.color,
-        image_url: updates.image_url,
-        icon: updates.icon,
-        updated_at: new Date().toISOString()
-      });
+    if (this.activeProject()?.id === id) {
+      this.activeProject.set(updatedProj);
     }
+    this.logActivity(id, 'Updated', `Project metadata updated`);
+    this.saveToStorage();
+
+    this.syncService.enqueue('UPDATE_PROJECT', {
+      id,
+      name: updatedProj.name,
+      slug: updatedProj.slug,
+      description: updatedProj.description,
+      repository_url: updatedProj.repository_url,
+      status: updatedProj.status,
+      labels: updatedProj.labels,
+      color: updatedProj.color,
+      image_url: updatedProj.image_url,
+      icon: updatedProj.icon,
+      updated_at: updatedProj.updated_at
+    });
 
     return updatedProj;
   }
@@ -360,6 +515,23 @@ export class ProjectService {
     const proj = this.projects().find(p => p.id === id);
     if (!proj) return;
 
+    // 1) Cascade delete tasks, comments, and history from TaskService memory & storage
+    try {
+      const taskService = this.injector.get(TaskService);
+      taskService.deleteTasksForProject(id);
+    } catch (e) {
+      console.warn('Could not cascade delete tasks for project:', e);
+    }
+
+    // 2) Cascade delete custom workflows from WorkflowService memory & storage
+    try {
+      const workflowService = this.injector.get(WorkflowService);
+      workflowService.deleteWorkflowsForProject(id);
+    } catch (e) {
+      console.warn('Could not cascade delete workflows for project:', e);
+    }
+
+    // 3) Filter out project and its activities from ProjectService state
     this.projects.update(list => list.filter(p => p.id !== id));
     this.tasks.update(list => list.filter(t => t.project_id !== id));
     this.activities.update(list => list.filter(a => a.project_id !== id));
@@ -373,14 +545,29 @@ export class ProjectService {
     this.syncService.enqueue('DELETE_PROJECT', { id });
   }
 
+  sanitizeActivityText(input?: string): string {
+    if (!input) return '';
+    return input
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+      .replace(/<[^>]*>/g, '')
+      .replace(/javascript:/gi, '')
+      .replace(/on\w+\s*=/gi, '')
+      .trim();
+  }
+
   logActivity(projectId: string, action: string, description: string) {
     const currentUser = this.authService.user();
+    const cleanAction = this.sanitizeActivityText(action);
+    const cleanDescription = this.sanitizeActivityText(description);
+
     const newAct: ProjectActivity = {
       id: crypto.randomUUID(),
       project_id: projectId || 'global',
       user_id: currentUser?.id,
-      action,
-      description,
+      action: cleanAction,
+      description: cleanDescription,
       timestamp: new Date().toISOString()
     };
     this.activities.update(list => [newAct, ...list]);
@@ -401,11 +588,20 @@ export class ProjectService {
   }
 
   getProjectProgress(projectId: string): { completed: number; total: number; percent: number } {
-    const projTasks = this.tasks().filter(t => t.project_id === projectId);
-    if (projTasks.length === 0) return { completed: 0, total: 0, percent: 0 };
-    const completed = projTasks.filter(t => t.completed).length;
-    const percent = Math.round((completed / projTasks.length) * 100);
-    return { completed, total: projTasks.length, percent };
+    let allTasks: Task[] = [];
+    try {
+      const taskService = this.injector.get(TaskService);
+      allTasks = taskService.tasks() || [];
+    } catch (e) {
+      allTasks = this.tasks() || [];
+    }
+    const projTasks = (allTasks || []).filter(t => t && t.project_id === projectId);
+    const total = projTasks.length;
+    if (!total || total <= 0) return { completed: 0, total: 0, percent: 0 };
+    const completed = projTasks.filter(t => t && (t.completed || (t.status || '').toLowerCase() === 'done' || (t.status || '').toLowerCase() === 'completed')).length;
+    const rawPercent = Math.round((completed / total) * 100);
+    const percent = Number.isFinite(rawPercent) ? Math.min(100, Math.max(0, rawPercent)) : 0;
+    return { completed, total, percent };
   }
 
   getProjectRecentActivity(projectId: string): ProjectActivity[] {
@@ -418,62 +614,228 @@ export class ProjectService {
   // --- Project Members & Ownership ---
 
   async getProjectMembers(projectId: string): Promise<ProjectMember[]> {
-    if (!this.syncService.isOnline()) return [];
-    try {
-      const { data, error } = await this.supabaseService.supabase
-        .from('project_members')
-        .select('*')
-        .eq('project_id', projectId);
+    let rawMembers: ProjectMember[] = [];
+    if (this.syncService.isOnline()) {
+      try {
+        const { data, error } = await this.supabaseService.supabase
+          .from('project_members')
+          .select('*')
+          .eq('project_id', projectId);
 
-      if (!error && data) {
-        const currentUser = this.authService.user();
-        const members = data as ProjectMember[];
-        return members.map(m => {
-          if (currentUser && (m.user_id === currentUser.id || m.user_email === currentUser.email)) {
-            const meta = currentUser.user_metadata;
-            const name = meta?.['display_name'] || meta?.['full_name'] || meta?.['name'] ||
-              (currentUser.email ? currentUser.email.split('@')[0].split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ') : '');
-            return {
-              ...m,
-              user_name: m.user_name || name,
-              user_email: m.user_email || currentUser.email
-            };
-          }
-          return m;
+        if (error) {
+          console.error('Failed to fetch project members from Supabase:', error.message || error);
+        } else if (data) {
+          rawMembers = data as ProjectMember[];
+        }
+      } catch (e) {
+        console.error('Exception while fetching project members:', e);
+      }
+    } else {
+      console.warn('SyncService is offline; loading fallback project members from local state.');
+    }
+
+    // If database query produced no members (due to offline state, error, or empty database response), build fallback members from local memory
+    if (rawMembers.length === 0) {
+      const fallbackMap = new Map<string, ProjectMember>();
+
+      // 1. Add current user as member/owner
+      const currentUser = this.authService.user();
+      if (currentUser) {
+        const meta = currentUser.user_metadata;
+        const name = meta?.['display_name'] || meta?.['full_name'] || meta?.['name'] ||
+          (currentUser.email ? currentUser.email.split('@')[0].split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ') : 'User');
+        const userKey = (currentUser.id || currentUser.email || 'user').toLowerCase();
+        fallbackMap.set(userKey, {
+          id: `local_m_${currentUser.id || 'user'}`,
+          project_id: projectId,
+          user_id: currentUser.id || currentUser.email || 'user',
+          role: 'owner',
+          user_email: currentUser.email,
+          user_name: name,
+          created_at: new Date().toISOString()
         });
       }
-    } catch (e) {
-      console.warn('Failed to fetch project members:', e);
+
+      // 2. Add project creator/owner if known
+      const proj = this.projects().find(p => p.id === projectId);
+      if (proj?.user_id && !fallbackMap.has(proj.user_id.toLowerCase())) {
+        fallbackMap.set(proj.user_id.toLowerCase(), {
+          id: `local_m_${proj.user_id}`,
+          project_id: projectId,
+          user_id: proj.user_id,
+          role: 'owner',
+          user_name: proj.user_id.includes('@') ? proj.user_id.split('@')[0] : `Owner (${proj.user_id.slice(0, 6)})`,
+          created_at: new Date().toISOString()
+        });
+      }
+
+      // 3. Add assignees from local tasks for this project
+      const projTasks = this.tasks().filter(t => t.project_id === projectId);
+      for (const t of projTasks) {
+        if (t.assignee && t.assignee !== 'Unassigned' && t.assignee !== 'Self') {
+          const key = t.assignee.toLowerCase();
+          if (!fallbackMap.has(key)) {
+            fallbackMap.set(key, {
+              id: `local_m_task_${t.id}`,
+              project_id: projectId,
+              user_id: t.assignee,
+              role: 'member',
+              user_name: t.assignee,
+              created_at: new Date().toISOString()
+            });
+          }
+        }
+      }
+
+      rawMembers = Array.from(fallbackMap.values());
     }
-    return [];
+
+    const currentUser = this.authService.user();
+    const uniqueMembersMap = new Map<string, ProjectMember>();
+
+    rawMembers.forEach(m => {
+      const key = (m.user_id || m.user_email || m.id).toLowerCase();
+      if (!uniqueMembersMap.has(key)) {
+        uniqueMembersMap.set(key, m);
+      } else {
+        const existing = uniqueMembersMap.get(key)!;
+        if (m.role === 'owner' || (m.role === 'admin' && existing.role !== 'owner')) {
+          uniqueMembersMap.set(key, m);
+        }
+      }
+    });
+
+    const members = Array.from(uniqueMembersMap.values());
+    return members.map(m => {
+      if (currentUser && (m.user_id === currentUser.id || m.user_email === currentUser.email)) {
+        const meta = currentUser.user_metadata;
+        const name = meta?.['display_name'] || meta?.['full_name'] || meta?.['name'] ||
+          (currentUser.email ? currentUser.email.split('@')[0].split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ') : '');
+        return {
+          ...m,
+          user_name: m.user_name || name,
+          user_email: m.user_email || currentUser.email
+        };
+      }
+      return m;
+    });
   }
 
-  async addProjectMember(
+  async addProjectMemberDetailed(
     projectId: string,
-    userId: string,
+    userIdOrEmail: string,
     role: ProjectRole = 'member',
     userName?: string,
     userEmail?: string
-  ): Promise<boolean> {
-    if (!this.syncService.isOnline()) return false;
+  ): Promise<{ success: boolean; message?: string; error?: string; code?: string }> {
+    const trimmedInput = (userIdOrEmail || '').trim();
+    if (!trimmedInput) {
+      return { success: false, error: 'Please enter a valid User ID or email address.' };
+    }
+
+    const isEmailInput = trimmedInput.includes('@');
+    if (isEmailInput) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(trimmedInput)) {
+        return { success: false, error: `"${trimmedInput}" is not a valid email address format.` };
+      }
+    }
+
+    if (!this.syncService.isOnline()) {
+      return { success: false, error: 'Cannot add member while offline. Please reconnect to network.' };
+    }
+
     try {
-      let finalEmail = userEmail;
+      let finalUserId = trimmedInput;
+      let finalEmail = userEmail || (isEmailInput ? trimmedInput.toLowerCase() : undefined);
       let finalName = userName;
 
-      if (!finalEmail && userId.includes('@')) {
-        finalEmail = userId;
+      const currentUser = this.authService.user();
+      if (currentUser && (trimmedInput === currentUser.id || (currentUser.email && trimmedInput.toLowerCase() === currentUser.email.toLowerCase()))) {
+        finalUserId = currentUser.id;
+        finalEmail = currentUser.email || finalEmail;
+        const meta = currentUser.user_metadata;
+        finalName = finalName || meta?.['display_name'] || meta?.['full_name'] || meta?.['name'] || undefined;
       }
+
+      // Check if user is already a member of this project
+      const existingMembers = await this.getProjectMembers(projectId);
+      const existing = existingMembers.find(
+        m => m.user_id?.toLowerCase() === trimmedInput.toLowerCase() ||
+             (m.user_email && finalEmail && m.user_email.toLowerCase() === finalEmail.toLowerCase())
+      );
+
+      if (existing) {
+        if (existing.role !== role && existing.role !== 'owner') {
+          await this.updateMemberRole(projectId, existing.id, role);
+          return {
+            success: true,
+            message: `Updated ${existing.user_name || existing.user_email || 'member'}'s role to ${role.toUpperCase()}.`
+          };
+        }
+        return {
+          success: true,
+          message: `User "${existing.user_name || existing.user_email || trimmedInput}" is already a member of this project.`
+        };
+      }
+
+      // User Profile Lookup for Email or ID in Supabase
+      if (this.supabaseService.isConfigured) {
+        try {
+          let profileQuery = this.supabaseService.supabase
+            .from('user_profiles')
+            .select('id, email, display_name');
+
+          if (isEmailInput) {
+            profileQuery = profileQuery.eq('email', trimmedInput.toLowerCase());
+          } else {
+            profileQuery = profileQuery.eq('id', trimmedInput);
+          }
+
+          const rawProfileRes: any = typeof profileQuery.maybeSingle === 'function' ? await profileQuery.maybeSingle() : await profileQuery;
+          const profile: any = Array.isArray(rawProfileRes?.data) ? rawProfileRes.data[0] : rawProfileRes?.data;
+
+          if (profile) {
+            finalUserId = profile.id || finalUserId;
+            finalEmail = profile.email || finalEmail;
+            finalName = profile.display_name || finalName;
+          } else if (isEmailInput) {
+            // Check if email exists in project_members
+            const memberQuery = this.supabaseService.supabase
+              .from('project_members')
+              .select('user_id, user_email, user_name')
+              .eq('user_email', trimmedInput.toLowerCase());
+            const rawMemberRes: any = typeof memberQuery.maybeSingle === 'function' ? await memberQuery.maybeSingle() : await memberQuery;
+            const memberData: any = Array.isArray(rawMemberRes?.data) ? rawMemberRes.data[0] : rawMemberRes?.data;
+
+            if (memberData) {
+              finalUserId = memberData.user_id || finalUserId;
+              finalEmail = memberData.user_email || finalEmail;
+              finalName = memberData.user_name || finalName;
+            } else if (!currentUser || (currentUser.email && currentUser.email.toLowerCase() !== trimmedInput.toLowerCase())) {
+              return {
+                success: false,
+                error: `No registered account found for "${trimmedInput}". Share an invite link with them so they can register and join.`,
+                code: 'USER_NOT_FOUND'
+              };
+            }
+          }
+        } catch (profileErr) {
+          console.warn('[ProjectService] User profile lookup notice:', profileErr);
+        }
+      }
+
       if (!finalName && finalEmail) {
         const parts = finalEmail.split('@')[0];
         finalName = parts.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
-      } else if (!finalName && !userId.includes('-')) {
-        const clean = userId.replace(/^usr_/, '').replace(/^user_/, '');
+      } else if (!finalName && !finalUserId.includes('-')) {
+        const clean = finalUserId.replace(/^usr_/, '').replace(/^user_/, '');
         finalName = clean.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
       }
 
       const payload: any = {
         project_id: projectId,
-        user_id: userId,
+        user_id: finalUserId,
         role
       };
       if (finalEmail) payload.user_email = finalEmail;
@@ -483,25 +845,93 @@ export class ProjectService {
         .from('project_members')
         .upsert([payload]);
 
-      if (!error) {
-        this.logActivity(projectId, 'Member Added', `${finalName || userId} added as ${role}`);
-        return true;
+      if (error) {
+        if (error.code === '23503' || String(error.message).includes('foreign key constraint')) {
+          return {
+            success: false,
+            error: `User "${trimmedInput}" is not registered in the system database.`,
+            code: 'USER_NOT_FOUND'
+          };
+        }
+        if (error.code === '42501' || String(error.message).includes('row-level security')) {
+          return {
+            success: false,
+            error: 'Permission denied. Only project owners and admins can add team members.',
+            code: 'PERMISSION_DENIED'
+          };
+        }
+        return {
+          success: false,
+          error: `Failed to add member: ${error.message}`
+        };
       }
-    } catch (e) {
+
+      // Clear from removed list if user was re-added explicitly
+      try {
+        const removedKey = `bilo_removed_members_${projectId}`;
+        const currentRemovedStr = localStorage.getItem(removedKey) || '[]';
+        let removedList: string[] = JSON.parse(currentRemovedStr);
+        removedList = removedList.filter(
+          id => id.toLowerCase() !== finalUserId.toLowerCase() &&
+                (!finalEmail || id.toLowerCase() !== finalEmail.toLowerCase())
+        );
+        localStorage.setItem(removedKey, JSON.stringify(removedList));
+      } catch (e) {}
+
+      this.logActivity(projectId, 'Member Added', `${finalName || finalUserId} added as ${role}`);
+      return {
+        success: true,
+        message: `Added ${finalName || finalEmail || finalUserId} as ${role.toUpperCase()} successfully.`
+      };
+
+    } catch (e: any) {
       console.warn('Failed to add project member:', e);
+      return {
+        success: false,
+        error: `Unexpected error adding member: ${e?.message || 'Operation failed'}`
+      };
     }
-    return false;
+  }
+
+  async addProjectMember(
+    projectId: string,
+    userId: string,
+    role: ProjectRole = 'member',
+    userName?: string,
+    userEmail?: string
+  ): Promise<boolean> {
+    const res = await this.addProjectMemberDetailed(projectId, userId, role, userName, userEmail);
+    return res.success;
   }
 
   async removeProjectMember(projectId: string, memberId: string): Promise<boolean> {
     if (!this.syncService.isOnline()) return false;
     try {
+      const members = await this.getProjectMembers(projectId);
+      const target = members.find(m => m.id === memberId);
+
       const { error } = await this.supabaseService.supabase
         .from('project_members')
         .delete()
         .eq('id', memberId);
 
       if (!error) {
+        if (target) {
+          try {
+            const removedKey = `bilo_removed_members_${projectId}`;
+            const currentRemovedStr = localStorage.getItem(removedKey) || '[]';
+            let removedList: string[] = JSON.parse(currentRemovedStr);
+
+            if (target.user_id && !removedList.includes(target.user_id)) {
+              removedList.push(target.user_id);
+            }
+            if (target.user_email && !removedList.includes(target.user_email.toLowerCase())) {
+              removedList.push(target.user_email.toLowerCase());
+            }
+            localStorage.setItem(removedKey, JSON.stringify(removedList));
+          } catch (e) {}
+        }
+
         this.logActivity(projectId, 'Member Removed', `Project member removed`);
         return true;
       }
@@ -551,9 +981,38 @@ export class ProjectService {
 
   // --- Invite Link & Workspace Joining ---
 
-  generateInviteLink(projectId: string, role: ProjectRole = 'member'): string {
-    const origin = window.location.origin + window.location.pathname;
-    return `${origin}?invite=${encodeURIComponent(projectId)}&role=${encodeURIComponent(role)}`;
+  async generateInviteLink(
+    projectId: string,
+    role: ProjectRole = 'member',
+    expiresInMs: number = 7 * 24 * 60 * 60 * 1000
+  ): Promise<string> {
+    const origin = typeof window !== 'undefined' ? (window.location.origin + window.location.pathname) : '';
+    const token = await createSecureInviteToken(projectId, role, expiresInMs);
+    return `${origin}?token=${encodeURIComponent(token)}`;
+  }
+
+  revokeInviteLinks(projectId: string): boolean {
+    try {
+      localStorage.setItem(`bilo_project_invite_revoked_${projectId}`, Date.now().toString());
+      this.logActivity(projectId, 'Invite Links Revoked', 'All previous invite links were invalidated');
+      return true;
+    } catch (e) {
+      console.warn('Failed to revoke invite links:', e);
+      return false;
+    }
+  }
+
+  isInviteLinkRevoked(projectId: string, tokenIssuedAt?: number): boolean {
+    try {
+      const revokedAtStr = localStorage.getItem(`bilo_project_invite_revoked_${projectId}`);
+      if (!revokedAtStr) return false;
+      const revokedAt = parseInt(revokedAtStr, 10);
+      if (isNaN(revokedAt)) return false;
+      if (!tokenIssuedAt || tokenIssuedAt <= revokedAt) {
+        return true;
+      }
+    } catch (e) {}
+    return false;
   }
 
   async fetchProjectById(projectId: string): Promise<Project | null> {
@@ -577,23 +1036,80 @@ export class ProjectService {
     return null;
   }
 
-  async joinProjectViaInvite(projectId: string, role: ProjectRole = 'member'): Promise<Project | null> {
+  async joinProjectViaInvite(
+    projectId: string,
+    role: ProjectRole = 'member',
+    tokenIssuedAt?: number,
+    token?: string
+  ): Promise<{ success: boolean; project?: Project; error?: string }> {
+    if (token) {
+      const verified = await verifySecureInviteToken(token);
+      if (!verified) {
+        console.warn('[ProjectService] Security rejection: Invitation token verification failed');
+        return {
+          success: false,
+          error: 'Security rejection: Invitation token is invalid, tampered, or expired.'
+        };
+      }
+
+      if (verified.projectId !== projectId) {
+        console.warn('[ProjectService] Security rejection: Token project ID mismatch');
+        return {
+          success: false,
+          error: 'Security rejection: Invitation token does not match target workspace.'
+        };
+      }
+
+      // Overwrite role directly from HMAC signed payload to prevent client-side privilege escalation
+      role = verified.role;
+      if (verified.issuedAt) {
+        tokenIssuedAt = verified.issuedAt;
+      }
+    }
+
     const proj = await this.fetchProjectById(projectId);
-    if (!proj) return null;
+    if (!proj) return { success: false, error: 'Project not found.' };
+
+    if (this.isInviteLinkRevoked(projectId, tokenIssuedAt)) {
+      return { success: false, error: 'This invite link has been revoked by the project owner.' };
+    }
 
     const currentUser = this.authService.user();
     if (currentUser?.id) {
-      await this.addProjectMember(projectId, currentUser.id, role);
+      const removedKey = `bilo_removed_members_${projectId}`;
+      const currentRemovedStr = localStorage.getItem(removedKey) || '[]';
+      try {
+        const removedList: string[] = JSON.parse(currentRemovedStr);
+        const isRemoved = removedList.some(
+          id => id.toLowerCase() === currentUser.id.toLowerCase() ||
+                (currentUser.email && id.toLowerCase() === currentUser.email.toLowerCase())
+        );
+        if (isRemoved) {
+          console.warn(`[ProjectService] Former collaborator ${currentUser.id} blocked from rejoining project ${projectId}`);
+          return {
+            success: false,
+            error: 'Former collaborators who were removed from this project cannot rejoin via old invite links. Please ask the project owner for a new invitation.'
+          };
+        }
+      } catch (e) {}
+
+      const existingMembers = await this.getProjectMembers(projectId);
+      const isAlreadyMember = existingMembers.some(
+        m => m.user_id === currentUser.id || (m.user_email && currentUser.email && m.user_email.toLowerCase() === currentUser.email.toLowerCase())
+      );
+
+      if (!isAlreadyMember) {
+        await this.addProjectMember(projectId, currentUser.id, role, undefined, currentUser.email || undefined);
+      }
     }
 
-    // Add project to local projects signal if not present
     if (!this.projects().some(p => p.id === proj.id)) {
       this.projects.update(list => [proj, ...list]);
     }
 
     this.activeProject.set(proj);
     this.saveToStorage();
-    return proj;
+    return { success: true, project: proj };
   }
 
   async getWorkspaceMemberOptions(projectId?: string, currentAssignee?: string): Promise<{ value: string; label: string; icon?: string }[]> {
@@ -601,54 +1117,58 @@ export class ProjectService {
       { value: 'Unassigned', label: 'Unassigned', icon: 'fi fi-rr-user-slash' }
     ];
 
-    const currentUser = this.authService.user();
-    if (currentUser) {
-      const meta = currentUser.user_metadata;
-      const currentName = meta?.['display_name'] || meta?.['full_name'] || meta?.['name'] ||
-        (currentUser.email ? currentUser.email.split('@')[0].split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ') : 'User');
+    try {
+      const currentUser = this.authService.user();
+      if (currentUser) {
+        const meta = currentUser.user_metadata;
+        const currentName = meta?.['display_name'] || meta?.['full_name'] || meta?.['name'] ||
+          (currentUser.email ? currentUser.email.split('@')[0].split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ') : 'User');
 
-      if (currentName && currentName !== 'Self') {
-        options.push({
-          value: currentName,
-          label: `${currentName} (You)`,
-          icon: 'fi fi-rr-user-check text-emerald'
-        });
-      }
-    }
-
-    if (projectId && projectId !== 'all' && projectId !== 'ALL') {
-      const members = await this.getProjectMembers(projectId);
-      const existingValues = new Set(options.map(o => o.value.toLowerCase()));
-
-      for (const m of members) {
-        let displayName = m.user_name;
-        if (!displayName && m.user_email) {
-          const parts = m.user_email.split('@')[0];
-          displayName = parts.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
-        }
-        if (!displayName && m.user_id) {
-          if (m.user_id.includes('@')) {
-            const parts = m.user_id.split('@')[0];
-            displayName = parts.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
-          } else if (!/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(m.user_id)) {
-            const clean = m.user_id.replace(/^usr_/, '').replace(/^user_/, '');
-            displayName = clean.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
-          } else {
-            displayName = `Member (${m.user_id.slice(0, 6)})`;
-          }
-        }
-
-        if (displayName && displayName !== 'Self' && !existingValues.has(displayName.toLowerCase())) {
-          existingValues.add(displayName.toLowerCase());
-          if (m.user_id) existingValues.add(m.user_id.toLowerCase());
-
+        if (currentName && currentName !== 'Self') {
           options.push({
-            value: displayName,
-            label: `${displayName} (${m.role.toUpperCase()})`,
-            icon: m.role === 'owner' ? 'fi fi-rr-crown text-purple' : 'fi fi-rr-user text-cyan'
+            value: currentName,
+            label: `${currentName} (You)`,
+            icon: 'fi fi-rr-user-check text-emerald'
           });
         }
       }
+
+      if (projectId && projectId !== 'all' && projectId !== 'ALL') {
+        const members = await this.getProjectMembers(projectId);
+        const existingValues = new Set(options.map(o => o.value.toLowerCase()));
+
+        for (const m of members) {
+          let displayName = m.user_name;
+          if (!displayName && m.user_email) {
+            const parts = m.user_email.split('@')[0];
+            displayName = parts.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+          }
+          if (!displayName && m.user_id) {
+            if (m.user_id.includes('@')) {
+              const parts = m.user_id.split('@')[0];
+              displayName = parts.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+            } else if (!/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(m.user_id)) {
+              const clean = m.user_id.replace(/^usr_/, '').replace(/^user_/, '');
+              displayName = clean.split(/[\._-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+            } else {
+              displayName = `Member (${m.user_id.slice(0, 6)})`;
+            }
+          }
+
+          if (displayName && displayName !== 'Self' && !existingValues.has(displayName.toLowerCase())) {
+            existingValues.add(displayName.toLowerCase());
+            if (m.user_id) existingValues.add(m.user_id.toLowerCase());
+
+            options.push({
+              value: displayName,
+              label: `${displayName} (${(m.role || 'member').toUpperCase()})`,
+              icon: m.role === 'owner' ? 'fi fi-rr-crown text-purple' : 'fi fi-rr-user text-cyan'
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to resolve workspace member options:', e);
     }
 
     if (currentAssignee && currentAssignee.trim() && currentAssignee.trim() !== 'Self' && currentAssignee.trim() !== 'Unassigned' && !options.some(o => o.value.toLowerCase() === currentAssignee.trim().toLowerCase())) {
@@ -659,7 +1179,7 @@ export class ProjectService {
       });
     }
 
-    return options.filter(o => o.value !== 'Self');
+    return options;
   }
 }
 

@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, OnInit, Output, HostListener, signal } from '@angular/core';
+import { Component, EventEmitter, Input, OnInit, OnDestroy, Output, HostListener, ElementRef, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TaskService } from '../../core/services/task.service';
@@ -6,20 +6,43 @@ import { ProjectService } from '../../core/services/project.service';
 import { WorkflowService } from '../../core/services/workflow.service';
 import { TaskShareService } from '../../core/services/task-share.service';
 import { AuthService } from '../../core/services/auth.service';
+import { ProgressService } from '../../core/services/progress.service';
 import { Task, TaskComment, TaskStatusHistory, TaskPriority, TaskSeverity, TaskReproducibility, TaskType, Workflow } from '../../core/models/project.model';
 import { getTaskKey } from '../../core/utils/task-key.util';
+import { sanitizeLabels } from '../../core/utils/label.util';
+import { compressImageFile, canAddAttachment, MAX_ATTACHMENT_FILE_SIZE_BYTES, MAX_ATTACHMENTS_PER_TASK } from '../../core/utils/image-compressor.util';
 import { SelectComponent, SelectOption } from './select';
 import { DatePickerComponent } from './date-picker';
 import { ConfirmModalComponent } from './confirm-modal';
 import { RichEditorComponent } from './rich-editor';
+import { registerModal, unregisterModal, isTopModal } from '../../core/utils/modal-stack.util';
+import { LazyImageDirective } from '../directives/lazy-image.directive';
 
 @Component({
   selector: 'app-task-detail-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectComponent, DatePickerComponent, ConfirmModalComponent, RichEditorComponent],
+  imports: [CommonModule, FormsModule, SelectComponent, DatePickerComponent, ConfirmModalComponent, RichEditorComponent, LazyImageDirective],
   template: `
-    <div class="task-detail-overlay" (click)="close.emit()">
+    <div class="task-detail-overlay" [style.z-index]="modalZIndex" (click)="handleCloseAttempt()">
       <div class="task-detail-panel font-mono" (click)="$event.stopPropagation()">
+        <!-- Restricted Transition Toast Notification -->
+        @if (restrictedToastMessage()) {
+          <div class="workflow-restriction-banner font-mono">
+            <i class="fi fi-rr-lock text-amber"></i>
+            <span>{{ restrictedToastMessage() }}</span>
+            <button type="button" class="btn-close-toast" (click)="clearRestrictedToast()">&times;</button>
+          </div>
+        }
+
+        <!-- Concurrent Edit Conflict Notification -->
+        @if (taskService.concurrentConflictMessage()) {
+          <div class="concurrent-conflict-banner font-mono">
+            <i class="fi fi-rr-interrogation text-cyan"></i>
+            <span>{{ taskService.concurrentConflictMessage() }}</span>
+            <button type="button" class="btn-close-toast" (click)="taskService.clearConflictNotification()">&times;</button>
+          </div>
+        }
+
         <!-- Top Navigation Header Bar -->
         <div class="detail-nav-bar paper-panel">
           <div class="nav-left">
@@ -29,10 +52,15 @@ import { RichEditorComponent } from './rich-editor';
               </span>
               <span
                 class="task-key-badge font-mono clickable-key"
+                [class.copied]="taskShareService.lastCopiedTaskId() === task.id"
                 (click)="taskShareService.copyTaskShareLink(task, $event)"
-                title="Click to copy share link"
+                [title]="taskShareService.lastCopiedTaskId() === task.id ? 'Copied link for ' + getTaskKeyStr(task) : 'Click to copy share link'"
               >
-                <i class="fi fi-rr-link link-icon"></i> {{ getTaskKeyStr(task) }}
+                @if (taskShareService.lastCopiedTaskId() === task.id) {
+                  <i class="fi fi-rr-check text-emerald"></i> COPIED!
+                } @else {
+                  <i class="fi fi-rr-link link-icon"></i> {{ getTaskKeyStr(task) }}
+                }
               </span>
               <span class="priority-badge" [class]="(task.priority || 'medium').toLowerCase()">
                 {{ task.priority || 'medium' }}
@@ -51,7 +79,7 @@ import { RichEditorComponent } from './rich-editor';
           </div>
 
           <div class="nav-right">
-            <button type="button" class="btn-close-page font-mono" (click)="close.emit()" title="Close Task Detail Panel (Esc)">
+            <button type="button" class="btn-close-page font-mono" (click)="handleCloseAttempt()" title="Close Task Detail Panel (Esc)">
               <i class="fi fi-rr-cross"></i>
               <span>Close</span>
             </button>
@@ -60,6 +88,12 @@ import { RichEditorComponent } from './rich-editor';
 
         <!-- Page Main Scrollable Container -->
         <div class="detail-page-container">
+          @if (conflictError()) {
+            <div class="form-error-banner font-mono text-rose" style="margin-bottom: 1rem;">
+              <i class="fi fi-rr-triangle-warning"></i>
+              <span>{{ conflictError() }}</span>
+            </div>
+          }
           <!-- Inline Title Edit (Full Width Title Block) -->
           <div class="detail-title-block">
             @if (isEditingTitle()) {
@@ -149,7 +183,7 @@ import { RichEditorComponent } from './rich-editor';
                       type="text"
                       class="form-input inline-labels-input font-mono"
                       [(ngModel)]="labelsInputText"
-                      placeholder="Comma-separated labels, e.g. frontend, angular, bug"
+                      placeholder="Comma-separated labels, e.g. frontend, backend, bug"
                       (keydown.enter)="saveLabels()"
                       (keydown.escape)="cancelLabelsEdit()"
                       (blur)="saveLabels()"
@@ -204,13 +238,13 @@ import { RichEditorComponent } from './rich-editor';
                     @if (task.attachments) {
                       @for (img of task.attachments; track $index) {
                         <div class="detail-thumb-card" (click)="previewImageModal.set(img)">
-                          <img [src]="img" alt="Attachment" />
+                          <img [appLazyImage]="img" alt="Attachment" />
                           <div class="detail-thumb-overlay">
                             <i class="fi fi-rr-eye zoom-icon"></i>
                             <button
                               type="button"
                               class="thumb-remove-btn"
-                              (click)="$event.stopPropagation(); removeDetailAttachment($index)"
+                              (click)="$event.stopPropagation(); confirmDeleteAttachment($index)"
                               title="Remove image"
                             >
                               <i class="fi fi-rr-trash"></i>
@@ -243,7 +277,7 @@ import { RichEditorComponent } from './rich-editor';
                     (click)="activeTab.set('comments')"
                   >
                     <i class="fi fi-rr-comment-alt-middle"></i> Comments
-                    <span class="activity-badge">{{ comments().length }}</span>
+                    <span class="activity-badge">{{ totalCommentsCount() }}</span>
                   </button>
 
                   <button
@@ -335,7 +369,12 @@ import { RichEditorComponent } from './rich-editor';
 
                     <!-- Comments List -->
                     <div class="comments-list">
-                      @if (comments().length === 0) {
+                      @if (loadingComments() && comments().length === 0) {
+                        <div class="empty-activity font-mono">
+                          <i class="fi fi-rr-spinner spinner text-cyan"></i>
+                          <span>Loading comments (20 per page)...</span>
+                        </div>
+                      } @else if (comments().length === 0) {
                         <div class="empty-activity font-mono">
                           <i class="fi fi-rr-comment-slash text-subtle"></i>
                           <span>No comments yet. Post the first update above!</span>
@@ -389,20 +428,31 @@ import { RichEditorComponent } from './rich-editor';
                                     class="form-textarea edit-textarea"
                                     rows="2"
                                     [(ngModel)]="editText"
+                                    [disabled]="isSavingCommentId() === c.id"
                                   ></textarea>
+                                  @if (commentEditError()) {
+                                    <div class="comment-edit-error font-mono text-rose">
+                                      <i class="fi fi-rr-triangle-warning"></i> {{ commentEditError() }}
+                                    </div>
+                                  }
                                   <div class="edit-btn-row">
                                     <button
                                       class="btn btn-secondary btn-xs"
+                                      [disabled]="isSavingCommentId() === c.id"
                                       (click)="cancelCommentEdit()"
                                     >
                                       Cancel
                                     </button>
                                     <button
                                       class="btn btn-primary btn-xs"
-                                      [disabled]="!editText.trim()"
+                                      [disabled]="!editText.trim() || isSavingCommentId() === c.id"
                                       (click)="saveCommentEdit(c.id)"
                                     >
-                                      Save Changes
+                                      @if (isSavingCommentId() === c.id) {
+                                        <i class="fi fi-rr-spinner spinner"></i> Saving...
+                                      } @else {
+                                        Save Changes
+                                      }
                                     </button>
                                   </div>
                                 </div>
@@ -414,7 +464,7 @@ import { RichEditorComponent } from './rich-editor';
                                   <div class="comment-attached-images">
                                     @for (img of c.attachments; track $index) {
                                       <div class="comment-img-card" (click)="previewImageModal.set(img)" title="Click to view full image">
-                                        <img [src]="img" alt="Attached image" />
+                                        <img [appLazyImage]="img" alt="Attached image" />
                                         <div class="img-hover-overlay">
                                           <i class="fi fi-rr-search-alt"></i>
                                         </div>
@@ -423,6 +473,26 @@ import { RichEditorComponent } from './rich-editor';
                                   </div>
                                 }
                               }
+                            </div>
+                          </div>
+                        }
+
+                        @if (hasMoreComments()) {
+                          <div class="load-more-comments-bar font-mono glass-panel">
+                            <span class="comments-count-info">
+                              Showing {{ comments().length }} of {{ totalCommentsCount() }} comments ({{ remainingCommentsCount() }} remaining)
+                            </span>
+                            <div class="load-more-actions">
+                              <button type="button" class="btn btn-secondary btn-xs load-more-btn" [disabled]="loadingComments()" (click)="loadMoreComments()">
+                                @if (loadingComments()) {
+                                  <i class="fi fi-rr-spinner spinner text-cyan"></i> Loading...
+                                } @else {
+                                  <i class="fi fi-rr-angle-down"></i> Load 20 More
+                                }
+                              </button>
+                              <button type="button" class="btn btn-ghost btn-xs show-all-btn" [disabled]="loadingComments()" (click)="showAllComments()">
+                                Show All ({{ totalCommentsCount() }})
+                              </button>
                             </div>
                           </div>
                         }
@@ -458,7 +528,7 @@ import { RichEditorComponent } from './rich-editor';
                                     </span>
                                     <span class="activity-user">
                                       <i class="fi fi-rr-user"></i>
-                                      <span>{{ (h.changed_by && h.changed_by !== 'Self') ? h.changed_by : 'User' }}</span>
+                                      <span>{{ getActorDisplayName(h) }}</span>
                                     </span>
                                   </div>
 
@@ -573,7 +643,14 @@ import { RichEditorComponent } from './rich-editor';
               }
 
               <div class="meta-group">
-                <label class="meta-label">Assignee</label>
+                <div class="label-with-hint">
+                  <label class="meta-label">Assignee</label>
+                  @if (assigneeLoadError()) {
+                    <span class="member-load-error font-mono text-amber" title="Failed to load project members from server. Fallback options active.">
+                      <i class="fi fi-rr-warning"></i> Members load issue
+                    </span>
+                  }
+                </div>
                 <app-select
                   [options]="assigneeOptions"
                   [value]="(!task.assignee || task.assignee === 'Self') ? 'Unassigned' : task.assignee"
@@ -610,8 +687,16 @@ import { RichEditorComponent } from './rich-editor';
               </div>
 
               <div class="meta-actions">
-                <button class="btn btn-secondary btn-sm full-width" (click)="taskShareService.copyTaskShareLink(task, $event)">
-                  <i class="fi fi-rr-share"></i> Copy Share Link
+                <button
+                  class="btn btn-secondary btn-sm full-width"
+                  [class.btn-copied]="taskShareService.lastCopiedTaskId() === task.id"
+                  (click)="taskShareService.copyTaskShareLink(task, $event)"
+                >
+                  @if (taskShareService.lastCopiedTaskId() === task.id) {
+                    <i class="fi fi-rr-check text-emerald"></i> Copied to Clipboard!
+                  } @else {
+                    <i class="fi fi-rr-share"></i> Copy Share Link
+                  }
                 </button>
               </div>
 
@@ -976,6 +1061,13 @@ import { RichEditorComponent } from './rich-editor';
       background: rgba(6, 182, 212, 0.15);
       padding: 0.2rem 0.6rem;
       border-radius: var(--radius-sm);
+      max-width: 100%;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      display: inline-block;
     }
     .no-labels-text {
       font-size: 0.775rem;
@@ -1312,6 +1404,44 @@ import { RichEditorComponent } from './rich-editor';
       gap: 0.75rem;
       width: 100%;
     }
+    .load-more-comments-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.65rem 0.85rem;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      margin-top: 0.25rem;
+      flex-wrap: wrap;
+    }
+    .comments-count-info {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+    .load-more-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .load-more-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      color: var(--accent-cyan);
+      border-color: rgba(6, 182, 212, 0.3);
+    }
+    .load-more-btn:hover {
+      background: rgba(6, 182, 212, 0.15);
+      border-color: var(--accent-cyan);
+    }
+    .show-all-btn {
+      color: var(--text-subtle);
+    }
+    .show-all-btn:hover {
+      color: var(--text-main);
+    }
     .edit-textarea {
       width: 100%;
       box-sizing: border-box;
@@ -1641,6 +1771,13 @@ import { RichEditorComponent } from './rich-editor';
       gap: 0.4rem;
       margin-top: 0.2rem;
     }
+    .comment-edit-error {
+      font-size: 0.725rem;
+      margin-top: 0.15rem;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
     .edit-textarea {
       font-size: 0.85rem;
     }
@@ -1802,18 +1939,76 @@ import { RichEditorComponent } from './rich-editor';
     }
   `]
 })
-export class TaskDetailModalComponent implements OnInit {
+export class TaskDetailModalComponent implements OnInit, OnDestroy {
   @Input() task!: Task;
   @Output() close = new EventEmitter<void>();
   @Output() editTask = new EventEmitter<Task>();
 
+  modalZIndex = 2000;
+  private readonly modalId = 'task-detail-modal-' + Math.random().toString(36).substring(2, 9);
+
   comments = signal<TaskComment[]>([]);
+  commentsPage = signal<number>(1);
+  commentsPageSize = signal<number>(20);
+  totalCommentsCount = signal<number>(0);
+  hasMoreComments = signal<boolean>(false);
+  loadingComments = signal<boolean>(false);
+  remainingCommentsCount = computed(() => Math.max(0, this.totalCommentsCount() - this.comments().length));
+
+  async loadComments(page: number = 1, append: boolean = false): Promise<void> {
+    if (!this.task?.id) return;
+    this.loadingComments.set(true);
+    try {
+      const res = await this.taskService.loadCommentsPaginated(this.task.id, page, this.commentsPageSize());
+      if (append) {
+        this.comments.update(list => {
+          const existingIds = new Set(list.map(c => c.id));
+          const newItems = res.comments.filter(c => !existingIds.has(c.id));
+          return [...list, ...newItems];
+        });
+      } else {
+        this.comments.set(res.comments);
+      }
+      this.commentsPage.set(res.page);
+      this.totalCommentsCount.set(res.totalCount);
+      this.hasMoreComments.set(res.hasMore);
+    } catch (err) {
+      console.error('[TaskDetailModal] Error loading comments:', err);
+    } finally {
+      this.loadingComments.set(false);
+    }
+  }
+
+  async loadMoreComments(): Promise<void> {
+    if (this.loadingComments() || !this.hasMoreComments()) return;
+    await this.loadComments(this.commentsPage() + 1, true);
+  }
+
+  async showAllComments(): Promise<void> {
+    if (this.loadingComments() || !this.hasMoreComments()) return;
+    this.loadingComments.set(true);
+    try {
+      const res = await this.taskService.loadCommentsPaginated(this.task.id, 1, 1000, true);
+      this.comments.set(res.comments);
+      this.commentsPage.set(1);
+      this.totalCommentsCount.set(res.totalCount);
+      this.hasMoreComments.set(false);
+    } catch (err) {
+      console.error('[TaskDetailModal] Error showing all comments:', err);
+    } finally {
+      this.loadingComments.set(false);
+    }
+  }
+
   statusHistory = signal<TaskStatusHistory[]>([]);
   activeTab = signal<'comments' | 'history'>('comments');
   newCommentText = '';
 
   editingCommentId = signal<string | null>(null);
+  editingCommentOriginalText = '';
   editText = '';
+  isSavingCommentId = signal<string | null>(null);
+  commentEditError = signal<string | null>(null);
 
   // Inline edit state
   previewImageModal = signal<string | null>(null);
@@ -1863,58 +2058,206 @@ export class TaskDetailModalComponent implements OnInit {
   ];
 
   assigneeOptions: SelectOption[] = [];
+  assigneeLoadError = signal<boolean>(false);
+  conflictError = signal<string | null>(null);
 
   constructor(
-    private taskService: TaskService,
-    private projectService: ProjectService,
-    private workflowService: WorkflowService,
+    public taskService: TaskService,
+    public projectService: ProjectService,
+    public workflowService: WorkflowService,
     public taskShareService: TaskShareService,
-    public authService: AuthService
+    public authService: AuthService,
+    public progressService: ProgressService,
+    private elementRef: ElementRef
   ) { }
 
-  @HostListener('window:keydown.escape')
-  onEscapePress() {
-    if (!this.previewImageModal() && !this.isEditingTitle() && !this.isEditingDesc() && !this.isEditingLabels()) {
-      this.close.emit();
+  get hasUnsavedTitleChanges(): boolean {
+    return this.isEditingTitle() &&
+      this.titleInputText.trim() !== '' &&
+      this.titleInputText.trim() !== (this.task?.title || '');
+  }
+
+  @HostListener('window:keydown', ['$event'])
+  handleWindowKeydown(e: KeyboardEvent) {
+    if (e.key === 'Tab' && isTopModal(this.modalId)) {
+      this.trapFocus(e);
     }
+  }
+
+  private trapFocus(e: KeyboardEvent) {
+    const container = this.elementRef?.nativeElement;
+    if (!container) return;
+
+    const focusables = (Array.from(
+      container.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ) as HTMLElement[]).filter(el => el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement);
+
+    if (focusables.length === 0) return;
+
+    const firstEl = focusables[0];
+    const lastEl = focusables[focusables.length - 1];
+    const activeEl = document.activeElement;
+
+    if (e.shiftKey) {
+      if (activeEl === firstEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        lastEl.focus();
+      }
+    } else {
+      if (activeEl === lastEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        firstEl.focus();
+      }
+    }
+  }
+
+  @HostListener('window:beforeunload', ['$event'])
+  unloadNotification($event: BeforeUnloadEvent): boolean | string {
+    if (this.hasUnsavedTitleChanges) {
+      $event.preventDefault();
+      $event.returnValue = 'You have unsaved inline title changes!';
+      return 'You have unsaved inline title changes!';
+    }
+    return true;
+  }
+
+  async handleCloseAttempt() {
+    if (this.hasUnsavedTitleChanges) {
+      await this.saveTitle();
+    }
+    if (this.isEditingDesc() && this.descInputText !== (this.task?.description || '')) {
+      await this.saveDesc();
+    }
+    if (this.isEditingLabels()) {
+      await this.saveLabels();
+    }
+    this.close.emit();
+  }
+
+  @HostListener('window:keydown.escape')
+  async onEscapePress() {
+    if (!isTopModal(this.modalId) || this.previewImageModal()) return;
+
+    if (this.hasUnsavedTitleChanges) {
+      await this.saveTitle();
+    } else if (this.isEditingTitle()) {
+      this.cancelTitleEdit();
+    }
+
+    if (this.isEditingDesc()) {
+      if (this.descInputText !== (this.task?.description || '')) {
+        await this.saveDesc();
+      } else {
+        this.cancelDescEdit();
+      }
+    }
+
+    if (this.isEditingLabels()) {
+      await this.saveLabels();
+    }
+
+    this.close.emit();
+  }
+
+  getActorDisplayName(h: TaskStatusHistory): string {
+    const userIdOrName = h.user_id || h.changed_by;
+    if (!userIdOrName || userIdOrName === 'Self') return 'User';
+
+    const currentUser = this.authService.user();
+    if (currentUser) {
+      if (userIdOrName === currentUser.id || userIdOrName === currentUser.email) {
+        const meta = currentUser.user_metadata;
+        const currentName = meta?.['display_name'] || meta?.['full_name'] || meta?.['name'] ||
+          (currentUser.email ? currentUser.email.split('@')[0] : 'User');
+        return currentName;
+      }
+    }
+
+    const option = this.assigneeOptions.find(opt => opt.value === userIdOrName || opt.label.includes(userIdOrName));
+    if (option && option.value !== 'Unassigned') {
+      return option.label.replace(' (You)', '');
+    }
+
+    if (h.changed_by && h.changed_by !== 'Self') {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(h.changed_by);
+      if (!isUuid) {
+        return h.changed_by;
+      }
+    }
+
+    return 'User';
   }
 
   async ngOnInit() {
+    this.modalZIndex = registerModal(this.modalId);
+    this.conflictError.set(null);
     if (this.task) {
       this.loadAssigneeOptions();
-      const [commList, historyList] = await Promise.all([
-        this.taskService.loadCommentsForTask(this.task.id),
-        this.taskService.loadStatusHistoryForTask(this.task.id)
+      await Promise.all([
+        this.loadComments(1, false),
+        (async () => {
+          const historyList = await this.taskService.loadStatusHistoryForTask(this.task.id);
+          this.statusHistory.set(historyList || []);
+        })()
       ]);
-      this.comments.set(commList);
-      this.statusHistory.set(historyList);
     }
   }
 
+
   async loadAssigneeOptions() {
     const currentAssignee = (!this.task?.assignee || this.task?.assignee === 'Self') ? 'Unassigned' : this.task.assignee;
-    this.assigneeOptions = [
-      { value: 'Unassigned', label: 'Unassigned', icon: 'fi fi-rr-user-slash' }
-    ];
-    if (currentAssignee && currentAssignee !== 'Unassigned') {
-      this.assigneeOptions.push({ value: currentAssignee, label: currentAssignee, icon: 'fi fi-rr-user' });
+    try {
+      const opts = await this.projectService.getWorkspaceMemberOptions(
+        this.task?.project_id,
+        currentAssignee
+      );
+      if (opts && opts.length > 0) {
+        this.assigneeOptions = opts as SelectOption[];
+        this.assigneeLoadError.set(false);
+      } else {
+        this.assigneeLoadError.set(true);
+        this.assigneeOptions = [
+          { value: 'Unassigned', label: 'Unassigned', icon: 'fi fi-rr-user-slash' },
+          ...(currentAssignee && currentAssignee !== 'Unassigned' ? [{ value: currentAssignee, label: currentAssignee, icon: 'fi fi-rr-user' }] : [])
+        ];
+      }
+    } catch (e) {
+      console.warn('Failed to load assignee options in detail modal:', e);
+      this.assigneeLoadError.set(true);
+      this.assigneeOptions = [
+        { value: 'Unassigned', label: 'Unassigned', icon: 'fi fi-rr-user-slash' },
+        ...(currentAssignee && currentAssignee !== 'Unassigned' ? [{ value: currentAssignee, label: currentAssignee, icon: 'fi fi-rr-user' }] : [])
+      ];
+    }
+  }
+
+  async safeUpdateTask(updates: Partial<Task>): Promise<Task | null> {
+    if (!this.task) return null;
+    const expectedUpdatedAt = this.task.updated_at;
+    const updated = await this.taskService.updateTask(this.task.id, updates, expectedUpdatedAt);
+
+    if (!updated) {
+      this.conflictError.set('Concurrent Edit Conflict: This task was modified by another user. Displaying the latest task version.');
+      const latest = this.taskService.tasks().find(t => t.id === this.task.id);
+      if (latest) {
+        this.task = latest;
+        await this.refreshHistory();
+      }
+      return null;
     }
 
-    const opts = await this.projectService.getWorkspaceMemberOptions(
-      this.task?.project_id,
-      currentAssignee
-    );
-    this.assigneeOptions = opts as SelectOption[];
+    this.conflictError.set(null);
+    this.task = updated;
+    await this.refreshHistory();
+    return updated;
   }
 
   async updateAssigneeFromSelect(newAssignee: string) {
     const val = newAssignee === 'Unassigned' ? '' : newAssignee;
     if (val !== (this.task.assignee || '')) {
-      const updated = await this.taskService.updateTask(this.task.id, { assignee: val });
-      if (updated) {
-        this.task = updated;
-        await this.refreshHistory();
-      }
+      await this.safeUpdateTask({ assignee: val });
     }
   }
 
@@ -1923,14 +2266,49 @@ export class TaskDetailModalComponent implements OnInit {
   }
 
   get statusOptions(): SelectOption[] {
-    return this.getAvailableStatuses().map(s => ({
-      value: s.name,
-      label: s.name
-    }));
+    const available = this.getAvailableStatuses();
+    const currentStatus = this.task?.status || '';
+
+    return available.map(s => {
+      const isCurrent = !!currentStatus && s.name.trim().toLowerCase() === currentStatus.trim().toLowerCase();
+
+      if (isCurrent) {
+        return {
+          value: s.name,
+          label: s.name,
+          icon: 'fi fi-rr-check-circle text-cyan',
+          badge: 'CURRENT',
+          description: 'Current status',
+          disabled: false
+        };
+      }
+
+      const isAllowed = !currentStatus ? true : this.workflowService.canTransition(currentStatus, s.id, this.task?.project_id);
+
+      if (isAllowed) {
+        return {
+          value: s.name,
+          label: s.name,
+          icon: 'fi fi-rr-angle-small-right text-emerald',
+          badge: 'ALLOWED',
+          description: 'Transition allowed',
+          disabled: false
+        };
+      } else {
+        return {
+          value: s.name,
+          label: s.name,
+          icon: 'fi fi-rr-lock text-rose',
+          badge: 'RESTRICTED',
+          description: `Transition from "${currentStatus}" restricted by workflow rules`,
+          disabled: true
+        };
+      }
+    });
   }
 
   getTaskKeyStr(task?: Task): string {
-    return getTaskKey(task, this.projectService.projects());
+    return getTaskKey(task, this.projectService.projects(), this.taskService.tasks());
   }
 
   getProjectName(projectId?: string): string | null {
@@ -1997,8 +2375,7 @@ export class TaskDetailModalComponent implements OnInit {
     this.isEditingTitle.set(false);
     const trimmed = this.titleInputText.trim();
     if (trimmed && trimmed !== this.task.title) {
-      const updated = await this.taskService.updateTask(this.task.id, { title: trimmed });
-      if (updated) this.task = updated;
+      await this.safeUpdateTask({ title: trimmed });
     }
   }
 
@@ -2020,11 +2397,7 @@ export class TaskDetailModalComponent implements OnInit {
     if (!this.isEditingDesc()) return;
     this.isEditingDesc.set(false);
     if (this.descInputText !== (this.task.description || '')) {
-      const updated = await this.taskService.updateTask(this.task.id, { description: this.descInputText });
-      if (updated) {
-        this.task = updated;
-        await this.refreshHistory();
-      }
+      await this.safeUpdateTask({ description: this.descInputText });
     }
   }
 
@@ -2045,31 +2418,59 @@ export class TaskDetailModalComponent implements OnInit {
   async saveLabels() {
     if (!this.isEditingLabels()) return;
     this.isEditingLabels.set(false);
-    const parsed = this.labelsInputText
-      .split(',')
-      .map(l => l.trim().toLowerCase())
-      .filter(l => l.length > 0);
-    const updated = await this.taskService.updateTask(this.task.id, { labels: parsed });
-    if (updated) {
-      this.task = updated;
-      await this.refreshHistory();
+    const parsed = sanitizeLabels(this.labelsInputText.split(','));
+    await this.safeUpdateTask({ labels: parsed });
+  }
+
+  restrictedToastMessage = signal<string>('');
+  private restrictedToastTimer: any = null;
+
+  showRestrictedToast(message: string, durationMs: number = 4000): void {
+    if (this.restrictedToastTimer) {
+      clearTimeout(this.restrictedToastTimer);
+      this.restrictedToastTimer = null;
     }
+    this.restrictedToastMessage.set(message);
+    this.restrictedToastTimer = setTimeout(() => {
+      this.restrictedToastMessage.set('');
+      this.restrictedToastTimer = null;
+    }, durationMs);
+  }
+
+  clearRestrictedToast(): void {
+    if (this.restrictedToastTimer) {
+      clearTimeout(this.restrictedToastTimer);
+      this.restrictedToastTimer = null;
+    }
+    this.restrictedToastMessage.set('');
+  }
+
+  ngOnDestroy(): void {
+    unregisterModal(this.modalId);
+    this.clearRestrictedToast();
   }
 
   // Metadata Field Handlers
   async updateStatus(newStatus: string) {
+    if (this.task && newStatus !== this.task.status) {
+      const available = this.getAvailableStatuses();
+      const wf = available.find(w => w.name === newStatus);
+      if (wf) {
+        const allowed = this.workflowService.canTransition(this.task.status, wf.id, this.task.project_id);
+        if (!allowed) {
+          this.showRestrictedToast(`Workflow Rule: Transitioning from "${this.task.status}" to "${newStatus}" is restricted.`);
+          return;
+        }
+      }
+    }
+
     const available = this.getAvailableStatuses();
     const wf = available.find(w => w.name === newStatus);
 
-    const updated = await this.taskService.updateTask(this.task.id, {
+    await this.safeUpdateTask({
       status: newStatus,
       workflow_id: wf?.id
     });
-    if (updated) {
-      this.task = updated;
-      const historyList = await this.taskService.loadStatusHistoryForTask(this.task.id);
-      this.statusHistory.set(historyList);
-    }
   }
 
   getActionIcon(actionType?: string): string {
@@ -2099,19 +2500,11 @@ export class TaskDetailModalComponent implements OnInit {
   }
 
   async updatePriority(newPriority: TaskPriority) {
-    const updated = await this.taskService.updateTask(this.task.id, { priority: newPriority });
-    if (updated) {
-      this.task = updated;
-      await this.refreshHistory();
-    }
+    await this.safeUpdateTask({ priority: newPriority });
   }
 
   async updateType(newType: TaskType) {
-    const updated = await this.taskService.updateTask(this.task.id, { type: newType });
-    if (updated) {
-      this.task = updated;
-      await this.refreshHistory();
-    }
+    await this.safeUpdateTask({ type: newType });
   }
 
   isReportedTask(): boolean {
@@ -2130,45 +2523,28 @@ export class TaskDetailModalComponent implements OnInit {
   }
 
   async updateReportCategory(newCategory: string) {
-    const updated = await this.taskService.updateTask(this.task.id, {
+    await this.safeUpdateTask({
       report_category: newCategory,
       is_app_report: true
     });
-    if (updated) {
-      this.task = updated;
-      await this.refreshHistory();
-    }
   }
 
   async updateSeverity(newSeverity: string) {
-    const updated = await this.taskService.updateTask(this.task.id, { severity: newSeverity as TaskSeverity });
-    if (updated) {
-      this.task = updated;
-      await this.refreshHistory();
-    }
+    await this.safeUpdateTask({ severity: newSeverity as TaskSeverity });
   }
 
   async updateReproducibility(newReproducibility: string) {
-    const updated = await this.taskService.updateTask(this.task.id, { reproducibility: newReproducibility as TaskReproducibility });
-    if (updated) {
-      this.task = updated;
-      await this.refreshHistory();
-    }
+    await this.safeUpdateTask({ reproducibility: newReproducibility as TaskReproducibility });
   }
 
   async updateDueDate(newDueDate: string) {
-    const updated = await this.taskService.updateTask(this.task.id, { due_date: newDueDate });
-    if (updated) {
-      this.task = updated;
-      await this.refreshHistory();
-    }
+    await this.safeUpdateTask({ due_date: newDueDate });
   }
 
   async updateAssignee(event: Event) {
     const val = (event.target as HTMLInputElement).value.trim();
     if (val !== (this.task.assignee || '')) {
-      const updated = await this.taskService.updateTask(this.task.id, { assignee: val });
-      if (updated) this.task = updated;
+      await this.safeUpdateTask({ assignee: val });
     }
   }
 
@@ -2190,7 +2566,10 @@ export class TaskDetailModalComponent implements OnInit {
       'User',
       attachments
     );
-    this.comments.update(list => [...list, added]);
+    if (added) {
+      this.comments.update(list => [...list, added]);
+      this.totalCommentsCount.update(c => c + 1);
+    }
     this.newCommentText = '';
     this.commentAttachments.set([]);
     await this.refreshHistory();
@@ -2232,25 +2611,63 @@ export class TaskDetailModalComponent implements OnInit {
       return;
     }
 
+    const MAX_COMMENT_ATTACHMENTS = 5;
+    if (this.commentAttachments().length + imageFiles.length > MAX_COMMENT_ATTACHMENTS) {
+      this.taskShareService.showToast(`Maximum ${MAX_COMMENT_ATTACHMENTS} image attachments allowed per comment.`);
+      return;
+    }
+
     this.uploadingCommentAttachments.set(true);
     this.uploadingCommentCount.set(imageFiles.length);
 
+    const uploadProgressId = `upload-${Date.now()}`;
+    const totalBytes = imageFiles.reduce((acc, f) => acc + f.size, 0);
+    this.progressService.start(uploadProgressId, 'upload', 'Large File Upload', {
+      message: `Compressing & uploading ${imageFiles.length} file(s)...`,
+      totalBytes
+    });
+
     try {
-      for (const file of imageFiles) {
-        const imgData = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = (e: ProgressEvent<FileReader>) => resolve((e.target?.result as string) || '');
-          reader.onerror = () => reject(new Error('Failed to read image file'));
-          reader.readAsDataURL(file);
+      let processedCount = 0;
+      let loadedBytes = 0;
+
+      for (let i = 0; i < imageFiles.length; i++) {
+        const file = imageFiles[i];
+        if (file.size > MAX_ATTACHMENT_FILE_SIZE_BYTES) {
+          this.taskShareService.showToast(`File "${file.name}" exceeds 10MB limit and was skipped.`);
+          continue;
+        }
+
+        loadedBytes += file.size;
+        const pct = Math.round((loadedBytes / (totalBytes || 1)) * 100);
+        this.progressService.update(uploadProgressId, pct, {
+          message: `Processing "${file.name}" (${i + 1} of ${imageFiles.length})`,
+          loadedBytes,
+          totalBytes
         });
-        if (imgData) {
-          this.commentAttachments.update(curr => [...curr, imgData]);
+
+        const compressed = await compressImageFile(file);
+        if (compressed) {
+          const check = canAddAttachment(this.commentAttachments(), compressed);
+          if (!check.allowed) {
+            this.taskShareService.showToast(check.reason || 'Cumulative attachment size limit reached for comment draft.');
+            break;
+          }
+          this.commentAttachments.update(curr => [...curr, compressed]);
+          processedCount++;
         }
       }
-      this.taskShareService.showToast(`${imageFiles.length} image(s) attached to comment draft.`);
+
+      if (processedCount > 0) {
+        this.taskShareService.showToast(`${processedCount} image(s) attached to comment draft.`);
+        this.progressService.complete(uploadProgressId, `${processedCount} attachment(s) processed!`);
+      } else {
+        this.progressService.complete(uploadProgressId, 'Upload finished');
+      }
     } catch (e) {
       console.error('Error processing comment image:', e);
       this.taskShareService.showToast('Failed to process image for comment. Please try again.');
+      this.progressService.fail(uploadProgressId, 'File processing failed');
     } finally {
       this.uploadingCommentAttachments.set(false);
       this.uploadingCommentCount.set(0);
@@ -2263,21 +2680,57 @@ export class TaskDetailModalComponent implements OnInit {
 
   startEditingComment(comment: TaskComment) {
     this.editingCommentId.set(comment.id);
+    this.editingCommentOriginalText = comment.content;
     this.editText = comment.content;
+    this.commentEditError.set(null);
   }
 
   cancelCommentEdit() {
+    const id = this.editingCommentId();
+    if (id && this.editingCommentOriginalText) {
+      const orig = this.editingCommentOriginalText;
+      this.comments.update(list => list.map(c => c.id === id ? { ...c, content: orig } : c));
+    }
     this.editingCommentId.set(null);
+    this.editingCommentOriginalText = '';
     this.editText = '';
+    this.commentEditError.set(null);
+    this.isSavingCommentId.set(null);
   }
 
   async saveCommentEdit(commentId: string) {
-    if (!this.editText.trim()) return;
-    const updated = await this.taskService.updateComment(commentId, this.task.id, this.editText.trim());
-    if (updated) {
-      this.comments.update(list => list.map(c => c.id === commentId ? updated : c));
+    const cleanText = this.editText.trim();
+    if (!cleanText) {
+      this.commentEditError.set('Comment content cannot be empty.');
+      return;
     }
-    this.cancelCommentEdit();
+
+    const originalContent = this.editingCommentOriginalText;
+    this.isSavingCommentId.set(commentId);
+    this.commentEditError.set(null);
+
+    try {
+      const updated = await this.taskService.updateComment(commentId, this.task.id, cleanText);
+      if (updated) {
+        this.comments.update(list => list.map(c => c.id === commentId ? updated : c));
+        this.editingCommentId.set(null);
+        this.editingCommentOriginalText = '';
+        this.editText = '';
+        this.isSavingCommentId.set(null);
+        this.taskShareService.showToast('Comment updated successfully.');
+      } else {
+        this.comments.update(list => list.map(c => c.id === commentId ? { ...c, content: originalContent } : c));
+        this.commentEditError.set('Failed to save comment changes. Original content preserved.');
+        this.taskShareService.showToast('Failed to update comment. Original content restored.');
+      }
+    } catch (e) {
+      console.error('Error updating comment:', e);
+      this.comments.update(list => list.map(c => c.id === commentId ? { ...c, content: originalContent } : c));
+      this.commentEditError.set('Failed to save comment changes. Original content preserved.');
+      this.taskShareService.showToast('Failed to update comment. Original content restored.');
+    } finally {
+      this.isSavingCommentId.set(null);
+    }
   }
 
   confirmState = signal<{ open: boolean; title: string; message: string; action: () => void } | null>(null);
@@ -2290,6 +2743,7 @@ export class TaskDetailModalComponent implements OnInit {
       action: async () => {
         await this.taskService.deleteComment(commentId, this.task.id);
         this.comments.update(list => list.filter(c => c.id !== commentId));
+        this.totalCommentsCount.update(c => Math.max(0, c - 1));
       }
     });
   }
@@ -2300,16 +2754,25 @@ export class TaskDetailModalComponent implements OnInit {
       title: 'Delete Task',
       message: `Are you sure you want to permanently delete issue "${this.task.title}"?`,
       action: async () => {
-        await this.taskService.deleteTask(this.task.id);
-        this.close.emit();
+        const success = await this.taskService.deleteTask(this.task.id);
+        if (success) {
+          this.taskShareService.showToast('Task deleted successfully.');
+          this.close.emit();
+        } else {
+          this.taskShareService.showToast('Failed to delete task from server. Deletion cancelled.');
+        }
       }
     });
   }
 
-  handleConfirm() {
+  async handleConfirm() {
     const current = this.confirmState();
     if (current && current.action) {
-      current.action();
+      try {
+        await current.action();
+      } catch (e) {
+        console.error('Error executing confirmed action:', e);
+      }
     }
     this.confirmState.set(null);
   }
@@ -2325,28 +2788,43 @@ export class TaskDetailModalComponent implements OnInit {
       return;
     }
 
+    const currentAttachments = [...(this.task.attachments || [])];
+    if (currentAttachments.length + files.length > MAX_ATTACHMENTS_PER_TASK) {
+      this.taskShareService.showToast(`Maximum ${MAX_ATTACHMENTS_PER_TASK} attachments allowed per task.`);
+      return;
+    }
+
     this.uploadingDetailAttachments.set(true);
     this.uploadingDetailCount.set(files.length);
 
     try {
-      const currentAttachments = [...(this.task.attachments || [])];
       const newImgs: string[] = [];
 
       for (const file of files) {
-        const imgData = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = (e) => resolve((e.target?.result as string) || '');
-          reader.onerror = () => reject(new Error('Failed to read image file'));
-          reader.readAsDataURL(file);
-        });
-        if (imgData) newImgs.push(imgData);
+        if (file.size > MAX_ATTACHMENT_FILE_SIZE_BYTES) {
+          this.taskShareService.showToast(`File "${file.name}" exceeds 10MB limit and was skipped.`);
+          continue;
+        }
+
+        const compressed = await compressImageFile(file);
+        if (compressed) {
+          const combined = [...currentAttachments, ...newImgs];
+          const check = canAddAttachment(combined, compressed);
+          if (!check.allowed) {
+            this.taskShareService.showToast(check.reason || 'Cumulative task attachment size limit (1.5MB) reached.');
+            break;
+          }
+          newImgs.push(compressed);
+        }
       }
 
       if (newImgs.length > 0) {
         const updatedAttachments = [...currentAttachments, ...newImgs];
-        const updated = await this.taskService.updateTask(this.task.id, { attachments: updatedAttachments });
-        if (updated) this.task = updated;
-        this.taskShareService.showToast(`${newImgs.length} image attachment(s) added successfully.`);
+        const updated = await this.safeUpdateTask({ attachments: updatedAttachments });
+        if (updated) {
+          this.task = updated;
+          this.taskShareService.showToast(`${newImgs.length} image attachment(s) added successfully.`);
+        }
       }
     } catch (e) {
       console.error('Error adding image attachment:', e);
@@ -2357,11 +2835,24 @@ export class TaskDetailModalComponent implements OnInit {
     }
   }
 
+  confirmDeleteAttachment(index: number) {
+    this.confirmState.set({
+      open: true,
+      title: 'Remove Image Attachment',
+      message: 'Are you sure you want to remove this image attachment from the task? This action cannot be undone.',
+      action: async () => {
+        await this.removeDetailAttachment(index);
+      }
+    });
+  }
+
   async removeDetailAttachment(index: number) {
     const currentAttachments = [...(this.task.attachments || [])];
     currentAttachments.splice(index, 1);
-    const updated = await this.taskService.updateTask(this.task.id, { attachments: currentAttachments });
-    if (updated) this.task = updated;
+    const updated = await this.safeUpdateTask({ attachments: currentAttachments });
+    if (updated) {
+      this.taskShareService.showToast('Image attachment removed successfully.');
+    }
   }
 
   formatDate(isoString: string): string {

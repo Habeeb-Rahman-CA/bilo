@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output, ViewChild, ElementRef } from '@angular/core';
+import { Component, EventEmitter, Input, Output, ViewChild, ElementRef, SecurityContext } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
@@ -70,9 +70,6 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
                 <button type="button" class="tool-btn" (click)="applyFormat('number')" title="Numbered List (1. item)">
                   <i class="fi fi-rr-list-check"></i>
                 </button>
-                <button type="button" class="tool-btn" (click)="applyFormat('checklist')" title="Checklist (- [ ] task)">
-                  <i class="fi fi-rr-checkbox"></i>
-                </button>
 
                 <div class="toolbar-divider"></div>
 
@@ -109,9 +106,10 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
             [ngModel]="value"
             (ngModelChange)="onTextChange($event)"
             (keydown)="handleKeydown($event)"
+            (paste)="handlePaste($event)"
           ></textarea>
         } @else {
-          <div class="markdown-preview-render" [innerHTML]="renderedContent"></div>
+          <div class="markdown-preview-render" [innerHTML]="renderedContent" (click)="onPreviewClick($event)"></div>
         }
       </div>
     </div>
@@ -330,10 +328,51 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 
     :host ::ng-deep .markdown-preview-render li.task-item {
       list-style: none;
-      margin-left: -1rem;
+      margin-left: -0.5rem;
       display: flex;
       align-items: center;
-      gap: 0.4rem;
+      gap: 0.45rem;
+      cursor: pointer;
+    }
+
+    :host ::ng-deep .markdown-preview-render input.task-checkbox {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border: 1.5px solid var(--border-medium, #4b5563);
+      border-radius: var(--radius-xs, 3px);
+      background: var(--bg-surface-subtle, rgba(255,255,255,0.05));
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      outline: none;
+      transition: all 0.15s ease;
+      flex-shrink: 0;
+      margin: 0;
+    }
+
+    :host ::ng-deep .markdown-preview-render input.task-checkbox:hover {
+      border-color: var(--accent-cyan, #38bdf8);
+      background: var(--bg-surface-hover, rgba(56, 189, 248, 0.1));
+    }
+
+    :host ::ng-deep .markdown-preview-render input.task-checkbox:checked {
+      background: var(--accent-cyan, #06b6d4);
+      border-color: var(--accent-cyan, #06b6d4);
+    }
+
+    :host ::ng-deep .markdown-preview-render input.task-checkbox:checked::after {
+      content: '';
+      width: 4px;
+      height: 8px;
+      border: solid #000;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+      position: absolute;
+      top: 1px;
     }
 
     :host ::ng-deep .markdown-preview-render blockquote {
@@ -352,8 +391,10 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
       color: #38bdf8;
       padding: 0.1rem 0.35rem;
       border-radius: 4px;
-      font-family: monospace;
+      font-family: var(--font-mono, monospace);
       font-size: 0.825rem;
+      word-break: break-word;
+      overflow-wrap: anywhere;
     }
 
     :host ::ng-deep .markdown-preview-render pre {
@@ -362,15 +403,47 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
       border-radius: var(--radius-xs);
       padding: 0.6rem 0.8rem;
       overflow-x: auto;
+      overflow-y: hidden;
       margin: 0.5rem 0;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      white-space: pre;
     }
+
+    :host ::ng-deep .markdown-preview-render pre {
+      scrollbar-width: thin;
+      scrollbar-color: var(--border-medium, #30363d) transparent;
+    }
+
+    :host ::ng-deep .markdown-preview-render pre::-webkit-scrollbar {
+      height: 6px;
+    }
+    :host ::ng-deep .markdown-preview-render pre::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 3px;
+    }
+    :host ::ng-deep .markdown-preview-render pre::-webkit-scrollbar-thumb {
+      background: var(--border-medium, #30363d);
+      border-radius: 3px;
+    }
+    :host ::ng-deep .markdown-preview-render pre::-webkit-scrollbar-thumb:hover {
+      background: var(--text-muted, #8b949e);
+    }
+
     :host ::ng-deep .markdown-preview-render pre code {
-      font-family: monospace;
+      font-family: var(--font-mono, monospace);
       font-size: 0.825rem;
       color: #e6edf3;
       background: transparent;
       padding: 0;
       border: none;
+      white-space: pre;
+      word-break: normal;
+      overflow-wrap: normal;
+      display: block;
+      min-width: 0;
+      max-width: 100%;
     }
 
     :host ::ng-deep .markdown-preview-render hr {
@@ -415,7 +488,87 @@ export class RichEditorComponent {
         '<span class="empty-placeholder">No description provided.</span>'
       );
     }
-    return this.sanitizer.bypassSecurityTrustHtml(this.parseMarkdown(this.value));
+    const rawHtml = this.parseMarkdown(this.value);
+    const sanitizedByAngular = this.sanitizer.sanitize(SecurityContext.HTML, rawHtml);
+    const htmlToClean = (sanitizedByAngular !== null && sanitizedByAngular !== undefined) ? sanitizedByAngular : rawHtml;
+    const safeHtml = this.sanitizeHtmlStrict(htmlToClean);
+    return this.sanitizer.bypassSecurityTrustHtml(safeHtml);
+  }
+
+  private sanitizeHtmlStrict(html: string): string {
+    if (!html) return '';
+
+    // 1. Remove dangerous elements entirely, but preserve <input type="checkbox"> for interactive checklists
+    let clean = html;
+    clean = clean.replace(/<(script|iframe|object|embed|style|form|button|svg|details|audio|video|math|template|link|meta|base)[\s\S]*?<\/\1>/gi, '');
+    clean = clean.replace(/<(script|iframe|object|embed|style|form|button|svg|details|audio|video|math|template|link|meta|base)[\s\S]*?>/gi, '');
+    clean = clean.replace(/<input(?![^>]*\btype=["']?checkbox["']?)[^>]*>/gi, '');
+
+    // 2. Strip all inline event handlers (onerror, onclick, onload, ontoggle, etc.) regardless of leading whitespace or slash delimiters
+    clean = clean.replace(/<([a-z1-6]+)([^>]*)>/gi, (_match, tagName, attrs) => {
+      let cleanedAttrs = attrs.replace(/(\/|\s+)on[a-z0-9_]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+      cleanedAttrs = cleanedAttrs.replace(/(\/|\s+)on[a-z0-9_]+(?=\s|>|\/)/gi, '');
+
+      // Clean src and href attributes in any tag
+      cleanedAttrs = cleanedAttrs.replace(/\s+(src|href)\s*=\s*(["']?)([\s\S]*?)\2(?=\s|>|\/)/gi, (_m: string, attrName: string, quote: string, urlVal: string) => {
+        const safeUrl = this.sanitizeUrl(urlVal);
+        return ` ${attrName}=${quote || '"'}${safeUrl}${quote || '"'}`;
+      });
+
+      return `<${tagName}${cleanedAttrs}>`;
+    });
+
+    return clean;
+  }
+
+  onPreviewClick(event: MouseEvent) {
+    const target = event.target as HTMLElement;
+    if (!target) return;
+
+    const checkbox = target.classList.contains('task-checkbox') 
+      ? (target as HTMLInputElement) 
+      : (target.closest('.task-checkbox') as HTMLInputElement);
+
+    if (checkbox) {
+      event.preventDefault();
+      event.stopPropagation();
+      const indexAttr = checkbox.getAttribute('data-task-index');
+      if (indexAttr !== null && indexAttr !== undefined) {
+        const itemIndex = parseInt(indexAttr, 10);
+        if (!isNaN(itemIndex)) {
+          this.toggleChecklistItem(itemIndex);
+        }
+      }
+    }
+  }
+
+  toggleChecklistItem(itemIndex: number) {
+    if (!this.value) return;
+    const lines = this.value.split('\n');
+    let checklistCount = 0;
+
+    const newLines = lines.map(line => {
+      const uncheckedMatch = line.match(/^(\s*[-*+]|\s*\d+\.)\s*\[ \]\s*(.*)$/);
+      const checkedMatch = line.match(/^(\s*[-*+]|\s*\d+\.)\s*\[[xX]\]\s*(.*)$/);
+
+      if (uncheckedMatch || checkedMatch) {
+        if (checklistCount === itemIndex) {
+          checklistCount++;
+          if (uncheckedMatch) {
+            const [, prefix, text] = uncheckedMatch;
+            return `${prefix} [x] ${text}`;
+          } else if (checkedMatch) {
+            const [, prefix, text] = checkedMatch;
+            return `${prefix} [ ] ${text}`;
+          }
+        }
+        checklistCount++;
+      }
+      return line;
+    });
+
+    const updated = newLines.join('\n');
+    this.onTextChange(updated);
   }
 
   onTextChange(val: string) {
@@ -436,7 +589,113 @@ export class RichEditorComponent {
     }
   }
 
-  applyFormat(type: 'h1' | 'h2' | 'h3' | 'bold' | 'italic' | 'strike' | 'bullet' | 'number' | 'checklist' | 'quote' | 'code' | 'codeblock' | 'hr') {
+  handlePaste(event: ClipboardEvent) {
+    const clipboardData = event.clipboardData;
+    if (!clipboardData) return;
+
+    const htmlText = clipboardData.getData('text/html');
+    const plainText = clipboardData.getData('text/plain');
+
+    let textToInsert = '';
+
+    if (htmlText && htmlText.trim()) {
+      const containsRichHtml = /<(p|h[1-6]|b|i|strong|em|ul|ol|li|a|blockquote|code|pre|div|table|span|font|meta|!--StartFragment)/i.test(htmlText);
+      if (containsRichHtml) {
+        textToInsert = this.convertHtmlToMarkdown(htmlText);
+      }
+    }
+
+    if (!textToInsert && plainText) {
+      if (/<(p|h[1-6]|b|i|strong|em|ul|ol|li|a|blockquote|code|pre|div|span|html|body)[^>]*>/i.test(plainText)) {
+        textToInsert = this.convertHtmlToMarkdown(plainText);
+      } else {
+        textToInsert = plainText;
+      }
+    }
+
+    if (!textToInsert) return;
+
+    event.preventDefault();
+
+    const el = this.textareaEl?.nativeElement;
+    const currentVal = this.value || '';
+    let start = 0;
+    let end = 0;
+
+    if (el) {
+      start = el.selectionStart;
+      end = el.selectionEnd;
+    }
+
+    const newVal = currentVal.substring(0, start) + textToInsert + currentVal.substring(end);
+    this.onTextChange(newVal);
+
+    setTimeout(() => {
+      if (el) {
+        el.focus();
+        const newPos = start + textToInsert.length;
+        el.setSelectionRange(newPos, newPos);
+      }
+    }, 10);
+  }
+
+  private convertHtmlToMarkdown(html: string): string {
+    if (!html) return '';
+
+    // Isolate fragment if Word/Docs fragment comments exist
+    const fragmentMatch = html.match(/<!--StartFragment-->([\s\S]*?)<!--EndFragment-->/i);
+    let clean = fragmentMatch ? fragmentMatch[1] : html;
+
+    // Remove head, style, script, xml, and comments
+    clean = clean.replace(/<(head|style|script|xml|svg|object|embed)[\s\S]*?<\/\1>/gi, '');
+    clean = clean.replace(/<!--[\s\S]*?-->/g, '');
+
+    // Replace headings
+    clean = clean.replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, '\n# $1\n');
+    clean = clean.replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, '\n## $1\n');
+    clean = clean.replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, '\n### $1\n');
+    clean = clean.replace(/<h[4-6][^>]*>([\s\S]*?)<\/h[4-6]>/gi, '\n#### $1\n');
+
+    // Replace bold, italic, strikethrough, code
+    clean = clean.replace(/<(strong|b)[^>]*>([\s\S]*?)<\/\1>/gi, '**$2**');
+    clean = clean.replace(/<(em|i)[^>]*>([\s\S]*?)<\/\1>/gi, '*$2*');
+    clean = clean.replace(/<(del|strike|s)[^>]*>([\s\S]*?)<\/\1>/gi, '~~$2~~');
+    clean = clean.replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, '`$1`');
+    clean = clean.replace(/<pre[^>]*>([\s\S]*?)<\/pre>/gi, '\n```\n$1\n```\n');
+    clean = clean.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, '\n> $1\n');
+    clean = clean.replace(/<hr[^>]*>/gi, '\n---\n');
+
+    // Replace links
+    clean = clean.replace(/<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, '[$2]($1)');
+
+    // Replace list items
+    clean = clean.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '\n- $1');
+    clean = clean.replace(/<\/(ul|ol)>/gi, '\n');
+
+    // Replace paragraphs, divs, line breaks
+    clean = clean.replace(/<br\s*\/?>/gi, '\n');
+    clean = clean.replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '\n$1\n');
+    clean = clean.replace(/<div[^>]*>([\s\S]*?)<\/div>/gi, '\n$1\n');
+
+    // Strip any remaining HTML tags
+    clean = clean.replace(/<[^>]+>/g, '');
+
+    // Decode basic HTML entities
+    clean = clean
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'");
+
+    // Normalize multiple blank lines (max 2 consecutive newlines)
+    clean = clean.replace(/\n{3,}/g, '\n\n').trim();
+
+    return clean;
+  }
+
+  applyFormat(type: 'h1' | 'h2' | 'h3' | 'bold' | 'italic' | 'strike' | 'bullet' | 'number' | 'quote' | 'code' | 'codeblock' | 'hr') {
     const el = this.textareaEl?.nativeElement;
     const currentVal = this.value || '';
 
@@ -450,62 +709,126 @@ export class RichEditorComponent {
 
     const selectedText = currentVal.substring(start, end);
     let replacement = '';
-    let cursorOffset = 0;
+    let selStart = start;
+    let selEnd = start;
 
-    switch (type) {
-      case 'h1':
-        replacement = selectedText ? `# ${selectedText}` : '# Heading 1';
-        break;
-      case 'h2':
-        replacement = selectedText ? `## ${selectedText}` : '## Heading 2';
-        break;
-      case 'h3':
-        replacement = selectedText ? `### ${selectedText}` : '### Heading 3';
-        break;
-      case 'bold':
-        replacement = selectedText ? `**${selectedText}**` : '**bold text**';
-        cursorOffset = selectedText ? 0 : 2;
-        break;
-      case 'italic':
-        replacement = selectedText ? `*${selectedText}*` : '*italic text*';
-        cursorOffset = selectedText ? 0 : 1;
-        break;
-      case 'strike':
-        replacement = selectedText ? `~~${selectedText}~~` : '~~strikethrough~~';
-        break;
-      case 'bullet':
-        if (selectedText.includes('\n')) {
-          replacement = selectedText.split('\n').map(l => l.startsWith('- ') ? l : `- ${l}`).join('\n');
-        } else {
-          replacement = selectedText ? `- ${selectedText}` : '- List item';
-        }
-        break;
-      case 'number':
-        if (selectedText.includes('\n')) {
-          replacement = selectedText.split('\n').map((l, i) => `${i + 1}. ${l}`).join('\n');
-        } else {
-          replacement = selectedText ? `1. ${selectedText}` : '1. List item';
-        }
-        break;
-      case 'checklist':
-        if (selectedText.includes('\n')) {
-          replacement = selectedText.split('\n').map(l => `- [ ] ${l}`).join('\n');
-        } else {
-          replacement = selectedText ? `- [ ] ${selectedText}` : '- [ ] Task item';
-        }
-        break;
-      case 'quote':
-        replacement = selectedText ? `> ${selectedText}` : '> Blockquote';
-        break;
-      case 'code':
-        replacement = selectedText ? `\`${selectedText}\`` : '`code`';
-        break;
-      case 'codeblock':
-        replacement = selectedText ? `\`\`\`\n${selectedText}\n\`\`\`` : '```\ncode block\n```';
-        break;
-      case 'hr':
-        replacement = '\n---\n';
-        break;
+    if (selectedText) {
+      switch (type) {
+        case 'h1':
+          replacement = `# ${selectedText}`;
+          break;
+        case 'h2':
+          replacement = `## ${selectedText}`;
+          break;
+        case 'h3':
+          replacement = `### ${selectedText}`;
+          break;
+        case 'bold':
+          replacement = `**${selectedText}**`;
+          break;
+        case 'italic':
+          replacement = `*${selectedText}*`;
+          break;
+        case 'strike':
+          replacement = `~~${selectedText}~~`;
+          break;
+        case 'bullet':
+          if (selectedText.includes('\n')) {
+            replacement = selectedText.split('\n').map(l => l.startsWith('- ') ? l : `- ${l}`).join('\n');
+          } else {
+            replacement = `- ${selectedText}`;
+          }
+          break;
+        case 'number':
+          if (selectedText.includes('\n')) {
+            replacement = selectedText.split('\n').map((l, i) => `${i + 1}. ${l}`).join('\n');
+          } else {
+            replacement = `1. ${selectedText}`;
+          }
+          break;
+        case 'quote':
+          replacement = `> ${selectedText}`;
+          break;
+        case 'code':
+          replacement = `\`${selectedText}\``;
+          break;
+        case 'codeblock':
+          replacement = `\`\`\`\n${selectedText}\n\`\`\``;
+          break;
+        case 'hr':
+          replacement = '\n---\n';
+          break;
+      }
+      selStart = start + replacement.length;
+      selEnd = start + replacement.length;
+    } else {
+      let prefix = '';
+      let placeholder = '';
+      let suffix = '';
+
+      switch (type) {
+        case 'h1':
+          prefix = '# ';
+          placeholder = 'Heading 1';
+          break;
+        case 'h2':
+          prefix = '## ';
+          placeholder = 'Heading 2';
+          break;
+        case 'h3':
+          prefix = '### ';
+          placeholder = 'Heading 3';
+          break;
+        case 'bold':
+          prefix = '**';
+          placeholder = 'bold text';
+          suffix = '**';
+          break;
+        case 'italic':
+          prefix = '*';
+          placeholder = 'italic text';
+          suffix = '*';
+          break;
+        case 'strike':
+          prefix = '~~';
+          placeholder = 'strikethrough';
+          suffix = '~~';
+          break;
+        case 'bullet':
+          prefix = '- ';
+          placeholder = 'List item';
+          break;
+        case 'number':
+          prefix = '1. ';
+          placeholder = 'List item';
+          break;
+        case 'quote':
+          prefix = '> ';
+          placeholder = 'Blockquote';
+          break;
+        case 'code':
+          prefix = '`';
+          placeholder = 'code';
+          suffix = '`';
+          break;
+        case 'codeblock':
+          prefix = '```\n';
+          placeholder = 'code block';
+          suffix = '\n```';
+          break;
+        case 'hr':
+          prefix = '\n---\n';
+          break;
+      }
+
+      replacement = `${prefix}${placeholder}${suffix}`;
+      if (placeholder) {
+        selStart = start + prefix.length;
+        selEnd = selStart + placeholder.length;
+      } else {
+        selStart = start + replacement.length;
+        selEnd = start + replacement.length;
+      }
     }
 
     const newVal = currentVal.substring(0, start) + replacement + currentVal.substring(end);
@@ -514,10 +837,70 @@ export class RichEditorComponent {
     setTimeout(() => {
       if (el) {
         el.focus();
-        const newPos = start + replacement.length - cursorOffset;
-        el.setSelectionRange(newPos, newPos);
+        el.setSelectionRange(selStart, selEnd);
       }
     }, 10);
+  }
+
+  private sanitizeUrl(url: string): string {
+    if (!url) return '#';
+    let current = url.trim();
+
+    // Iteratively decode percent-encoding and HTML entities to reveal obfuscated schemes
+    for (let i = 0; i < 5; i++) {
+      const prev = current;
+      try {
+        current = decodeURIComponent(current);
+      } catch {
+        // Ignore URI malformed errors
+      }
+      current = current
+        .replace(/&#x([0-9a-f]+);?/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+        .replace(/&#([0-9]+);?/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
+        .replace(/&colon;/gi, ':');
+      if (current === prev) break;
+    }
+
+    // Strip invisible control characters & all whitespace to normalize protocol scheme check
+    const normalized = current
+      .replace(/[\u0000-\u001F\u007F-\u009F\s]/g, '')
+      .toLowerCase();
+
+    // Blacklist dangerous protocols
+    if (
+      normalized.startsWith('javascript:') ||
+      normalized.startsWith('vbscript:') ||
+      normalized.startsWith('data:') ||
+      normalized.startsWith('blob:') ||
+      normalized.startsWith('file:')
+    ) {
+      return '#';
+    }
+
+    // Enforce strict whitelist: allow http://, https://, mailto:, tel:, or relative paths starting with /, ./, ../, #
+    const isAllowedScheme =
+      normalized.startsWith('http://') ||
+      normalized.startsWith('https://') ||
+      normalized.startsWith('mailto:') ||
+      normalized.startsWith('tel:') ||
+      normalized.startsWith('/') ||
+      normalized.startsWith('./') ||
+      normalized.startsWith('../') ||
+      normalized.startsWith('#');
+
+    const hasUnknownScheme = /^[a-z0-9\+\.\-]+:/i.test(normalized) && !isAllowedScheme;
+
+    if (!isAllowedScheme || hasUnknownScheme) {
+      return '#';
+    }
+
+    // Escape quotes and angle brackets to prevent attribute breakout
+    return url
+      .trim()
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   }
 
   private parseMarkdown(md: string): string {
@@ -549,8 +932,15 @@ export class RichEditorComponent {
     html = html.replace(/^&gt; (.*$)/gim, '<blockquote>$1</blockquote>');
 
     // Checklists: - [ ] or - [x]
-    html = html.replace(/^- \[ \] (.*$)/gim, '<li class="task-item"><i class="fi fi-rr-square text-muted"></i> $1</li>');
-    html = html.replace(/^- \[x\] (.*$)/gim, '<li class="task-item"><i class="fi fi-rr-checkbox text-cyan"></i> <del>$1</del></li>');
+    let taskIndex = 0;
+    html = html.replace(/^(\s*[-*+]|\s*\d+\.)\s*\[ \]\s*(.*$)/gim, (_m, _prefix, text) => {
+      const idx = taskIndex++;
+      return `<li class="task-item"><input type="checkbox" class="task-checkbox" data-task-index="${idx}"> <span>${text}</span></li>`;
+    });
+    html = html.replace(/^(\s*[-*+]|\s*\d+\.)\s*\[[xX]\]\s*(.*$)/gim, (_m, _prefix, text) => {
+      const idx = taskIndex++;
+      return `<li class="task-item"><input type="checkbox" class="task-checkbox" data-task-index="${idx}" checked> <del>${text}</del></li>`;
+    });
 
     // Bullet Lists
     html = html.replace(/^- (.*$)/gim, '<li>$1</li>');
@@ -575,7 +965,10 @@ export class RichEditorComponent {
     html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
 
     // Links [Text](url)
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, text, url) => {
+      const cleanUrl = this.sanitizeUrl(url);
+      return `<a href="${cleanUrl}" target="_blank" rel="noopener">${text}</a>`;
+    });
 
     // Line breaks to <br> if not inside pre/h1/h2/h3/blockquote/ul/ol
     const lines = html.split('\n');
@@ -599,3 +992,4 @@ export class RichEditorComponent {
     return processedLines.join('\n');
   }
 }
+

@@ -1,14 +1,16 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, Output, OnChanges, SimpleChanges, ElementRef, ViewChild, HostListener, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { registerModal, unregisterModal, isTopModal } from '../../core/utils/modal-stack.util';
 
 @Component({
   selector: 'app-confirm-modal',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule],
   template: `
     @if (isOpen) {
-      <div class="confirm-overlay" (click)="onCancel()" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-desc">
-        <div class="confirm-card paper-panel font-mono" (click)="$event.stopPropagation()">
+      <div class="confirm-overlay" [style.z-index]="modalZIndex" (click)="onCancel()" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-desc">
+        <div #modalCard class="confirm-card paper-panel font-mono" (click)="$event.stopPropagation()">
           <div class="confirm-header" [class.header-danger]="type === 'danger'" [class.header-warning]="type === 'warning'">
             <div class="header-icon" aria-hidden="true">
               @switch (type) {
@@ -18,17 +20,33 @@ import { CommonModule } from '@angular/common';
               }
             </div>
             <h3 id="confirm-modal-title" class="confirm-title">{{ title }}</h3>
-            <button type="button" class="btn btn-ghost btn-xs close-btn" (click)="onCancel()" title="Close" aria-label="Close dialog">
+            <button type="button" class="btn btn-ghost btn-xs close-btn" (click)="onCancel()" [disabled]="isSubmitting" title="Close" aria-label="Close dialog">
               <i class="fi fi-rr-cross"></i>
             </button>
           </div>
 
           <div class="confirm-body">
             <p id="confirm-modal-desc" class="confirm-message">{{ message }}</p>
+
+            @if (requireText) {
+              <div class="confirm-input-box">
+                <label class="confirm-input-label">
+                  To confirm, type <strong [class.text-rose]="type === 'danger'" [class.text-amber]="type !== 'danger'">"{{ requireText }}"</strong> below:
+                </label>
+                <input
+                  type="text"
+                  class="form-input confirm-text-input font-mono"
+                  [placeholder]="inputPlaceholder || ('Type ' + requireText + ' to confirm')"
+                  [disabled]="isSubmitting"
+                  [(ngModel)]="typedText"
+                  (keydown.enter)="isConfirmDisabled() ? null : onConfirm()"
+                />
+              </div>
+            }
           </div>
 
           <div class="confirm-footer">
-            <button type="button" class="btn btn-secondary btn-sm" (click)="onCancel()">
+            <button type="button" class="btn btn-secondary btn-sm" (click)="onCancel()" [disabled]="isSubmitting">
               {{ cancelText }}
             </button>
             <button
@@ -37,9 +55,12 @@ import { CommonModule } from '@angular/common';
               [class.btn-danger]="type === 'danger'"
               [class.btn-warning]="type === 'warning'"
               [class.btn-primary]="type === 'info'"
+              [disabled]="isConfirmDisabled()"
               (click)="onConfirm()"
             >
-              @if (type === 'danger') {
+              @if (isSubmitting) {
+                <i class="fi fi-rr-spinner spinner-icon"></i>
+              } @else if (type === 'danger') {
                 <i class="fi fi-rr-trash"></i>
               } @else if (type === 'warning') {
                 <i class="fi fi-rr-check"></i>
@@ -70,7 +91,7 @@ import { CommonModule } from '@angular/common';
 
     .confirm-card {
       width: 100%;
-      max-width: 420px;
+      max-width: 440px;
       background: var(--bg-surface);
       border: 1px solid var(--border-medium);
       border-radius: var(--radius-xs);
@@ -115,6 +136,26 @@ import { CommonModule } from '@angular/common';
       margin: 0;
       line-height: 1.5;
     }
+    .confirm-input-box {
+      margin-top: 0.85rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    .confirm-input-label {
+      font-size: 0.725rem;
+      color: var(--text-main);
+    }
+    .confirm-text-input {
+      font-size: 0.8rem;
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-medium);
+      padding: 0.4rem 0.6rem;
+      border-radius: var(--radius-xs);
+      color: var(--text-main);
+    }
 
     .confirm-footer {
       display: flex;
@@ -145,10 +186,24 @@ import { CommonModule } from '@angular/common';
       background: #f59e0b;
       color: #ffffff;
     }
+    .btn-warning[disabled] {
+      opacity: 0.5;
+      cursor: not-allowed;
+      pointer-events: auto;
+    }
 
     .text-rose { color: #f43f5e; }
     .text-amber { color: #f59e0b; }
     .text-cyan { color: var(--accent-cyan); }
+
+    .spinner-icon {
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
 
     @keyframes fadeIn {
       from { opacity: 0; }
@@ -160,22 +215,120 @@ import { CommonModule } from '@angular/common';
     }
   `]
 })
-export class ConfirmModalComponent {
+export class ConfirmModalComponent implements OnChanges, OnDestroy {
   @Input() isOpen = false;
   @Input() title = 'Confirm Action';
   @Input() message = 'Are you sure you want to proceed?';
   @Input() confirmText = 'Confirm';
   @Input() cancelText = 'Cancel';
   @Input() type: 'danger' | 'warning' | 'info' = 'warning';
+  @Input() requireText?: string;
+  @Input() inputPlaceholder?: string;
 
   @Output() confirm = new EventEmitter<void>();
   @Output() cancel = new EventEmitter<void>();
 
+  @ViewChild('modalCard') modalCard?: ElementRef<HTMLElement>;
+
+  typedText = '';
+  isSubmitting = false;
+  modalZIndex = 2000;
+  private readonly modalId = 'confirm-modal-' + Math.random().toString(36).substring(2, 9);
+
+  ngOnChanges(changes: SimpleChanges) {
+    if (changes['isOpen']) {
+      if (changes['isOpen'].currentValue) {
+        this.modalZIndex = registerModal(this.modalId);
+        this.typedText = '';
+        this.isSubmitting = false;
+        setTimeout(() => this.focusInitialElement(), 50);
+      } else {
+        unregisterModal(this.modalId);
+        this.isSubmitting = false;
+      }
+    }
+  }
+
+  ngOnDestroy() {
+    unregisterModal(this.modalId);
+  }
+
+  @HostListener('window:keydown', ['$event'])
+  handleKeyDown(event: KeyboardEvent) {
+    if (!this.isOpen || !isTopModal(this.modalId)) return;
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.onCancel();
+      return;
+    }
+
+    if (event.key === 'Tab') {
+      this.trapFocus(event);
+    }
+  }
+
+  public focusInitialElement() {
+    if (!this.modalCard) return;
+    const focusables = this.getFocusableElements();
+    if (focusables.length > 0) {
+      const inputEl = this.modalCard.nativeElement.querySelector<HTMLElement>('input');
+      if (inputEl) {
+        inputEl.focus();
+      } else {
+        focusables[0].focus();
+      }
+    }
+  }
+
+  public getFocusableElements(): HTMLElement[] {
+    if (!this.modalCard) return [];
+    const selector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    return Array.from(this.modalCard.nativeElement.querySelectorAll<HTMLElement>(selector))
+      .filter(el => el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement);
+  }
+
+  public trapFocus(event: KeyboardEvent) {
+    const focusables = this.getFocusableElements();
+    if (focusables.length === 0) {
+      event.preventDefault();
+      return;
+    }
+
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement;
+
+    if (event.shiftKey) {
+      if (active === first || !this.modalCard?.nativeElement.contains(active)) {
+        event.preventDefault();
+        last.focus();
+      }
+    } else {
+      if (active === last || !this.modalCard?.nativeElement.contains(active)) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+  }
+
+  isConfirmDisabled(): boolean {
+    if (this.isSubmitting) return true;
+    if (!this.requireText) return false;
+    return this.typedText.trim().toLowerCase() !== this.requireText.trim().toLowerCase();
+  }
+
   onConfirm() {
+    if (this.isConfirmDisabled()) return;
+    this.isSubmitting = true;
     this.confirm.emit();
   }
 
   onCancel() {
+    if (this.isSubmitting) return;
     this.cancel.emit();
+    this.typedText = '';
+    this.isSubmitting = false;
   }
 }
+

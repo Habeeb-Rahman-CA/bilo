@@ -1,4 +1,25 @@
-@if (authService.isAuthenticated()) {
+@if (authService.authLoading()) {
+<div class="initial-auth-screen font-mono">
+  <div class="minimal-auth-loader">
+    <div class="auth-loader-logo">
+      <app-bilo-logo size="md" [showText]="true"></app-bilo-logo>
+    </div>
+
+    <div class="auth-loader-bar-wrap">
+      <div class="auth-loader-bar-fill"></div>
+    </div>
+
+    <div class="auth-loader-status font-mono">
+      <span class="status-pulse-dot"></span>
+      <span class="status-text">INITIALIZING WORKSPACE</span>
+    </div>
+
+    <div class="auth-loader-version font-mono">
+      <span>bilo {{ appVersion }}</span>
+    </div>
+  </div>
+</div>
+} @else if (authService.isAuthenticated()) {
 <div class="app-shell">
   <!-- Top Bar Header: System Name (Left), Command Palette Search (Middle), Help Icon (Right) -->
   <header class="app-header paper-panel">
@@ -7,36 +28,95 @@
       <app-bilo-logo size="sm" [showText]="true"></app-bilo-logo>
     </div>
 
-    <!-- Middle: Command Palette Search Bar -->
+    <!-- Middle: Wide Search Bar on Desktop, Workspace Switcher on Mobile -->
     <div class="header-center">
-      <button class="cmd-search-bar font-mono" (click)="workspaceService.toggleCommandPalette()"
-        title="Search or type a command" aria-label="Search workspace and tasks (Cmd+K)">
+      <!-- Desktop Wide Command Search Bar -->
+      <button class="cmd-search-bar font-mono desktop-only" (click)="workspaceService.toggleCommandPalette()"
+        title="Search or type a command (⌘K)" aria-label="Search workspace and tasks (⌘K)">
         <i class="fi fi-rr-search search-icon"></i>
         <span class="search-placeholder">Search workspace, tasks...</span>
+        <span class="key-badge font-mono">⌘K</span>
       </button>
+
+      <!-- Mobile Workspace Switcher Dropdown -->
+      <div class="mobile-only">
+        <app-workspace-switcher
+          (createWorkspace)="createProjectModalOpen.set(true)"
+        ></app-workspace-switcher>
+      </div>
     </div>
 
-    <!-- Right End: Offline Badge & Action Buttons -->
+    <!-- Right End: Badges, Desktop Workspace Switcher, Notifications, Search Icon (Mobile), Profile Avatar -->
     <div class="header-right font-mono">
       @if (canInstallPwa()) {
         <button class="btn btn-primary btn-xs pwa-install-btn" (click)="installPwa()" title="Install Bilo Desktop Standalone App" aria-label="Install Bilo Desktop Standalone App">
           <i class="fi fi-rr-download"></i> <span class="pwa-text">Install</span>
         </button>
       }
-      @if (!syncService.isOnline()) {
-        <span class="badge-mono badge-amber offline-header-badge" title="Offline Mode - Changes saved locally" role="status">
+      @if (!supabaseService.isConfigured) {
+        <span class="badge-mono badge-rose offline-header-badge" title="Cloud database unconfigured - Operating in local storage mode only. Data will not persist to cloud DB." role="alert">
+          <i class="fi fi-rr-exclamation"></i> <span class="offline-text">LOCAL ONLY (NO CLOUD DB)</span>
+        </span>
+      } @else if (syncService.connectionStatus() === 'offline' || !syncService.isOnline()) {
+        <span class="badge-mono badge-amber offline-header-badge" title="Offline Mode - Backend connection lost. Changes stored locally." role="status">
           <i class="fi fi-rr-wifi-slash"></i> <span class="offline-text">OFFLINE</span> ({{ syncService.pendingSyncQueue().length }})
+          <button class="btn btn-ghost btn-xs text-amber retry-conn-btn" (click)="retryConnection()" [disabled]="retryingConnection()" title="Retry connection health check">
+            <i class="fi fi-rr-refresh" [class.spin]="retryingConnection()"></i> {{ retryingConnection() ? 'Retrying...' : 'Retry' }}
+          </button>
+        </span>
+      } @else if (syncService.connectionStatus() === 'degraded') {
+        <span class="badge-mono badge-amber offline-header-badge" title="Server Connection Degraded - Attempting to reconnect..." role="status">
+          <i class="fi fi-rr-refresh spin"></i> <span class="offline-text">RECONNECTING...</span>
+          <button class="btn btn-ghost btn-xs text-amber retry-conn-btn" (click)="retryConnection()" [disabled]="retryingConnection()" title="Retry connection health check">
+            <i class="fi fi-rr-refresh" [class.spin]="retryingConnection()"></i> {{ retryingConnection() ? 'Retrying...' : 'Retry' }}
+          </button>
+        </span>
+      } @else if (syncService.syncing()) {
+        <!-- Actively syncing right now -->
+        <span class="badge-mono badge-sky offline-header-badge syncing-active-badge"
+              title="Syncing changes to cloud database... ({{ syncService.pendingSyncQueue().length }} operations remaining)"
+              role="status" aria-live="polite">
+          <i class="fi fi-rr-cloud-upload spin"></i>
+          <span class="offline-text">SYNCING ({{ syncService.pendingSyncQueue().length }})</span>
+        </span>
+      } @else if (syncService.pendingSyncQueue().length > 0) {
+        <!-- Queued but not yet syncing (e.g. just came back online, waiting for next sync tick) -->
+        <span class="badge-mono badge-violet offline-header-badge"
+              title="{{ syncService.pendingSyncQueue().length }} change(s) queued — will sync automatically when online"
+              role="status">
+          <i class="fi fi-rr-cloud-upload"></i>
+          <span class="offline-text">QUEUED ({{ syncService.pendingSyncQueue().length }})</span>
+        </span>
+      }
+      @if (syncService.deadLetterQueue().length > 0) {
+        <!-- Permanent sync failures visible at all times -->
+        <span class="badge-mono badge-rose offline-header-badge dlq-badge"
+              title="{{ syncService.deadLetterQueue().length }} operation(s) failed permanently and could not be synced. Last error: {{ syncService.deadLetterQueue()[0]?.lastError || 'Unknown error' }}"
+              role="alert">
+          <i class="fi fi-rr-cloud-exclamation"></i>
+          <span class="offline-text">SYNC ERRORS ({{ syncService.deadLetterQueue().length }})</span>
+          <button class="btn btn-ghost btn-xs text-rose retry-conn-btn"
+                  (click)="syncService.clearDeadLetterQueue()"
+                  title="Dismiss failed sync operations">
+            <i class="fi fi-rr-cross-small"></i>
+          </button>
         </span>
       }
 
-      <!-- Light / Dark Theme Mode Toggle -->
-      <button class="btn btn-ghost btn-sm theme-toggle-btn" (click)="themeService.toggleTheme()"
-        [title]="themeService.isDarkMode() ? 'Switch to Light Craft Paper Theme' : 'Switch to Dark Theme (Black & Grey)'"
-        [attr.aria-label]="themeService.isDarkMode() ? 'Switch to Light Theme' : 'Switch to Dark Theme'">
-        <i [class]="themeService.isDarkMode() ? 'fi fi-rr-sun' : 'fi fi-rr-moon-stars'"></i>
+      <!-- Desktop Workspace Selection Dropdown -->
+      <div class="desktop-only">
+        <app-workspace-switcher
+          (createWorkspace)="createProjectModalOpen.set(true)"
+        ></app-workspace-switcher>
+      </div>
+
+      <!-- Mobile Icon-Only Search Button -->
+      <button class="cmd-search-bar font-mono mobile-only" (click)="workspaceService.toggleCommandPalette()"
+        title="Search or type a command (Cmd+K)" aria-label="Search workspace and tasks (Cmd+K)">
+        <i class="fi fi-rr-search search-icon"></i>
       </button>
 
-      <!-- Notifications Menu Icon & Popover -->
+      <!-- Notifications Menu Icon & Popover (In Top Header Bar) -->
       <div class="notification-menu-container font-mono">
         <button
           type="button"
@@ -99,11 +179,6 @@
         }
       </div>
 
-      <!-- Workspace Selection Dropdown -->
-      <app-workspace-switcher
-        (createWorkspace)="createProjectModalOpen.set(true)"
-      ></app-workspace-switcher>
-
       <!-- User Profile Menu Icon & Dropdown Popover (Rightmost) -->
       <div class="user-menu-container font-mono">
         <button
@@ -139,6 +214,22 @@
             </div>
 
             <div class="user-menu-actions">
+              <!-- Theme Toggle Row (Identical Style & Font Size as other user-action-btn items) -->
+              <button
+                type="button"
+                class="user-action-btn theme-toggle-btn"
+                (click)="themeService.toggleTheme()"
+                [title]="themeService.isDarkMode() ? 'Switch to Light Craft Paper Theme' : 'Switch to Dark Theme (Black & Grey)'"
+              >
+                <i [class]="themeService.isDarkMode() ? 'fi fi-rr-sun text-amber' : 'fi fi-rr-moon-stars text-purple'"></i>
+                <span>{{ themeService.isDarkMode() ? 'Light Mode' : 'Dark Theme' }}</span>
+                <span class="theme-mode-badge" [class.is-dark]="themeService.isDarkMode()">
+                  {{ themeService.isDarkMode() ? 'DARK' : 'LIGHT' }}
+                </span>
+              </button>
+
+              <div class="user-menu-divider"></div>
+
               <button
                 type="button"
                 class="user-action-btn"
@@ -312,21 +403,52 @@
       <i class="fi fi-rr-layout-fluid"></i>
       <span class="bottom-tab-label">Board</span>
     </button>
-    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '04 CALENDAR'"
-      (click)="selectWorkspace('04 CALENDAR')" title="Calendar" aria-label="Calendar Section">
-      <i class="fi fi-rr-calendar"></i>
-      <span class="bottom-tab-label">Calendar</span>
-    </button>
-    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '05 ARCHIVE'"
-      (click)="selectWorkspace('05 ARCHIVE')" title="Archive" aria-label="Archive Section">
-      <i class="fi fi-rr-box-alt"></i>
-      <span class="bottom-tab-label">Archive</span>
-    </button>
-    <button class="bottom-tab-btn" [class.active]="workspaceService.activeWorkspace() === '06 SETTINGS'"
-      (click)="selectWorkspace('06 SETTINGS')" title="Settings" aria-label="Settings Section">
-      <i class="fi fi-rr-settings"></i>
-      <span class="bottom-tab-label">Settings</span>
-    </button>
+
+    <!-- More Menu Button & Popover -->
+    <div class="mobile-more-menu-container">
+      <button class="bottom-tab-btn" [class.active]="isMoreWorkspaceActive() || mobileMoreMenuOpen()"
+        (click)="toggleMobileMoreMenu($event)" title="More Views" aria-label="More Navigation Items">
+        <i class="fi fi-rr-menu-dots-vertical"></i>
+        <span class="bottom-tab-label">More</span>
+      </button>
+
+      @if (mobileMoreMenuOpen()) {
+        <div class="mobile-more-popover paper-panel font-mono" (click)="$event.stopPropagation()">
+          <div class="mobile-more-header">
+            <span>MORE VIEWS</span>
+            <button type="button" class="btn btn-ghost btn-xs" (click)="closeMobileMoreMenu()">
+              <i class="fi fi-rr-cross"></i>
+            </button>
+          </div>
+          <div class="mobile-more-actions">
+            <button type="button" class="mobile-more-item" [class.active]="workspaceService.activeWorkspace() === '04 CALENDAR'"
+              (click)="selectWorkspace('04 CALENDAR')">
+              <i class="fi fi-rr-calendar text-cyan"></i>
+              <div class="mobile-more-item-info">
+                <span class="mobile-more-title">Calendar</span>
+                <span class="mobile-more-desc">View schedule & deadlines</span>
+              </div>
+            </button>
+            <button type="button" class="mobile-more-item" [class.active]="workspaceService.activeWorkspace() === '05 ARCHIVE'"
+              (click)="selectWorkspace('05 ARCHIVE')">
+              <i class="fi fi-rr-box-alt text-amber"></i>
+              <div class="mobile-more-item-info">
+                <span class="mobile-more-title">Archive</span>
+                <span class="mobile-more-desc">Completed & stored tasks</span>
+              </div>
+            </button>
+            <button type="button" class="mobile-more-item" [class.active]="workspaceService.activeWorkspace() === '06 SETTINGS'"
+              (click)="selectWorkspace('06 SETTINGS')">
+              <i class="fi fi-rr-settings text-purple"></i>
+              <div class="mobile-more-item-info">
+                <span class="mobile-more-title">Settings</span>
+                <span class="mobile-more-desc">Preferences & sync</span>
+              </div>
+            </button>
+          </div>
+        </div>
+      }
+    </div>
   </nav>
 
   <!-- Clean Paper Footer (Desktop) -->
@@ -397,22 +519,33 @@
     (cancel)="clearInviteState()"
   />
 
-  <!-- Toast Notification for Copy Share Link & Push Service -->
-  @if (taskShareService.toastMessage(); as msg) {
-  <div class="task-share-toast paper-panel font-mono" role="status" aria-live="polite">
-    <i class="fi fi-rr-check-circle text-emerald"></i>
-    <span>{{ msg }}</span>
+  <!-- Toast Queue Container -->
+  @if (toastService.toasts().length > 0) {
+  <div class="toast-queue-container" role="status" aria-live="polite">
+    @for (toast of toastService.toasts(); track toast.id) {
+    <div class="toast-item paper-panel font-mono" [class]="'toast-' + toast.type">
+      <i [class]="toast.icon || 'fi fi-rr-info text-cyan'"></i>
+      <span class="toast-msg">{{ toast.message }}</span>
+      <button type="button" class="btn btn-ghost btn-xs toast-close-btn" (click)="toastService.remove(toast.id)" title="Dismiss toast">
+        <i class="fi fi-rr-cross"></i>
+      </button>
+    </div>
+    }
   </div>
   }
 
-  @if (pushService.toastMessage(); as pushMsg) {
-  <div class="task-share-toast paper-panel font-mono" role="status" aria-live="polite">
-    <i class="fi fi-rr-bell text-amber"></i>
-    <span>{{ pushMsg }}</span>
-  </div>
-  }
+  <!-- Progress Overlay Indicator -->
+  <app-progress-overlay />
 </div>
 } @else {
-  <!-- Dedicated Sign In / Sign Up Landing Page -->
-  <app-auth-page (authenticated)="selectWorkspace('01 TODAY')" />
+  @if (showAuthPage()) {
+    <!-- Dedicated Sign In / Sign Up Auth Page -->
+    <app-auth-page
+      (authenticated)="selectWorkspace('01 TODAY')"
+      (backToLanding)="showAuthPage.set(false)"
+    />
+  } @else {
+    <!-- Public Minimalist Landing Page -->
+    <app-landing-page (getStarted)="showAuthPage.set(true)" />
+  }
 }

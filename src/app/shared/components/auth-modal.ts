@@ -1,14 +1,16 @@
-import { Component, signal, Output, EventEmitter } from '@angular/core';
+import { Component, signal, Output, EventEmitter, OnInit, OnDestroy, HostListener, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
+import { formatAuthError } from '../../core/utils/auth-error.util';
+import { registerModal, unregisterModal, isTopModal, getModalZIndex } from '../../core/utils/modal-stack.util';
 
 @Component({
   selector: 'app-auth-modal',
   standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
-    <div class="modal-overlay" (click)="closeModal()">
+    <div class="modal-overlay" [style.z-index]="modalZIndex" (click)="closeModal()">
       <div class="modal-card auth-modal-card paper-panel" (click)="$event.stopPropagation()">
         <!-- Header Strip -->
         <div class="modal-header">
@@ -32,6 +34,13 @@ import { AuthService } from '../../core/services/auth.service';
         </div>
 
         <!-- Error / Info Alert Banner -->
+        @if (!authService.isSupabaseConfigured) {
+          <div class="auth-alert error-alert font-mono">
+            <i class="fi fi-rr-exclamation text-rose"></i>
+            <span>Cloud database unconfigured. Running in local storage mode; cloud sync is disabled.</span>
+          </div>
+        }
+
         @if (errorMessage()) {
           <div class="auth-alert error-alert font-mono">
             <i class="fi fi-rr-exclamation text-rose"></i>
@@ -49,7 +58,7 @@ import { AuthService } from '../../core/services/auth.service';
         <!-- Auth Form -->
         <form (ngSubmit)="onSubmit()" class="auth-form">
           <div class="form-group">
-            <label class="form-label font-mono">EMAIL ADDRESS</label>
+            <label class="form-label font-mono">EMAIL ADDRESS <span class="text-rose">*</span></label>
             <div class="input-with-icon">
               <i class="fi fi-rr-envelope input-icon"></i>
               <input
@@ -60,12 +69,13 @@ import { AuthService } from '../../core/services/auth.service';
                 name="email"
                 required
                 autocomplete="email"
+                [disabled]="submitting()"
               />
             </div>
           </div>
 
           <div class="form-group">
-            <label class="form-label font-mono">PASSWORD</label>
+            <label class="form-label font-mono">PASSWORD <span class="text-rose">*</span></label>
             <div class="input-with-icon">
               <i class="fi fi-rr-lock input-icon"></i>
               <input
@@ -75,17 +85,25 @@ import { AuthService } from '../../core/services/auth.service';
                 [(ngModel)]="password"
                 name="password"
                 required
+                minlength="6"
                 autocomplete="current-password"
+                [disabled]="submitting()"
               />
               <button
                 type="button"
                 class="toggle-pwd-btn btn btn-ghost btn-xs"
-                (click)="showPassword.set(!showPassword())"
+                (click)="togglePasswordVisibility()"
                 title="Toggle password visibility"
+                [disabled]="submitting()"
               >
                 <i [class]="showPassword() ? 'fi fi-rr-eye-crossed' : 'fi fi-rr-eye'"></i>
               </button>
             </div>
+            @if (mode() === 'signup' && password.length > 0 && password.length < 6) {
+              <span class="field-error-text font-mono text-rose" style="font-size: 0.7rem; margin-top: 0.25rem;">
+                <i class="fi fi-rr-exclamation"></i> Password must be at least 6 characters long
+              </span>
+            }
           </div>
 
           <div class="form-actions">
@@ -108,7 +126,7 @@ import { AuthService } from '../../core/services/auth.service';
         <div class="auth-footer font-mono">
           <p class="auth-note">
             <i class="fi fi-rr-lock text-amber"></i>
-            Row Level Security (RLS) ensures only authenticated project members can access workspace data.
+            Isolated workspace security policies ensure only authenticated project members can access workspace data.
           </p>
         </div>
       </div>
@@ -236,8 +254,56 @@ import { AuthService } from '../../core/services/auth.service';
     }
   `]
 })
-export class AuthModalComponent {
+export class AuthModalComponent implements OnInit, OnDestroy {
   @Output() close = new EventEmitter<void>();
+
+  private readonly modalId = 'auth-modal-' + Math.random().toString(36).substring(2, 9);
+
+  get modalZIndex(): number {
+    return getModalZIndex(this.modalId);
+  }
+
+  @HostListener('window:keydown', ['$event'])
+  handleGlobalKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && isTopModal(this.modalId)) {
+      e.preventDefault();
+      this.closeModal();
+      return;
+    }
+
+    if (e.key === 'Tab' && isTopModal(this.modalId)) {
+      this.trapFocus(e);
+    }
+  }
+
+  private trapFocus(e: KeyboardEvent) {
+    const container = this.elementRef?.nativeElement;
+    if (!container) return;
+
+    const focusables = (Array.from(
+      container.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ) as HTMLElement[]).filter(el => el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement);
+
+    if (focusables.length === 0) return;
+
+    const firstEl = focusables[0];
+    const lastEl = focusables[focusables.length - 1];
+    const activeEl = document.activeElement;
+
+    if (e.shiftKey) {
+      if (activeEl === firstEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        lastEl.focus();
+      }
+    } else {
+      if (activeEl === lastEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        firstEl.focus();
+      }
+    }
+  }
 
   mode = signal<'login' | 'signup'>('login');
   email = '';
@@ -246,13 +312,72 @@ export class AuthModalComponent {
   submitting = signal<boolean>(false);
   errorMessage = signal<string>('');
   successMessage = signal<string>('');
+  private pwdVisibilityTimer: any = null;
 
-  constructor(public authService: AuthService) {}
+  constructor(
+    public authService: AuthService,
+    private elementRef: ElementRef
+  ) {}
+
+  ngOnInit(): void {
+    registerModal(this.modalId);
+  }
+
+  togglePasswordVisibility(): void {
+    const nextState = !this.showPassword();
+    if (this.pwdVisibilityTimer) {
+      clearTimeout(this.pwdVisibilityTimer);
+      this.pwdVisibilityTimer = null;
+    }
+
+    this.showPassword.set(nextState);
+
+    if (nextState) {
+      // Auto-hide visible password after 5 seconds to mitigate shoulder-surfing risk
+      this.pwdVisibilityTimer = setTimeout(() => {
+        this.showPassword.set(false);
+        this.pwdVisibilityTimer = null;
+      }, 5000);
+    }
+  }
+
+  ngOnDestroy(): void {
+    unregisterModal(this.modalId);
+    if (this.pwdVisibilityTimer) {
+      clearTimeout(this.pwdVisibilityTimer);
+      this.pwdVisibilityTimer = null;
+    }
+  }
 
   setMode(m: 'login' | 'signup') {
     this.mode.set(m);
     this.errorMessage.set('');
     this.successMessage.set('');
+  }
+
+  async onSendMagicLink() {
+    if (this.submitting()) return;
+    if (!this.email) {
+      this.errorMessage.set('Please enter your email address to receive a magic link.');
+      return;
+    }
+
+    this.submitting.set(true);
+    this.errorMessage.set('');
+    this.successMessage.set('');
+
+    try {
+      const { error } = await this.authService.signInWithMagicLink(this.email);
+      if (error) {
+        this.errorMessage.set(formatAuthError(error));
+      } else {
+        this.successMessage.set('Magic link sent successfully! Check your email inbox.');
+      }
+    } catch (e: any) {
+      this.errorMessage.set(formatAuthError(e));
+    } finally {
+      this.submitting.set(false);
+    }
   }
 
   closeModal() {
@@ -261,7 +386,13 @@ export class AuthModalComponent {
   }
 
   async onSubmit() {
+    if (this.submitting()) return;
     if (!this.email || !this.password) return;
+
+    if (this.mode() === 'signup' && this.password.length < 6) {
+      this.errorMessage.set('Password must be at least 6 characters long.');
+      return;
+    }
 
     this.submitting.set(true);
     this.errorMessage.set('');
@@ -271,7 +402,7 @@ export class AuthModalComponent {
       if (this.mode() === 'login') {
         const { error } = await this.authService.signInWithEmailPassword(this.email, this.password);
         if (error) {
-          this.errorMessage.set(error.message || 'Failed to sign in. Please check credentials.');
+          this.errorMessage.set(formatAuthError(error));
         } else {
           this.successMessage.set('Signed in successfully!');
           setTimeout(() => this.closeModal(), 600);
@@ -279,7 +410,7 @@ export class AuthModalComponent {
       } else {
         const { data, error } = await this.authService.signUpWithEmailPassword(this.email, this.password);
         if (error) {
-          this.errorMessage.set(error.message || 'Sign up failed.');
+          this.errorMessage.set(formatAuthError(error));
         } else if (data?.user && !data?.session) {
           this.successMessage.set('Account created! Please check your email to confirm registration.');
         } else {
@@ -288,7 +419,7 @@ export class AuthModalComponent {
         }
       }
     } catch (e: any) {
-      this.errorMessage.set(e?.message || 'An unexpected authentication error occurred.');
+      this.errorMessage.set(formatAuthError(e));
     } finally {
       this.submitting.set(false);
     }

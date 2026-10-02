@@ -1,10 +1,24 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, Injector } from '@angular/core';
 import { SupabaseService } from './supabase.service';
 import { SyncService } from './sync.service';
 import { ProjectService } from './project.service';
 import { PushNotificationService } from './push-notification.service';
 import { AuthService } from './auth.service';
-import { Task, TaskComment, TaskStatusHistory } from '../models/project.model';
+import { WorkflowService } from './workflow.service';
+import { Task, TaskComment, TaskStatusHistory, Workflow, PaginatedCommentsResult } from '../models/project.model';
+import { sanitizeLabels } from '../utils/label.util';
+import { validateAndSanitizeTask } from '../utils/data-validator.util';
+
+import { ProgressService } from './progress.service';
+
+export interface BatchOperationProgress {
+  active: boolean;
+  current: number;
+  total: number;
+  percentage: number;
+  operation: 'delete' | 'update';
+  label: string;
+}
 
 @Injectable({
   providedIn: 'root'
@@ -14,54 +28,114 @@ export class TaskService {
   taskComments = signal<Record<string, TaskComment[]>>({});
   taskStatusHistory = signal<Record<string, TaskStatusHistory[]>>({});
   loading = signal<boolean>(false);
+  batchProgress = signal<BatchOperationProgress | null>(null);
+  concurrentConflictMessage = signal<string>('');
+  private conflictToastTimer: any = null;
+
+  triggerConflictNotification(message: string): void {
+    if (this.conflictToastTimer) {
+      clearTimeout(this.conflictToastTimer);
+      this.conflictToastTimer = null;
+    }
+    this.concurrentConflictMessage.set(message);
+    this.conflictToastTimer = setTimeout(() => {
+      this.concurrentConflictMessage.set('');
+      this.conflictToastTimer = null;
+    }, 6000);
+  }
+
+  clearConflictNotification(): void {
+    if (this.conflictToastTimer) {
+      clearTimeout(this.conflictToastTimer);
+      this.conflictToastTimer = null;
+    }
+    this.concurrentConflictMessage.set('');
+  }
 
   constructor(
     private supabaseService: SupabaseService,
     private syncService: SyncService,
     private projectService: ProjectService,
     private pushNotificationService: PushNotificationService,
-    private authService: AuthService
+    private authService: AuthService,
+    private progressService: ProgressService,
+    private injector?: Injector
   ) {
     this.loadFromStorage();
     this.loadTasksFromSupabase();
+
+    this.syncService.onConnectionRestored(() => {
+      console.log('[TaskService] Connection restored. Reloading remote tasks...');
+      this.loadTasksFromSupabase();
+    });
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('beforeunload', () => {
+        this.saveToStorageImmediate();
+      });
+    }
   }
 
   normalizeTaskStatuses(tasks: Task[]): { normalized: Task[]; hasChanges: boolean } {
     const validGlobalStatuses = ['Backlog', 'To Do', 'In Progress', 'In Review', 'Done'];
+
+    let projWorkflowsMap: Record<string, any[]> = {};
+    if (this.injector) {
+      try {
+        const workflowService = this.injector.get(WorkflowService);
+        if (workflowService) {
+          projWorkflowsMap = workflowService.workflowsByProject() || {};
+        }
+      } catch (e) {}
+    }
 
     let hasChanges = false;
     const normalized = tasks.map(t => {
       const currentStatus = (t.status || '').trim();
       let targetStatus = currentStatus;
 
-      const exactMatch = validGlobalStatuses.find(s => s.toLowerCase() === currentStatus.toLowerCase());
-      if (exactMatch) {
-        targetStatus = exactMatch;
+      const projKey = t.project_id || 'global';
+      const projWorkflows = projWorkflowsMap[projKey] || projWorkflowsMap['global'] || [];
+      const matchingWfByWfId = t.workflow_id ? projWorkflows.find(w => w.id === t.workflow_id) : undefined;
+
+      if (matchingWfByWfId) {
+        targetStatus = matchingWfByWfId.name;
       } else {
-        const lower = currentStatus.toLowerCase();
-        if (lower.includes('backlog')) {
-          targetStatus = 'Backlog';
-        } else if (lower.includes('todo') || lower === 'to do' || lower === 'open') {
-          targetStatus = 'To Do';
-        } else if (lower.includes('progress') || lower.includes('doing') || lower === 'wip') {
-          targetStatus = 'In Progress';
-        } else if (lower.includes('review') || lower.includes('testing')) {
-          targetStatus = 'In Review';
-        } else if (lower.includes('done') || lower.includes('complete') || lower.includes('closed')) {
-          targetStatus = 'Done';
+        const matchingWfByName = projWorkflows.find(w => w.name && w.name.toLowerCase() === currentStatus.toLowerCase());
+        if (matchingWfByName) {
+          targetStatus = matchingWfByName.name;
         } else {
-          targetStatus = currentStatus || 'Backlog';
+          const exactMatch = validGlobalStatuses.find(s => s.toLowerCase() === currentStatus.toLowerCase());
+          if (exactMatch) {
+            targetStatus = exactMatch;
+          } else {
+            const lower = currentStatus.toLowerCase();
+            if (lower.includes('backlog')) {
+              targetStatus = 'Backlog';
+            } else if (lower.includes('todo') || lower === 'to do' || lower === 'open') {
+              targetStatus = 'To Do';
+            } else if (lower.includes('progress') || lower.includes('doing') || lower === 'wip') {
+              targetStatus = 'In Progress';
+            } else if (lower.includes('review') || lower.includes('testing')) {
+              targetStatus = 'In Review';
+            } else if (lower.includes('done') || lower.includes('complete') || lower.includes('closed')) {
+              targetStatus = 'Done';
+            } else {
+              targetStatus = currentStatus || 'Backlog';
+            }
+          }
         }
       }
 
       const targetCompleted = targetStatus.toLowerCase() === 'done' || targetStatus.toLowerCase() === 'completed' || t.completed === true;
 
-      if (targetStatus !== currentStatus || t.completed !== targetCompleted) {
+      if (targetStatus !== currentStatus || t.completed !== targetCompleted || (matchingWfByWfId && t.workflow_id !== matchingWfByWfId.id)) {
         hasChanges = true;
         return {
           ...t,
           status: targetStatus,
-          completed: targetCompleted
+          completed: targetCompleted,
+          ...(matchingWfByWfId ? { workflow_id: matchingWfByWfId.id } : {})
         };
       }
       return t;
@@ -85,8 +159,10 @@ export class TaskService {
       try {
         const data = JSON.parse(cached);
         if (data.tasks && Array.isArray(data.tasks)) {
-          const cleanTasks = data.tasks.filter((t: Task) => !t.id.startsWith('task-demo-'));
-          const { normalized } = this.normalizeTaskStatuses(cleanTasks);
+          const sanitizedTasks = data.tasks
+            .map((t: any) => validateAndSanitizeTask(t))
+            .filter((t: Task | null): t is Task => t !== null && !t.id.startsWith('task-demo-'));
+          const { normalized } = this.normalizeTaskStatuses(sanitizedTasks);
           this.tasks.set(normalized);
           if (data.comments) {
             this.taskComments.set(data.comments);
@@ -106,18 +182,71 @@ export class TaskService {
     }
   }
 
-  private saveToStorage() {
+  private saveTimeoutTimer: any = null;
+
+  saveToStorage(delayMs: number = 100) {
+    if (delayMs <= 0) {
+      this.saveToStorageImmediate();
+      return;
+    }
+
+    if (this.saveTimeoutTimer) {
+      clearTimeout(this.saveTimeoutTimer);
+      this.saveTimeoutTimer = null;
+    }
+
+    this.saveTimeoutTimer = setTimeout(() => {
+      this.saveToStorageImmediate();
+    }, delayMs);
+  }
+
+  saveToStorageImmediate() {
+    if (typeof localStorage === 'undefined') return;
+    if (this.saveTimeoutTimer) {
+      clearTimeout(this.saveTimeoutTimer);
+      this.saveTimeoutTimer = null;
+    }
+
     const currentUser = this.authService.user();
     if (!currentUser?.id) return;
-    localStorage.setItem(`bilo_tasks_data_${currentUser.id}`, JSON.stringify({
+    const key = `bilo_tasks_data_${currentUser.id}`;
+
+    const payload = {
       tasks: this.tasks(),
       comments: this.taskComments(),
       statusHistory: this.taskStatusHistory()
-    }));
+    };
+
+    try {
+      localStorage.setItem(key, JSON.stringify(payload));
+    } catch (e: any) {
+      console.warn('[TaskService] LocalStorage quota exceeded when saving tasks data. Sanitizing cached attachments...', e);
+      try {
+        const sanitizedTasks = payload.tasks.map(t => {
+          if (t.attachments && t.attachments.length > 0) {
+            return {
+              ...t,
+              attachments: t.attachments.map(att => (att && att.length > 1024) ? '[Attachment cached remotely]' : att)
+            };
+          }
+          return t;
+        });
+
+        const fallbackPayload = {
+          tasks: sanitizedTasks,
+          comments: payload.comments,
+          statusHistory: payload.statusHistory
+        };
+
+        localStorage.setItem(key, JSON.stringify(fallbackPayload));
+      } catch (fallbackErr) {
+        console.error('[TaskService] Could not save task cache even after sanitizing attachments:', fallbackErr);
+      }
+    }
   }
 
   async loadTasksFromSupabase() {
-    if (!this.syncService.isOnline()) return;
+    if (!this.syncService.isOnline() || !this.supabaseService.isConfigured) return;
 
     const currentUser = this.authService.user();
     if (!currentUser) {
@@ -140,39 +269,58 @@ export class TaskService {
         const localTasks = this.tasks();
         const pendingQueue = this.syncService.pendingSyncQueue();
 
-        const pendingTaskIds = new Set(
+        const pendingDeleteTaskIds = new Set(
           pendingQueue
-            .filter(op => op.type === 'CREATE_TASK' || op.type === 'UPDATE_TASK' || op.type === 'DELETE_TASK')
+            .filter(op => op.type === 'DELETE_TASK')
             .map(op => op.payload.id || op.payload.task_id)
             .filter(Boolean)
         );
 
-        const mergedMap = new Map<string, Task>();
+        const pendingCreateTaskIds = new Set(
+          pendingQueue
+            .filter(op => op.type === 'CREATE_TASK')
+            .map(op => op.payload.id || op.payload.task_id)
+            .filter(Boolean)
+        );
 
+        const remoteTaskMap = new Map<string, Task>();
         remoteTasks.forEach(rt => {
-          mergedMap.set(rt.id, rt);
-        });
-
-        localTasks.forEach(lt => {
-          if (pendingTaskIds.has(lt.id)) {
-            mergedMap.set(lt.id, lt);
-          } else if (mergedMap.has(lt.id)) {
-            const rt = mergedMap.get(lt.id)!;
-            const ltTime = lt.updated_at ? new Date(lt.updated_at).getTime() : 0;
-            const rtTime = rt.updated_at ? new Date(rt.updated_at).getTime() : 0;
-            if (ltTime > rtTime) {
-              mergedMap.set(lt.id, lt);
-            }
-          } else {
-            mergedMap.set(lt.id, lt);
+          if (!pendingDeleteTaskIds.has(rt.id)) {
+            remoteTaskMap.set(rt.id, rt);
           }
         });
 
-        const deletedTaskIds = new Set(
-          pendingQueue.filter(op => op.type === 'DELETE_TASK').map(op => op.payload.id).filter(Boolean)
-        );
-        const finalTasksList = Array.from(mergedMap.values()).filter(t => !deletedTaskIds.has(t.id));
+        const mergedMap = new Map<string, Task>(remoteTaskMap);
 
+        localTasks.forEach(lt => {
+          if (pendingDeleteTaskIds.has(lt.id)) {
+            return;
+          }
+
+          if (mergedMap.has(lt.id)) {
+            const rt = mergedMap.get(lt.id)!;
+            const ltTime = lt.updated_at ? new Date(lt.updated_at).getTime() : 0;
+            const rtTime = rt.updated_at ? new Date(rt.updated_at).getTime() : 0;
+
+            if (rtTime > ltTime && rt.status.toLowerCase() !== lt.status.toLowerCase()) {
+              console.warn(`[ConcurrentEdit] Task "${lt.title}" status changed concurrently on remote (${lt.status} -> ${rt.status}).`);
+              this.triggerConflictNotification(
+                `Concurrent Edit Conflict: Task "${lt.title}" was updated to "${rt.status}" by another user. Board refreshed.`
+              );
+            }
+
+            if (ltTime > rtTime) {
+              mergedMap.set(lt.id, lt);
+            }
+          } else if (pendingCreateTaskIds.has(lt.id)) {
+            // Task was created locally offline and is waiting to be synced to server
+            mergedMap.set(lt.id, lt);
+          }
+          // Note: If lt is NOT in remoteTasks and NOT in pendingCreateTaskIds,
+          // it was deleted on the server or synced and deleted elsewhere, so it is omitted to prevent zombie tasks.
+        });
+
+        const finalTasksList = Array.from(mergedMap.values());
         const { normalized } = this.normalizeTaskStatuses(finalTasksList);
         this.tasks.set(normalized);
         this.saveToStorage();
@@ -184,6 +332,47 @@ export class TaskService {
     } finally {
       this.loading.set(false);
     }
+  }
+
+  validateWorkflowId(projectId: string, workflowId?: string, status?: string): string | undefined {
+    if (!workflowId) return undefined;
+
+    try {
+      let projWorkflows: any[] = [];
+      if (this.injector) {
+        try {
+          const workflowService = this.injector.get(WorkflowService);
+          if (workflowService) {
+            projWorkflows = workflowService.getWorkflowsForProject(projectId) || [];
+          }
+        } catch (e) {}
+      }
+
+      if (projWorkflows.length > 0) {
+        const match = projWorkflows.find(w => w.id === workflowId || (w.id && w.id.toLowerCase() === workflowId.toLowerCase()));
+        if (match) {
+          return match.id;
+        }
+
+        if (status) {
+          const statusMatch = projWorkflows.find(w => w.name && w.name.toLowerCase() === status.trim().toLowerCase());
+          if (statusMatch) {
+            return statusMatch.id;
+          }
+        }
+      }
+
+      if (this.syncService.isValidUuid(workflowId)) {
+        return workflowId;
+      }
+    } catch (e) {
+      if (this.syncService.isValidUuid(workflowId)) {
+        return workflowId;
+      }
+    }
+
+    console.warn(`[TaskService] Invalid workflow_id "${workflowId}" rejected for project "${projectId}". Setting workflow_id to undefined.`);
+    return undefined;
   }
 
   async createTask(taskData: Partial<Task>): Promise<Task> {
@@ -212,11 +401,31 @@ export class TaskService {
     }
 
     const currentUser = this.authService.user();
+    const cleanTitle = (taskData.title || '').trim();
+    const finalTitle = cleanTitle.length > 0 ? cleanTitle : 'Untitled Task';
+
+    // Calculate unique, collision-free position for the new task in its column/project
+    const columnTasks = this.tasks().filter(
+      t => t.project_id === finalProjectId && t.status.toLowerCase() === initialStatus.toLowerCase()
+    );
+    const maxPos = columnTasks.reduce((max, t) => Math.max(max, typeof t.position === 'number' ? t.position : 0), -1);
+    let targetPosition = typeof taskData.position === 'number' ? taskData.position : maxPos + 1;
+    while (columnTasks.some(t => t.position === targetPosition)) {
+      targetPosition++;
+    }
+
+    const validatedWorkflowId = this.validateWorkflowId(
+      finalProjectId,
+      taskData.workflow_id,
+      initialStatus
+    );
+
     const newTask: Task = {
       id: newId,
       project_id: finalProjectId,
+      workflow_id: validatedWorkflowId,
       user_id: currentUser?.id,
-      title: taskData.title || 'Untitled Task',
+      title: finalTitle,
       description: taskData.description || '',
       type: taskData.type || 'task',
       status: initialStatus,
@@ -226,11 +435,11 @@ export class TaskService {
       reporter: taskData.reporter || currentUser?.email || 'User',
       is_app_report: taskData.is_app_report || false,
       report_category: taskData.report_category,
-      labels: taskData.labels || [],
+      labels: sanitizeLabels(taskData.labels),
       attachments: taskData.attachments || [],
       assignee: taskData.assignee || 'Unassigned',
       due_date: taskData.due_date || '',
-      position: 0,
+      position: targetPosition,
       is_next: taskData.is_next || false,
       completed: initialStatus.toLowerCase() === 'done' || initialStatus.toLowerCase() === 'completed',
       created_at: new Date().toISOString(),
@@ -241,7 +450,6 @@ export class TaskService {
 
     const payload: any = {
       id: newTask.id,
-      project_id: this.syncService.isValidUuid(newTask.project_id) ? newTask.project_id : null,
       title: newTask.title,
       description: newTask.description,
       type: newTask.type,
@@ -258,6 +466,11 @@ export class TaskService {
       due_date: newTask.due_date && newTask.due_date.trim() !== '' ? newTask.due_date : null,
       completed: newTask.completed
     };
+    // Only include project_id when it is a valid UUID — never send null which
+    // violates the NOT NULL DB constraint and causes a 23502 error on upsert.
+    if (this.syncService.isValidUuid(newTask.project_id)) {
+      payload.project_id = newTask.project_id;
+    }
     if (currentUser?.id) {
       payload.user_id = currentUser.id;
     }
@@ -271,7 +484,7 @@ export class TaskService {
       to_status: initialStatus,
       action_type: 'created',
       details: `Created task with initial status "${initialStatus}"`,
-      changed_by: currentUser?.email ? currentUser.email.split('@')[0] : 'User',
+      changed_by: currentUser?.id || (currentUser?.email ? currentUser.email.split('@')[0] : 'User'),
       created_at: newTask.created_at
     };
     this.recordStatusHistory(historyEntry);
@@ -281,21 +494,47 @@ export class TaskService {
     return newTask;
   }
 
-  async updateTask(id: string, updates: Partial<Task>): Promise<Task | null> {
+  async updateTask(id: string, updates: Partial<Task>, expectedUpdatedAt?: string): Promise<Task | null> {
     const existingTask = this.tasks().find(t => t.id === id);
     if (!existingTask) return null;
+
+    if (expectedUpdatedAt && existingTask.updated_at && expectedUpdatedAt !== existingTask.updated_at) {
+      console.warn(`[ConcurrentEdit] Base timestamp mismatch for task "${existingTask.title}". Expected: ${expectedUpdatedAt}, Actual: ${existingTask.updated_at}`);
+      this.triggerConflictNotification(
+        `Concurrent Edit Conflict: Task "${existingTask.title}" was modified by another user. Edits canceled.`
+      );
+      return null;
+    }
 
     const newStatus = updates.status !== undefined ? updates.status : existingTask.status;
     const targetCompleted = updates.status !== undefined
       ? (newStatus.toLowerCase() === 'done' || newStatus.toLowerCase() === 'completed')
       : (updates.completed !== undefined ? updates.completed : existingTask.completed);
 
-    const updatedFields = {
+    const updatedFields: any = {
       ...updates,
       status: newStatus,
       completed: targetCompleted,
       updated_at: new Date().toISOString()
     };
+
+    if (updates.title !== undefined) {
+      const cleanTitle = updates.title.trim();
+      updatedFields.title = cleanTitle.length > 0 ? cleanTitle : (existingTask.title || 'Untitled Task');
+    }
+
+    if (updates.labels !== undefined) {
+      updatedFields.labels = sanitizeLabels(updates.labels);
+    }
+
+    if (updates.workflow_id !== undefined) {
+      const validWfId = this.validateWorkflowId(
+        existingTask.project_id,
+        updates.workflow_id,
+        updates.status || existingTask.status
+      );
+      updatedFields.workflow_id = validWfId;
+    }
 
     let updatedTask: Task | null = null;
     this.tasks.update(list => list.map(t => {
@@ -309,13 +548,15 @@ export class TaskService {
     if (updatedTask) {
       const taskObj: Task = updatedTask;
       const currentUser = this.authService.user();
-      const updaterName = currentUser?.email ? currentUser.email.split('@')[0] : (taskObj.assignee || 'User');
+      const userId = currentUser?.id;
+      const updaterName = userId || (currentUser?.email ? currentUser.email.split('@')[0] : (taskObj.assignee || 'User'));
 
       // 1) Status Change
       if (updates.status && existingTask && updates.status.trim().toLowerCase() !== existingTask.status.trim().toLowerCase()) {
         const historyEntry: TaskStatusHistory = {
           id: crypto.randomUUID(),
           task_id: id,
+          user_id: userId,
           from_status: existingTask.status,
           to_status: updates.status,
           action_type: 'status',
@@ -335,6 +576,7 @@ export class TaskService {
         this.recordStatusHistory({
           id: crypto.randomUUID(),
           task_id: id,
+          user_id: userId,
           from_status: taskObj.status,
           to_status: taskObj.status,
           action_type: 'assignee',
@@ -349,6 +591,7 @@ export class TaskService {
         this.recordStatusHistory({
           id: crypto.randomUUID(),
           task_id: id,
+          user_id: userId,
           from_status: taskObj.status,
           to_status: taskObj.status,
           action_type: 'priority',
@@ -363,6 +606,7 @@ export class TaskService {
         this.recordStatusHistory({
           id: crypto.randomUUID(),
           task_id: id,
+          user_id: userId,
           from_status: taskObj.status,
           to_status: taskObj.status,
           action_type: 'title',
@@ -377,6 +621,7 @@ export class TaskService {
         this.recordStatusHistory({
           id: crypto.randomUUID(),
           task_id: id,
+          user_id: userId,
           from_status: taskObj.status,
           to_status: taskObj.status,
           action_type: 'description',
@@ -392,6 +637,7 @@ export class TaskService {
         this.recordStatusHistory({
           id: crypto.randomUUID(),
           task_id: id,
+          user_id: userId,
           from_status: taskObj.status,
           to_status: taskObj.status,
           action_type: 'due_date',
@@ -407,22 +653,147 @@ export class TaskService {
       if ('due_date' in payloadFields && (!payloadFields.due_date || (typeof payloadFields.due_date === 'string' && payloadFields.due_date.trim() === ''))) {
         (payloadFields as any).due_date = null;
       }
+      if ('workflow_id' in payloadFields && (!payloadFields.workflow_id || !this.syncService.isValidUuid(payloadFields.workflow_id))) {
+        (payloadFields as any).workflow_id = null;
+      }
       this.syncService.enqueue('UPDATE_TASK', { id, ...payloadFields });
     }
 
     return updatedTask;
   }
 
-  recordStatusHistory(entry: TaskStatusHistory) {
-    this.taskStatusHistory.update(map => ({
-      ...map,
-      [entry.task_id]: [...(map[entry.task_id] || []), entry]
-    }));
-    this.saveToStorage();
-    this.syncService.enqueue('ADD_STATUS_HISTORY', entry);
+  async restoreTask(id: string): Promise<Task | null> {
+    const existingTask = this.tasks().find(t => t.id === id);
+    if (!existingTask) return null;
+
+    let projWorkflows: Workflow[] = [];
+    if (this.injector) {
+      try {
+        const workflowService = this.injector.get(WorkflowService);
+        if (workflowService) {
+          projWorkflows = workflowService.getWorkflowsForProject(existingTask.project_id) || [];
+        }
+      } catch (e) {}
+    }
+
+    if (projWorkflows.length === 0) {
+      projWorkflows = [
+        { id: 'wf-backlog', project_id: existingTask.project_id || 'global', name: 'Backlog', color: '#64748b', position: 0, created_at: '' },
+        { id: 'wf-todo', project_id: existingTask.project_id || 'global', name: 'To Do', color: '#3b82f6', position: 1, created_at: '' },
+        { id: 'wf-in-progress', project_id: existingTask.project_id || 'global', name: 'In Progress', color: '#eab308', position: 2, created_at: '' },
+        { id: 'wf-in-review', project_id: existingTask.project_id || 'global', name: 'In Review', color: '#a855f7', position: 3, created_at: '' },
+        { id: 'wf-done', project_id: existingTask.project_id || 'global', name: 'Done', color: '#22c55e', position: 4, created_at: '' }
+      ];
+    }
+
+    const isDoneStatus = (statusName?: string) => {
+      if (!statusName) return false;
+      const s = statusName.trim().toLowerCase();
+      return s === 'done' || s === 'completed' || s === 'closed';
+    };
+
+    // 1. Check task's status history for the most recent non-completed status that exists in current project workflow
+    let targetWf: Workflow | undefined;
+    const historyList = this.taskStatusHistory()[id] || [];
+    if (historyList.length > 0) {
+      for (let i = historyList.length - 1; i >= 0; i--) {
+        const fromStatus = historyList[i].from_status;
+        if (fromStatus && !isDoneStatus(fromStatus)) {
+          const match = projWorkflows.find(w => w.name.trim().toLowerCase() === fromStatus.trim().toLowerCase() && !isDoneStatus(w.name));
+          if (match) {
+            targetWf = match;
+            break;
+          }
+        }
+      }
+    }
+
+    // 2. If no valid status from history, check if existingTask.status is non-completed and exists in workflow
+    if (!targetWf && existingTask.status && !isDoneStatus(existingTask.status)) {
+      targetWf = projWorkflows.find(w => w.name.trim().toLowerCase() === existingTask.status.trim().toLowerCase() && !isDoneStatus(w.name));
+    }
+
+    // 3. Otherwise, look for an explicit "To Do" / "todo" or "In Progress" column
+    if (!targetWf) {
+      targetWf = projWorkflows.find(w => {
+        const name = w.name.trim().toLowerCase();
+        return (name === 'to do' || name === 'todo' || name === 'in progress') && !isDoneStatus(w.name);
+      });
+    }
+
+    // 4. Otherwise, look for "Backlog" column
+    if (!targetWf) {
+      targetWf = projWorkflows.find(w => {
+        const name = w.name.trim().toLowerCase();
+        return name === 'backlog' && !isDoneStatus(w.name);
+      });
+    }
+
+    // 5. Otherwise, pick the first non-completed workflow column in current column order
+    if (!targetWf) {
+      targetWf = projWorkflows.find(w => !isDoneStatus(w.name));
+    }
+
+    // 5. Fallback to first workflow column
+    if (!targetWf && projWorkflows.length > 0) {
+      targetWf = projWorkflows[0];
+    }
+
+    const targetStatus = targetWf ? targetWf.name : 'To Do';
+    const targetWorkflowId = targetWf ? targetWf.id : undefined;
+
+    const updated = await this.updateTask(id, {
+      completed: false,
+      status: targetStatus,
+      workflow_id: targetWorkflowId
+    });
+
+    if (updated) {
+      this.projectService.logActivity(existingTask.project_id, 'Task Restored', `Restored task "${existingTask.title}" to "${targetStatus}" status`);
+    }
+
+    return updated;
   }
 
-  async loadStatusHistoryForTask(taskId: string): Promise<TaskStatusHistory[]> {
+  recordStatusHistory(entry: TaskStatusHistory) {
+    const currentUser = this.authService.user();
+    const userId = entry.user_id || currentUser?.id;
+    const finalChangedBy = entry.user_id ? entry.user_id : (currentUser?.id || entry.changed_by || 'User');
+
+    const updatedEntry: TaskStatusHistory = {
+      ...entry,
+      user_id: userId,
+      changed_by: finalChangedBy
+    };
+
+    this.taskStatusHistory.update(map => ({
+      ...map,
+      [updatedEntry.task_id]: [...(map[updatedEntry.task_id] || []), updatedEntry]
+    }));
+    this.saveToStorage();
+    this.syncService.enqueue('ADD_STATUS_HISTORY', updatedEntry);
+  }
+
+  async loadStatusHistoryForTask(taskId: string, forceFetch: boolean = false): Promise<TaskStatusHistory[]> {
+    const cachedHistory = this.taskStatusHistory()[taskId];
+
+    if (!forceFetch && cachedHistory !== undefined) {
+      if (this.syncService.isOnline()) {
+        this.fetchStatusHistoryFromRemote(taskId).catch(err =>
+          console.warn('[TaskService] Background status history refresh failed:', err)
+        );
+      }
+      return cachedHistory;
+    }
+
+    if (this.syncService.isOnline()) {
+      return await this.fetchStatusHistoryFromRemote(taskId);
+    }
+
+    return cachedHistory || [];
+  }
+
+  private async fetchStatusHistoryFromRemote(taskId: string): Promise<TaskStatusHistory[]> {
     const localList = this.taskStatusHistory()[taskId] || [];
 
     if (this.syncService.isOnline()) {
@@ -469,9 +840,10 @@ export class TaskService {
           {
             id: 'init-' + task.id,
             task_id: task.id,
+            user_id: task.user_id,
             from_status: '',
             to_status: task.status,
-            changed_by: task.assignee || 'Self',
+            changed_by: task.user_id || task.assignee || 'Self',
             created_at: task.created_at
           }
         ];
@@ -481,68 +853,465 @@ export class TaskService {
     return [...localList].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }
 
-  async deleteTask(id: string) {
+  async deleteTask(id: string): Promise<boolean> {
     const existing = this.tasks().find(t => t.id === id);
+    if (!existing) return false;
+
+    // Direct online Supabase deletion check
+    if (this.syncService.isOnline() && this.supabaseService.isConfigured && this.supabaseService.supabase) {
+      try {
+        const { error } = await this.supabaseService.supabase
+          .from('tasks')
+          .delete()
+          .eq('id', id);
+
+        if (error) {
+          console.error('[TaskService] Direct task deletion failed:', error.message);
+          return false;
+        }
+      } catch (e) {
+        console.error('[TaskService] Direct task deletion exception:', e);
+        return false;
+      }
+    }
+
     if (existing) {
       this.projectService.logActivity(existing.project_id, 'Task Deleted', `Deleted task "${existing.title}"`);
     }
+
+    // 1) Filter out task from tasks list
     this.tasks.update(list => list.filter(t => t.id !== id));
+
+    // 2) Delete task comments from memory map
+    this.taskComments.update(map => {
+      if (!(id in map)) return map;
+      const updated = { ...map };
+      delete updated[id];
+      return updated;
+    });
+
+    // 3) Delete status history from memory map
+    this.taskStatusHistory.update(map => {
+      if (!(id in map)) return map;
+      const updated = { ...map };
+      delete updated[id];
+      return updated;
+    });
+
     this.saveToStorage();
     this.syncService.enqueue('DELETE_TASK', { id });
+    return true;
+  }
+
+  async batchDeleteTasks(ids: string[]): Promise<void> {
+    if (!ids || ids.length === 0) return;
+
+    const idSet = new Set(ids);
+    const existingTasks = this.tasks().filter(t => idSet.has(t.id));
+    if (existingTasks.length === 0) return;
+
+    const total = existingTasks.length;
+    const progressId = `batch-delete-${Date.now()}`;
+    this.progressService.start(progressId, 'batch', `Batch Delete Tasks`, {
+      message: `Deleting ${total} task${total > 1 ? 's' : ''}...`,
+      totalSteps: total
+    });
+    this.batchProgress.set({
+      active: true,
+      current: 0,
+      total,
+      percentage: 0,
+      operation: 'delete',
+      label: `Deleting ${total} task${total > 1 ? 's' : ''}...`
+    });
+
+    try {
+      // Log batch activity
+      const firstProjId = existingTasks[0].project_id;
+      this.projectService.logActivity(
+        firstProjId,
+        'Batch Delete',
+        `Permanently deleted ${existingTasks.length} task${existingTasks.length > 1 ? 's' : ''}`
+      );
+
+      const chunkSize = 50;
+      const idArray = Array.from(idSet);
+
+      for (let i = 0; i < idArray.length; i += chunkSize) {
+        const chunk = idArray.slice(i, i + chunkSize);
+        const chunkSet = new Set(chunk);
+
+        // 1) Filter tasks for chunk
+        this.tasks.update(list => list.filter(t => !chunkSet.has(t.id)));
+
+        // 2) Filter task comments
+        this.taskComments.update(map => {
+          const updated = { ...map };
+          let changed = false;
+          chunk.forEach(id => {
+            if (id in updated) {
+              delete updated[id];
+              changed = true;
+            }
+          });
+          return changed ? updated : map;
+        });
+
+        // 3) Filter status history
+        this.taskStatusHistory.update(map => {
+          const updated = { ...map };
+          let changed = false;
+          chunk.forEach(id => {
+            if (id in updated) {
+              delete updated[id];
+              changed = true;
+            }
+          });
+          return changed ? updated : map;
+        });
+
+        // 4) Queue sync delete operations for chunk
+        chunk.forEach(id => {
+          this.syncService.enqueue('DELETE_TASK', { id });
+        });
+
+        const current = Math.min(i + chunkSize, total);
+        const percentage = Math.round((current / total) * 100);
+        this.progressService.update(progressId, percentage, {
+          message: `Deleting item ${current} of ${total} (${percentage}%)`,
+          currentStep: current,
+          totalSteps: total
+        });
+        this.batchProgress.set({
+          active: true,
+          current,
+          total,
+          percentage,
+          operation: 'delete',
+          label: `Deleting selected tasks...`
+        });
+
+        if (i + chunkSize < idArray.length) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
+
+      // 5) Save to localStorage after batch delete completes
+      this.saveToStorage();
+      this.progressService.complete(progressId, `Batch deleted ${total} task${total > 1 ? 's' : ''}`);
+    } catch (err) {
+      this.progressService.fail(progressId, `Batch delete failed`);
+      throw err;
+    } finally {
+      this.batchProgress.set(null);
+    }
+  }
+
+  async batchUpdateTasks(ids: string[], updates: Partial<Task>): Promise<void> {
+    if (!ids || ids.length === 0) return;
+
+    const idSet = new Set(ids);
+    const existingTasks = this.tasks().filter(t => idSet.has(t.id));
+    if (existingTasks.length === 0) return;
+
+    const total = existingTasks.length;
+    const progressId = `batch-update-${Date.now()}`;
+    this.progressService.start(progressId, 'batch', `Batch Update Tasks`, {
+      message: `Updating ${total} task${total > 1 ? 's' : ''}...`,
+      totalSteps: total
+    });
+    this.batchProgress.set({
+      active: true,
+      current: 0,
+      total,
+      percentage: 0,
+      operation: 'update',
+      label: `Updating ${total} task${total > 1 ? 's' : ''}...`
+    });
+
+    try {
+      const currentUser = this.authService.user();
+      const userId = currentUser?.id;
+      const updaterName = userId || (currentUser?.email ? currentUser.email.split('@')[0] : 'User');
+      const now = new Date().toISOString();
+
+      const chunkSize = 50;
+      const idArray = Array.from(idSet);
+
+      for (let i = 0; i < idArray.length; i += chunkSize) {
+        const chunk = idArray.slice(i, i + chunkSize);
+        const chunkSet = new Set(chunk);
+
+        // 1) Update matching tasks chunk
+        this.tasks.update(list => list.map(t => {
+          if (chunkSet.has(t.id)) {
+            const newStatus = updates.status !== undefined ? updates.status : t.status;
+            const targetCompleted = updates.status !== undefined
+              ? (newStatus.toLowerCase() === 'done' || newStatus.toLowerCase() === 'completed')
+              : (updates.completed !== undefined ? updates.completed : t.completed);
+
+            const updated: any = {
+              ...t,
+              ...updates,
+              status: newStatus,
+              completed: targetCompleted,
+              updated_at: now
+            };
+
+            if (updates.title !== undefined) {
+              const cleanTitle = updates.title.trim();
+              updated.title = cleanTitle.length > 0 ? cleanTitle : (t.title || 'Untitled Task');
+            }
+
+            if (updates.workflow_id !== undefined) {
+              updated.workflow_id = this.validateWorkflowId(t.project_id, updates.workflow_id, newStatus);
+            }
+
+            return updated as Task;
+          }
+          return t;
+        }));
+
+        // 2) Record history entries for chunk
+        const chunkTasks = existingTasks.filter(t => chunkSet.has(t.id));
+        chunkTasks.forEach(existingTask => {
+          if (updates.status && existingTask && updates.status.trim().toLowerCase() !== existingTask.status.trim().toLowerCase()) {
+            this.recordStatusHistory({
+              id: crypto.randomUUID(),
+              task_id: existingTask.id,
+              user_id: userId,
+              from_status: existingTask.status,
+              to_status: updates.status,
+              action_type: 'status',
+              details: `Moved status from "${existingTask.status}" to "${updates.status}"`,
+              changed_by: updaterName,
+              created_at: now
+            });
+          }
+
+          if (updates.priority !== undefined && updates.priority !== existingTask.priority) {
+            this.recordStatusHistory({
+              id: crypto.randomUUID(),
+              task_id: existingTask.id,
+              user_id: userId,
+              from_status: existingTask.status,
+              to_status: existingTask.status,
+              action_type: 'priority',
+              details: `Changed priority to "${updates.priority.toUpperCase()}"`,
+              changed_by: updaterName,
+              created_at: now
+            });
+          }
+        });
+
+        // 3) Enqueue sync update for chunk
+        chunk.forEach(id => {
+          const updatedTask = this.tasks().find(t => t.id === id);
+          if (updatedTask) {
+            const payloadFields: any = { ...updatedTask };
+            if (!payloadFields.due_date) payloadFields.due_date = null;
+            if (!payloadFields.workflow_id || !this.syncService.isValidUuid(payloadFields.workflow_id)) {
+              payloadFields.workflow_id = null;
+            }
+            this.syncService.enqueue('UPDATE_TASK', { id, ...payloadFields });
+          }
+        });
+
+        const current = Math.min(i + chunkSize, total);
+        const percentage = Math.round((current / total) * 100);
+        this.progressService.update(progressId, percentage, {
+          message: `Updated item ${current} of ${total} (${percentage}%)`,
+          currentStep: current,
+          totalSteps: total
+        });
+        this.batchProgress.set({
+          active: true,
+          current,
+          total,
+          percentage,
+          operation: 'update',
+          label: `Updating selected tasks...`
+        });
+
+        if (i + chunkSize < idArray.length) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
+
+      this.saveToStorage();
+      this.progressService.complete(progressId, `Batch updated ${total} task${total > 1 ? 's' : ''}`);
+    } catch (err) {
+      this.progressService.fail(progressId, `Batch update failed`);
+      throw err;
+    } finally {
+      this.batchProgress.set(null);
+    }
+  }
+
+  deleteTasksForProject(projectId: string) {
+    if (!projectId) return;
+
+    const projectTaskIds = new Set(
+      this.tasks().filter(t => t.project_id === projectId).map(t => t.id)
+    );
+
+    // Filter tasks
+    this.tasks.update(list => list.filter(t => t.project_id !== projectId));
+
+    // Filter task comments & status history
+    this.taskComments.update(map => {
+      const updated = { ...map };
+      projectTaskIds.forEach(tid => delete updated[tid]);
+      return updated;
+    });
+
+    this.taskStatusHistory.update(map => {
+      const updated = { ...map };
+      projectTaskIds.forEach(tid => delete updated[tid]);
+      return updated;
+    });
+
+    this.saveToStorage();
+
+    if (this.supabaseService.isConfigured && this.supabaseService.supabase) {
+      this.supabaseService.supabase
+        .from('tasks')
+        .delete()
+        .eq('project_id', projectId)
+        .then(({ error }) => {
+          if (error) console.warn('[TaskService] Remote tasks deletion warning:', error.message);
+        });
+    }
   }
 
   // --- Task Comments / Notes ---
 
-  async loadCommentsForTask(taskId: string): Promise<TaskComment[]> {
-    const localComments = this.taskComments()[taskId] || [];
+  async loadCommentsPaginated(
+    taskId: string,
+    page: number = 1,
+    pageSize: number = 20,
+    forceFetch: boolean = false
+  ): Promise<PaginatedCommentsResult> {
+    const from = (page - 1) * pageSize;
+    const to = page * pageSize - 1;
 
-    if (this.syncService.isOnline()) {
+    if (this.syncService.isOnline() && (forceFetch || this.supabaseService.isConfigured)) {
       try {
-        const { data, error } = await this.supabaseService.supabase
+        const { data, error, count } = await this.supabaseService.supabase
           .from('task_comments')
-          .select('*')
+          .select('*', { count: 'exact' })
           .eq('task_id', taskId)
-          .order('created_at', { ascending: true });
+          .order('created_at', { ascending: true })
+          .range(from, to);
 
         if (!error && data) {
           const remoteComments = data as TaskComment[];
-          const pendingQueue = this.syncService.pendingSyncQueue();
+          const totalCount = count ?? remoteComments.length;
 
-          const pendingOps = pendingQueue.filter(op =>
-            (op.type === 'ADD_COMMENT' || op.type === 'UPDATE_COMMENT' || op.type === 'DELETE_COMMENT') &&
-            (op.payload.task_id === taskId || op.payload.id)
-          );
-          const pendingCommentIds = new Set(pendingOps.map(op => op.payload.id).filter(Boolean));
-          const deletedCommentIds = new Set(pendingQueue.filter(op => op.type === 'DELETE_COMMENT').map(op => op.payload.id).filter(Boolean));
-
-          const mergedMap = new Map<string, TaskComment>();
-          remoteComments.forEach(c => mergedMap.set(c.id, c));
-          localComments.forEach(c => {
-            if (pendingCommentIds.has(c.id) || !mergedMap.has(c.id)) {
-              mergedMap.set(c.id, c);
-            }
+          this.taskComments.update(map => {
+            const currentList = map[taskId] || [];
+            const mergedMap = new Map<string, TaskComment>();
+            currentList.forEach(c => mergedMap.set(c.id, c));
+            remoteComments.forEach(c => mergedMap.set(c.id, c));
+            const updatedList = Array.from(mergedMap.values())
+              .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+            return { ...map, [taskId]: updatedList };
           });
-
-          const finalComments = Array.from(mergedMap.values())
-            .filter(c => !deletedCommentIds.has(c.id))
-            .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-
-          this.taskComments.update(map => ({
-            ...map,
-            [taskId]: finalComments
-          }));
           this.saveToStorage();
-          return finalComments;
+
+          return {
+            comments: remoteComments,
+            totalCount,
+            page,
+            pageSize,
+            hasMore: (from + remoteComments.length) < totalCount
+          };
         }
       } catch (e) {
-        console.warn('Could not load comments from Supabase', e);
+        console.warn('[TaskService] Paginated comment fetch error:', e);
       }
+    }
+
+    const allLocal = this.taskComments()[taskId] || [];
+    const totalCount = allLocal.length;
+    const pageComments = allLocal.slice(from, from + pageSize);
+
+    return {
+      comments: pageComments,
+      totalCount,
+      page,
+      pageSize,
+      hasMore: (from + pageComments.length) < totalCount
+    };
+  }
+
+  async loadCommentsForTask(taskId: string, forceFetch: boolean = false): Promise<TaskComment[]> {
+    const res = await this.loadCommentsPaginated(taskId, 1, 1000, forceFetch);
+    return res.comments;
+  }
+
+  private async fetchCommentsFromRemote(taskId: string): Promise<TaskComment[]> {
+    const localComments = this.taskComments()[taskId] || [];
+
+    try {
+      const { data, error } = await this.supabaseService.supabase
+        .from('task_comments')
+        .select('*')
+        .eq('task_id', taskId)
+        .order('created_at', { ascending: true });
+
+      if (!error && data) {
+        const remoteComments = data as TaskComment[];
+        const pendingQueue = this.syncService.pendingSyncQueue();
+
+        const pendingOps = pendingQueue.filter(op =>
+          (op.type === 'ADD_COMMENT' || op.type === 'UPDATE_COMMENT' || op.type === 'DELETE_COMMENT') &&
+          (op.payload.task_id === taskId || op.payload.id)
+        );
+        const pendingCommentIds = new Set(pendingOps.map(op => op.payload.id).filter(Boolean));
+        const deletedCommentIds = new Set(pendingQueue.filter(op => op.type === 'DELETE_COMMENT').map(op => op.payload.id).filter(Boolean));
+
+        const mergedMap = new Map<string, TaskComment>();
+        remoteComments.forEach(c => mergedMap.set(c.id, c));
+        localComments.forEach(c => {
+          if (pendingCommentIds.has(c.id) || !mergedMap.has(c.id)) {
+            mergedMap.set(c.id, c);
+          }
+        });
+
+        const finalComments = Array.from(mergedMap.values())
+          .filter(c => !deletedCommentIds.has(c.id))
+          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+        this.taskComments.update(map => ({
+          ...map,
+          [taskId]: finalComments
+        }));
+        this.saveToStorage();
+        return finalComments;
+      }
+    } catch (e) {
+      console.warn('Could not load comments from Supabase', e);
     }
 
     return localComments;
   }
 
-  async addComment(taskId: string, content: string, authorName: string = 'User', attachments: string[] = []): Promise<TaskComment> {
+  async addComment(taskId: string, content: string, authorName: string = 'User', attachments: string[] = []): Promise<TaskComment | null> {
+    const cleanContent = (content || '').trim();
+    const validAttachments = attachments && Array.isArray(attachments)
+      ? attachments.filter(a => !!a && typeof a === 'string' && a.trim() !== '')
+      : [];
+
+    // Reject empty comments (no text and no attachments)
+    if (!cleanContent && validAttachments.length === 0) {
+      console.warn('[TaskService] Rejected empty comment (no text and no attachments).');
+      return null;
+    }
+
+    // Enforce 10,000 character length limit
+    const finalContent = cleanContent.length > 10000 ? cleanContent.slice(0, 10000) : cleanContent;
+
     const currentUser = this.authService.user();
     const displayName = authorName !== 'User' && authorName !== 'Self' ? authorName : (
       currentUser?.user_metadata?.['display_name'] ||
@@ -555,24 +1324,27 @@ export class TaskService {
       task_id: taskId,
       user_id: currentUser?.id,
       author_name: displayName,
-      content,
-      attachments: attachments && attachments.length > 0 ? attachments : undefined,
+      content: finalContent,
+      attachments: validAttachments.length > 0 ? validAttachments : undefined,
       created_at: new Date().toISOString()
     };
 
     const task = this.tasks().find(t => t.id === taskId);
     if (task) {
       this.projectService.logActivity(task.project_id, 'Comment Added', `Added comment on "${task.title}"`);
+      const currentUser = this.authService.user();
+      const userId = currentUser?.id;
       this.recordStatusHistory({
         id: crypto.randomUUID(),
         task_id: taskId,
+        user_id: userId,
         from_status: task.status,
         to_status: task.status,
         action_type: 'comment',
         details: attachments && attachments.length > 0
           ? `Added a comment with ${attachments.length} image attachment(s)`
           : `Added a comment`,
-        changed_by: displayName,
+        changed_by: userId || displayName,
         created_at: newComm.created_at
       });
     }
@@ -606,25 +1378,40 @@ export class TaskService {
   }
 
   async updateComment(commentId: string, taskId: string, newContent: string): Promise<TaskComment | null> {
+    const cleanContent = (newContent || '').trim();
+    if (!cleanContent) {
+      console.warn('[TaskService] Rejected empty comment update.');
+      return null;
+    }
+
+    const list = this.taskComments()[taskId] || [];
+    const targetComment = list.find(c => c.id === commentId);
+    if (!targetComment) {
+      console.warn(`[TaskService] Comment ${commentId} not found for task ${taskId}.`);
+      return null;
+    }
+
     const updatedAt = new Date().toISOString();
-    let updatedComment: TaskComment | null = null;
+    const updatedComment: TaskComment = {
+      ...targetComment,
+      content: cleanContent.length > 10000 ? cleanContent.slice(0, 10000) : cleanContent,
+      updated_at: updatedAt
+    };
 
-    this.taskComments.update(map => {
-      const list = map[taskId] || [];
-      const newList: TaskComment[] = list.map(c => {
-        if (c.id === commentId) {
-          const updated: TaskComment = { ...c, content: newContent, updated_at: updatedAt };
-          updatedComment = updated;
-          return updated;
-        }
-        return c;
+    try {
+      this.taskComments.update(map => {
+        const currentList = map[taskId] || [];
+        const newList = currentList.map(c => c.id === commentId ? updatedComment : c);
+        return { ...map, [taskId]: newList };
       });
-      return { ...map, [taskId]: newList };
-    });
 
-    this.saveToStorage();
-    this.syncService.enqueue('UPDATE_COMMENT', { id: commentId, content: newContent, updated_at: updatedAt });
-    return updatedComment;
+      this.saveToStorage();
+      this.syncService.enqueue('UPDATE_COMMENT', { id: commentId, content: updatedComment.content, updated_at: updatedAt });
+      return updatedComment;
+    } catch (e) {
+      console.error('[TaskService] Failed to update comment:', e);
+      return null;
+    }
   }
 
   async deleteComment(commentId: string, taskId: string): Promise<void> {

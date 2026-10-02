@@ -1,16 +1,19 @@
-import { Component, EventEmitter, Input, OnInit, Output, AfterViewInit, ViewChild, ElementRef } from '@angular/core';
+import { Component, EventEmitter, Input, OnInit, Output, AfterViewInit, ViewChild, ElementRef, OnDestroy, HostListener, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ProjectService } from '../../core/services/project.service';
 import { Project } from '../../core/models/project.model';
 import { SelectComponent, SelectOption } from './select';
+import { ConfirmModalComponent } from './confirm-modal';
+import { sanitizeLabels } from '../../core/utils/label.util';
+import { registerModal, unregisterModal, isTopModal } from '../../core/utils/modal-stack.util';
 
 @Component({
   selector: 'app-project-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectComponent],
+  imports: [CommonModule, FormsModule, SelectComponent, ConfirmModalComponent],
   template: `
-    <div class="modal-overlay" (click)="close.emit()">
+    <div class="modal-overlay" [style.z-index]="modalZIndex" (click)="close.emit()">
       <div class="modal-card paper-panel font-mono" (click)="$event.stopPropagation()">
         <!-- Header Strip -->
         <div class="modal-header">
@@ -35,21 +38,64 @@ import { SelectComponent, SelectOption } from './select';
 
             <!-- Project Name -->
             <div class="form-group">
-              <label class="form-label">PROJECT NAME <span class="text-rose">*</span></label>
+              <div class="label-with-hint">
+                <label class="form-label">PROJECT NAME <span class="text-rose">*</span></label>
+              </div>
               <input
                 #nameInput
                 type="text"
                 class="form-input"
                 [class.input-error]="submitted && !name.trim()"
-                [(ngModel)]="name"
+                [ngModel]="name"
+                (ngModelChange)="onNameChange($event)"
                 name="name"
                 placeholder="e.g. Tokio Async Microservice or bilo Core Engine"
+                maxlength="50"
                 required
               />
               @if (submitted && !name.trim()) {
                 <span class="field-error-text font-mono">
                   <i class="fi fi-rr-exclamation"></i> Project Name is required
                 </span>
+              } @else if (isDuplicateName) {
+                <div class="duplicate-warning-box font-mono">
+                  <i class="fi fi-rr-info text-amber"></i>
+                  <span>A workspace named <strong>"{{ name.trim() }}"</strong> already exists.</span>
+                  <button type="button" class="btn btn-ghost btn-xs text-cyan apply-unique-btn" (click)="useSuggestedName()">
+                    Use "{{ suggestedUniqueName }}"
+                  </button>
+                </div>
+              }
+            </div>
+
+            <!-- Project Code / Key (Slug) -->
+            <div class="form-group">
+              <div class="label-with-hint">
+                <label class="form-label">PROJECT CODE / KEY <span class="text-rose">*</span></label>
+              </div>
+              <input
+                type="text"
+                class="form-input font-mono"
+                [class.input-error]="submitted && !slug.trim()"
+                [ngModel]="slug"
+                (ngModelChange)="onSlugChange($event)"
+                name="slug"
+                placeholder="e.g. TOK, BIL, DEMO"
+                maxlength="15"
+                required
+              />
+              @if (submitted && !slug.trim()) {
+                <span class="field-error-text font-mono">
+                  <i class="fi fi-rr-exclamation"></i> Project Code is required
+                </span>
+              } @else if (isDuplicateSlug) {
+                <div class="duplicate-warning-box font-mono">
+                  <i class="fi fi-rr-info text-amber"></i>
+                  <span>Project Code <strong>"{{ slug.trim().toUpperCase() }}"</strong> is already in use.</span>
+                  <button type="button" class="btn btn-ghost btn-xs text-cyan apply-unique-btn" (click)="useSuggestedSlug()">
+                    Use "{{ suggestedUniqueSlug }}"
+                  </button>
+                </div>
               }
             </div>
 
@@ -74,7 +120,7 @@ import { SelectComponent, SelectOption } from './select';
                 class="form-input"
                 [(ngModel)]="labelsInput"
                 name="labelsInput"
-                placeholder="e.g. frontend, angular, rust, pwa"
+                placeholder="e.g. frontend, backend, mobile, pwa"
               />
             </div>
 
@@ -115,7 +161,7 @@ import { SelectComponent, SelectOption } from './select';
                     class="btn btn-secondary btn-xs"
                     (click)="fileInput.click()"
                     [disabled]="uploadingImage"
-                    title="Upload project image to Supabase Storage"
+                    title="Upload project image"
                   >
                     @if (uploadingImage) {
                       <i class="fi fi-rr-spinner spinner font-mono"></i> Uploading...
@@ -128,7 +174,7 @@ import { SelectComponent, SelectOption } from './select';
                     <button
                       type="button"
                       class="btn btn-ghost btn-xs text-rose"
-                      (click)="imageUrl = ''"
+                      (click)="removeImage()"
                       [disabled]="uploadingImage"
                       title="Remove image"
                     >
@@ -137,6 +183,11 @@ import { SelectComponent, SelectOption } from './select';
                   }
                 </div>
               </div>
+              @if (imageError) {
+                <span class="field-error-text font-mono">
+                  <i class="fi fi-rr-exclamation"></i> {{ imageError }}
+                </span>
+              }
             </div>
 
             <!-- Color Accent Picker -->
@@ -167,18 +218,43 @@ import { SelectComponent, SelectOption } from './select';
               <span>PROJECT METADATA</span>
             </div>
             <div class="footer-actions">
+              @if (isEditMode) {
+                <button type="button" class="btn btn-ghost btn-sm text-rose" (click)="confirmDeleteProject()">
+                  <i class="fi fi-rr-trash"></i> Delete Project
+                </button>
+              }
               <button type="button" class="btn btn-secondary btn-sm" (click)="close.emit()">
                 Cancel
               </button>
-              <button type="submit" class="btn btn-primary btn-sm">
-                <i class="fi fi-rr-check"></i>
-                <span>{{ isEditMode ? 'Save Changes' : 'Create Project' }}</span>
+              <button
+                type="submit"
+                class="btn btn-primary btn-sm"
+                [disabled]="submitting() || (submitted && !name.trim())"
+              >
+                @if (submitting()) {
+                  <i class="fi fi-rr-spinner spinner font-mono"></i>
+                  <span>Saving...</span>
+                } @else {
+                  <i class="fi fi-rr-check"></i>
+                  <span>{{ isEditMode ? 'Save Changes' : 'Create Project' }}</span>
+                }
               </button>
             </div>
           </div>
         </form>
       </div>
     </div>
+
+    <app-confirm-modal
+      [isOpen]="showConfirmDelete"
+      title="Delete Project"
+      [message]="'Are you sure you want to delete project &quot;' + name + '&quot;? This will permanently delete the project and all associated tasks, workflows, and activities.'"
+      confirmText="Delete Project"
+      cancelText="Cancel"
+      type="danger"
+      (confirm)="executeDeleteProject()"
+      (cancel)="cancelDeleteProject()"
+    ></app-confirm-modal>
   `,
   styles: [`
     .modal-card {
@@ -392,9 +468,27 @@ import { SelectComponent, SelectOption } from './select';
       font-weight: 600;
       margin-top: 0.25rem;
     }
+    .duplicate-warning-box {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.725rem;
+      margin-top: 0.35rem;
+      padding: 0.35rem 0.5rem;
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      border-radius: var(--radius-xs);
+      color: var(--text-main);
+    }
+    .apply-unique-btn {
+      padding: 0.1rem 0.4rem;
+      font-size: 0.7rem;
+      white-space: nowrap;
+      text-decoration: underline;
+    }
   `]
 })
-export class ProjectModalComponent implements OnInit, AfterViewInit {
+export class ProjectModalComponent implements OnInit, AfterViewInit, OnDestroy {
   @Input() projectToEdit: Partial<Project> | null = null;
   @Output() close = new EventEmitter<Project | undefined>();
 
@@ -403,12 +497,17 @@ export class ProjectModalComponent implements OnInit, AfterViewInit {
   submitted = false;
 
   name = '';
+  slug = '';
+  userEditedSlug = false;
   description = '';
   status: 'active' | 'archived' | 'completed' = 'active';
   labelsInput = '';
   color = '#06b6d4';
   imageUrl = '';
   uploadingImage = false;
+  imageError = '';
+  modalZIndex = 2000;
+  private readonly modalId = 'project-modal-' + Math.random().toString(36).substring(2, 9);
 
   projectStatusOptions: SelectOption[] = [
     { value: 'active', label: 'Active Workspace' },
@@ -422,36 +521,158 @@ export class ProjectModalComponent implements OnInit, AfterViewInit {
     return !!(this.projectToEdit && this.projectToEdit.id);
   }
 
+  get isDuplicateName(): boolean {
+    if (!this.name || !this.name.trim()) return false;
+    const excludeId = this.projectToEdit?.id;
+    const inputName = this.name.trim().toLowerCase();
+    return this.projectService.projects().some(p => p.id !== excludeId && (p.name || '').trim().toLowerCase() === inputName);
+  }
+
+  get suggestedUniqueName(): string {
+    const excludeId = this.projectToEdit?.id;
+    return this.projectService.generateUniqueName(this.name.trim(), excludeId);
+  }
+
+  useSuggestedName() {
+    this.name = this.suggestedUniqueName;
+    if (!this.userEditedSlug && !this.isEditMode) {
+      this.slug = this.projectService.generateSlug(this.name).toUpperCase();
+    }
+  }
+
+  get isDuplicateSlug(): boolean {
+    if (!this.slug || !this.slug.trim()) return false;
+    const excludeId = this.projectToEdit?.id;
+    const inputSlug = this.slug.trim().toLowerCase();
+    return this.projectService.projects().some(p => p.id !== excludeId && (p.slug || '').trim().toLowerCase() === inputSlug);
+  }
+
+  get suggestedUniqueSlug(): string {
+    const excludeId = this.projectToEdit?.id;
+    const raw = this.slug.trim() || this.name.trim() || 'PRJ';
+    return this.projectService.generateUniqueSlug(raw, excludeId).toUpperCase();
+  }
+
+  useSuggestedSlug() {
+    this.slug = this.suggestedUniqueSlug;
+  }
+
+  onNameChange(newName: string) {
+    this.name = newName;
+    if (!this.userEditedSlug && !this.isEditMode && newName.trim()) {
+      this.slug = this.projectService.generateSlug(newName).toUpperCase();
+    }
+  }
+
+  onSlugChange(newSlug: string) {
+    this.slug = newSlug;
+    this.userEditedSlug = true;
+  }
+
+  removeImage() {
+    this.imageUrl = '';
+    this.imageError = '';
+  }
+
   async onFileSelected(event: Event) {
     const input = event.target as HTMLInputElement;
+    this.imageError = '';
+
     if (input.files && input.files[0]) {
       const file = input.files[0];
+
+      const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
+      if (!allowedMimeTypes.includes((file.type || '').toLowerCase())) {
+        this.imageError = 'Invalid file type. Please select a JPEG, PNG, WebP, or GIF image.';
+        input.value = '';
+        return;
+      }
+
+      const MAX_PROJECT_IMAGE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+      if (file.size > MAX_PROJECT_IMAGE_SIZE_BYTES) {
+        this.imageError = `Image file size (${(file.size / (1024 * 1024)).toFixed(1)}MB) exceeds 5MB limit.`;
+        input.value = '';
+        return;
+      }
+
       this.uploadingImage = true;
       try {
         const uploadedUrl = await this.projectService.uploadProjectImage(file);
         if (uploadedUrl) {
           this.imageUrl = uploadedUrl;
+          this.imageError = '';
+        } else {
+          this.imageError = 'Failed to process image. File may be corrupt or invalid.';
         }
-      } catch (e) {
+      } catch (e: any) {
         console.error('Image upload failed:', e);
-      } finally {
-        this.uploadingImage = false;
-        input.value = '';
+        this.imageError = e?.message || 'Failed to upload project image.';
       }
     }
   }
 
-  constructor(private projectService: ProjectService) { }
+  constructor(
+    public projectService: ProjectService,
+    private elementRef: ElementRef
+  ) { }
+
+  @HostListener('window:keydown', ['$event'])
+  handleGlobalKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && isTopModal(this.modalId) && !this.showConfirmDelete) {
+      e.preventDefault();
+      this.close.emit();
+      return;
+    }
+
+    if (e.key === 'Tab' && isTopModal(this.modalId) && !this.showConfirmDelete) {
+      this.trapFocus(e);
+    }
+  }
+
+  private trapFocus(e: KeyboardEvent) {
+    const container = this.elementRef?.nativeElement;
+    if (!container) return;
+
+    const focusables = (Array.from(
+      container.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ) as HTMLElement[]).filter(el => el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement);
+
+    if (focusables.length === 0) return;
+
+    const firstEl = focusables[0];
+    const lastEl = focusables[focusables.length - 1];
+    const activeEl = document.activeElement;
+
+    if (e.shiftKey) {
+      if (activeEl === firstEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        lastEl.focus();
+      }
+    } else {
+      if (activeEl === lastEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        firstEl.focus();
+      }
+    }
+  }
 
   ngOnInit() {
+    this.modalZIndex = registerModal(this.modalId);
     if (this.projectToEdit) {
       this.name = this.projectToEdit.name || '';
+      this.slug = (this.projectToEdit.slug || this.projectService.generateSlug(this.name)).toUpperCase();
       this.description = this.projectToEdit.description || '';
       this.status = this.projectToEdit.status || 'active';
       this.labelsInput = (this.projectToEdit.labels || []).join(', ');
       this.color = this.projectToEdit.color || '#06b6d4';
       this.imageUrl = this.projectToEdit.image_url || this.projectToEdit.icon || '';
     }
+  }
+
+  ngOnDestroy() {
+    unregisterModal(this.modalId);
   }
 
   ngAfterViewInit() {
@@ -462,39 +683,76 @@ export class ProjectModalComponent implements OnInit, AfterViewInit {
     }, 50);
   }
 
+  submitting = signal<boolean>(false);
+
   async saveProject() {
     this.submitted = true;
     if (!this.name.trim()) return;
 
-    const parsedLabels = this.labelsInput
-      .split(',')
-      .map(l => l.trim().toLowerCase())
-      .filter(l => l.length > 0);
-
-    let resultProject: Project | undefined = undefined;
-
-    if (this.isEditMode && this.projectToEdit && this.projectToEdit.id) {
-      const updated = await this.projectService.updateProject(this.projectToEdit.id, {
-        name: this.name,
-        description: this.description,
-        status: this.status,
-        labels: parsedLabels,
-        color: this.color,
-        image_url: this.imageUrl
-      });
-      resultProject = updated || undefined;
-    } else {
-      const created = await this.projectService.createProject({
-        name: this.name,
-        description: this.description,
-        status: 'active',
-        labels: parsedLabels,
-        color: this.color,
-        image_url: this.imageUrl
-      });
-      resultProject = created;
+    if (!this.slug.trim()) {
+      this.slug = this.projectService.generateSlug(this.name).toUpperCase();
     }
 
-    this.close.emit(resultProject);
+    this.submitting.set(true);
+    try {
+      if (this.isDuplicateName) {
+        this.name = this.suggestedUniqueName;
+      }
+      if (this.isDuplicateSlug) {
+        this.slug = this.suggestedUniqueSlug;
+      }
+
+      const finalSlug = this.slug.trim().toUpperCase();
+      const parsedLabels = sanitizeLabels(this.labelsInput.split(','));
+
+      let resultProject: Project | undefined = undefined;
+
+      if (this.isEditMode && this.projectToEdit && this.projectToEdit.id) {
+        const updated = await this.projectService.updateProject(this.projectToEdit.id, {
+          name: this.name,
+          slug: finalSlug,
+          description: this.description,
+          status: this.status,
+          labels: parsedLabels,
+          color: this.color,
+          image_url: this.imageUrl
+        });
+        resultProject = updated || undefined;
+      } else {
+        const created = await this.projectService.createProject({
+          name: this.name,
+          slug: finalSlug,
+          description: this.description,
+          status: 'active',
+          labels: parsedLabels,
+          color: this.color,
+          image_url: this.imageUrl
+        });
+        resultProject = created;
+      }
+
+      this.close.emit(resultProject);
+    } catch (e) {
+      console.error('Error saving project:', e);
+    } finally {
+      this.submitting.set(false);
+    }
+  }
+
+  showConfirmDelete = false;
+
+  confirmDeleteProject() {
+    this.showConfirmDelete = true;
+  }
+
+  cancelDeleteProject() {
+    this.showConfirmDelete = false;
+  }
+
+  async executeDeleteProject() {
+    if (this.projectToEdit?.id) {
+      await this.projectService.deleteProject(this.projectToEdit.id);
+      this.close.emit();
+    }
   }
 }

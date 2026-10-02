@@ -1,13 +1,15 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal, OnInit, OnDestroy, HostListener, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { WorkspaceService } from '../../core/services/workspace.service';
+import { PwaInstallService } from '../../core/services/pwa-install.service';
+import { registerModal, unregisterModal, isTopModal } from '../../core/utils/modal-stack.util';
 
 @Component({
   selector: 'app-shortcuts-modal',
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="modal-overlay" (click)="close()" role="dialog" aria-modal="true" aria-labelledby="shortcuts-modal-title">
+    <div class="modal-overlay" [style.z-index]="modalZIndex" (click)="close()" role="dialog" aria-modal="true" aria-labelledby="shortcuts-modal-title">
       <div class="help-modal-card paper-panel font-mono" (click)="$event.stopPropagation()">
         <!-- Modal Header Strip -->
         <div class="modal-header">
@@ -48,7 +50,14 @@ import { WorkspaceService } from '../../core/services/workspace.service';
             [class.active]="activeTab() === 'workflows'"
             (click)="activeTab.set('workflows')"
           >
-            <i class="fi fi-rr-workflow"></i> Workflow Architecture
+            <i class="fi fi-rr-workflow"></i> Workflows
+          </button>
+          <button
+            class="help-tab-btn"
+            [class.active]="activeTab() === 'desktop'"
+            (click)="activeTab.set('desktop')"
+          >
+            <i class="fi fi-rr-laptop"></i> Desktop App
           </button>
         </div>
 
@@ -58,7 +67,7 @@ import { WorkspaceService } from '../../core/services/workspace.service';
           @if (activeTab() === 'shortcuts') {
             <div class="tab-pane">
               <div class="shortcuts-grid">
-                <!-- Column 1: Workspace Navigation (1-6) -->
+                <!-- Column 1: Workspace Navigation (Dynamic from WorkspaceService) -->
                 <div class="shortcuts-column">
                   <div class="column-header">
                     <i class="fi fi-rr-layout-fluid text-cyan"></i>
@@ -66,57 +75,19 @@ import { WorkspaceService } from '../../core/services/workspace.service';
                   </div>
 
                   <div class="shortcut-list">
-                    <div class="shortcut-item">
-                      <div class="item-info">
-                        <span class="item-title"><i class="fi fi-rr-sun text-amber"></i> 01 DASHBOARD</span>
-                        <span class="item-desc">Focus view & 7-day velocity metrics</span>
+                    @for (ws of workspaceService.workspaces; track ws.id) {
+                      <div class="shortcut-item">
+                        <div class="item-info">
+                          <span class="item-title"><i [class]="ws.icon"></i> {{ ws.code }} {{ ws.name }}</span>
+                          <span class="item-desc">{{ ws.desc }}</span>
+                        </div>
+                        <span class="key-badge">{{ ws.key }}</span>
                       </div>
-                      <span class="key-badge">1</span>
-                    </div>
-
-                    <div class="shortcut-item">
-                      <div class="item-info">
-                        <span class="item-title"><i class="fi fi-rr-list-check text-emerald"></i> 02 BACKLOG</span>
-                        <span class="item-desc">Task backlog & multi-field filters</span>
-                      </div>
-                      <span class="key-badge">2</span>
-                    </div>
-
-                    <div class="shortcut-item">
-                      <div class="item-info">
-                        <span class="item-title"><i class="fi fi-rr-layout-fluid text-purple"></i> 03 BOARD</span>
-                        <span class="item-desc">Kanban drag & drop workflow tracker</span>
-                      </div>
-                      <span class="key-badge">3</span>
-                    </div>
-
-                    <div class="shortcut-item">
-                      <div class="item-info">
-                        <span class="item-title"><i class="fi fi-rr-calendar text-cyan"></i> 04 CALENDAR</span>
-                        <span class="item-desc">Monthly timeline & drag-to-schedule</span>
-                      </div>
-                      <span class="key-badge">4</span>
-                    </div>
-
-                    <div class="shortcut-item">
-                      <div class="item-info">
-                        <span class="item-title"><i class="fi fi-rr-box-alt text-rose"></i> 05 ARCHIVE</span>
-                        <span class="item-desc">Completed task history & Excel export</span>
-                      </div>
-                      <span class="key-badge">5</span>
-                    </div>
-
-                    <div class="shortcut-item">
-                      <div class="item-info">
-                        <span class="item-title"><i class="fi fi-rr-settings text-amber"></i> 06 SETTINGS</span>
-                        <span class="item-desc">Project workflow & status configuration</span>
-                      </div>
-                      <span class="key-badge">6</span>
-                    </div>
+                    }
                   </div>
                 </div>
 
-                <!-- Column 2: Global Controls -->
+                <!-- Column 2: Global Controls (Dynamic from WorkspaceService) -->
                 <div class="shortcuts-column">
                   <div class="column-header">
                     <i class="fi fi-rr-bolt text-amber"></i>
@@ -124,47 +95,19 @@ import { WorkspaceService } from '../../core/services/workspace.service';
                   </div>
 
                   <div class="shortcut-list">
-                    <div class="shortcut-item">
-                      <div class="item-info">
-                        <span class="item-title">Command Palette Search</span>
-                        <span class="item-desc">Search tasks, projects, or trigger actions</span>
+                    @for (shortcut of workspaceService.globalShortcuts; track shortcut.title) {
+                      <div class="shortcut-item">
+                        <div class="item-info">
+                          <span class="item-title">{{ shortcut.title }}</span>
+                          <span class="item-desc">{{ shortcut.desc }}</span>
+                        </div>
+                        <div class="keys-inline">
+                          @for (k of shortcut.keys; track $index) {
+                            <span class="key-badge">{{ k }}</span>
+                          }
+                        </div>
                       </div>
-                      <div class="keys-inline">
-                        <span class="key-badge">⌘</span> <span class="key-badge">K</span>
-                      </div>
-                    </div>
-
-                    <div class="shortcut-item">
-                      <div class="item-info">
-                        <span class="item-title">Create New Task</span>
-                        <span class="item-desc">Open quick task creation modal in any workspace</span>
-                      </div>
-                      <span class="key-badge">N</span>
-                    </div>
-
-                    <div class="shortcut-item">
-                      <div class="item-info">
-                        <span class="item-title">System Reference Guide</span>
-                        <span class="item-desc">Toggle this help & documentation overlay</span>
-                      </div>
-                      <span class="key-badge">?</span>
-                    </div>
-
-                    <div class="shortcut-item">
-                      <div class="item-info">
-                        <span class="item-title">Toggle Dark / Light Theme</span>
-                        <span class="item-desc">Switch between Black & Grey Dark Theme and Light Theme</span>
-                      </div>
-                      <span class="key-badge">T</span>
-                    </div>
-
-                    <div class="shortcut-item">
-                      <div class="item-info">
-                        <span class="item-title">Close Modal / Dismiss Overlay</span>
-                        <span class="item-desc">Exit open dialogs, drawers, or palettes</span>
-                      </div>
-                      <span class="key-badge">ESC</span>
-                    </div>
+                    }
                   </div>
                 </div>
               </div>
@@ -406,13 +349,118 @@ import { WorkspaceService } from '../../core/services/workspace.service';
               </div>
             </div>
           }
+
+          <!-- TAB 5: DESKTOP & MOBILE APP DOWNLOAD GUIDE -->
+          @if (activeTab() === 'desktop') {
+            <div class="tab-pane">
+              <div class="desktop-guide-wrapper font-mono">
+                <div class="guide-header">
+                  <i class="fi fi-rr-laptop text-cyan"></i>
+                  <span>Desktop & Mobile Application Download</span>
+                </div>
+                <p class="guide-text">
+                  Bilo is engineered as a zero-dependency Progressive Web Application (PWA). You can install it on <strong>macOS</strong>, <strong>Windows</strong>, <strong>Linux</strong>, <strong>Android</strong>, or <strong>iOS</strong> directly from your browser to run as a native desktop application with full offline support, keyboard shortcuts, and instant launching.
+                </p>
+
+                <!-- Installation Status Hero Box -->
+                <div class="status-box" [ngClass]="{
+                  'status-granted': pwaInstallService.isStandalone(),
+                  'status-default': pwaInstallService.canInstallPwa(),
+                  'status-unsupported': !pwaInstallService.isStandalone() && !pwaInstallService.canInstallPwa()
+                }">
+                  <div class="status-left">
+                    @if (pwaInstallService.isStandalone()) {
+                      <i class="fi fi-rr-check-circle icon-lg text-emerald"></i>
+                      <div>
+                        <strong>App Installed & Active in Standalone Mode</strong>
+                        <p class="status-desc">You are running Bilo as a standalone desktop application. Offline caching and desktop shortcuts are active.</p>
+                      </div>
+                    } @else if (pwaInstallService.canInstallPwa()) {
+                      <i class="fi fi-rr-download icon-lg text-cyan"></i>
+                      <div>
+                        <strong>Desktop App Ready to Install</strong>
+                        <p class="status-desc">Your browser supports one-click PWA desktop installation. Click Install below to add Bilo to your system applications.</p>
+                      </div>
+                    } @else {
+                      <i class="fi fi-rr-laptop icon-lg text-sky"></i>
+                      <div>
+                        <strong>Install Bilo as a Standalone Application</strong>
+                        <p class="status-desc">Follow the step-by-step browser guides below to install Bilo on your desktop or mobile device.</p>
+                      </div>
+                    }
+                  </div>
+
+                  @if (pwaInstallService.canInstallPwa()) {
+                    <div class="status-action">
+                      <button class="btn btn-primary btn-xs" (click)="pwaInstallService.promptInstall()">
+                        <i class="fi fi-rr-download"></i> Install Desktop App
+                      </button>
+                    </div>
+                  }
+                </div>
+
+                <!-- Desktop App Features Grid -->
+                <div class="desktop-features-grid font-mono">
+                  <div class="feature-card">
+                    <div class="card-title text-cyan"><i class="fi fi-rr-wifi-slash"></i> Offline Support</div>
+                    <p class="card-desc">Task edits, comments, and status shifts are saved locally and synced automatically when back online.</p>
+                  </div>
+                  <div class="feature-card">
+                    <div class="card-title text-emerald"><i class="fi fi-rr-rocket-lunch"></i> Instant Launch</div>
+                    <p class="card-desc">Launch Bilo directly from your desktop dock, taskbar, or system application launcher.</p>
+                  </div>
+                  <div class="feature-card">
+                    <div class="card-title text-amber"><i class="fi fi-rr-keyboard"></i> Shortcuts</div>
+                    <p class="card-desc">Full <code>Cmd+K</code> / <code>Ctrl+K</code> command palette searching and hotkeys without browser conflicts.</p>
+                  </div>
+                  <div class="feature-card">
+                    <div class="card-title text-purple"><i class="fi fi-rr-bell-ring"></i> Notifications</div>
+                    <p class="card-desc">System tray alerts and push notifications for task updates and due dates.</p>
+                  </div>
+                </div>
+
+                <!-- Installation Guides -->
+                <div class="install-guides-wrapper font-mono">
+                  <span class="md-title"><i class="fi fi-rr-interrogation text-cyan"></i> STEP-BY-STEP INSTALLATION GUIDES</span>
+
+                  <div class="guide-cards-grid">
+                    <!-- Chrome / Edge / Brave -->
+                    <div class="guide-card">
+                      <div class="guide-card-header">
+                        <i class="fi fi-rr-browser text-cyan"></i>
+                        <span>Chrome, Edge, Brave (Desktop)</span>
+                      </div>
+                      <ol class="guide-steps">
+                        <li>Look for the <strong>Install App icon</strong> <i class="fi fi-rr-download text-cyan"></i> on the right side of the address bar.</li>
+                        <li>Or click browser menu <code>(⋮)</code> &rarr; <code>Save and Share</code> &rarr; <code>Install Bilo...</code></li>
+                        <li>Confirm by clicking <strong>Install</strong> in the popup prompt.</li>
+                      </ol>
+                    </div>
+
+                    <!-- Safari macOS / iOS -->
+                    <div class="guide-card">
+                      <div class="guide-card-header">
+                        <i class="fi fi-rr-apple text-cyan"></i>
+                        <span>Safari (macOS & iOS)</span>
+                      </div>
+                      <ol class="guide-steps">
+                        <li>On macOS Safari, click <strong>File</strong> in menu bar &rarr; <code>Add to Dock</code>.</li>
+                        <li>On iOS Safari, tap the <strong>Share</strong> button <i class="fi fi-rr-share"></i> at the bottom.</li>
+                        <li>Scroll down and select <strong>Add to Home Screen</strong>.</li>
+                      </ol>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          }
         </div>
 
         <!-- Modal Footer -->
         <div class="modal-footer">
           <div class="footer-left">
             <span class="status-dot dot-emerald"></span>
-            <span>PRESS <strong>1-6</strong> FOR WORKSPACES • PRESS <strong>⌘K</strong> FOR SEARCH • PRESS <strong>N</strong> FOR TASK</span>
+            <span>PRESS <strong>{{ workspaceService.workspaceKeyRange }}</strong> FOR WORKSPACES • PRESS <strong>⌘K</strong> FOR SEARCH • PRESS <strong>N</strong> FOR TASK</span>
           </div>
           <div class="footer-right-actions">
             <button class="btn btn-ghost btn-xs text-rose" (click)="close(); workspaceService.openReportIssueModal()">
@@ -724,6 +772,113 @@ import { WorkspaceService } from '../../core/services/workspace.service';
       line-height: 1.5;
     }
 
+    /* Tab 5: Desktop App Download Guide Styles */
+    .desktop-guide-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+      padding: 0.25rem;
+    }
+    .status-box {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.85rem 1rem;
+      border-radius: var(--radius-xs);
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-surface-subtle);
+      gap: 1rem;
+    }
+    .status-box.status-granted {
+      border-color: rgba(16, 185, 129, 0.3);
+      background: rgba(16, 185, 129, 0.05);
+    }
+    .status-box.status-default {
+      border-color: rgba(6, 182, 212, 0.3);
+      background: rgba(6, 182, 212, 0.05);
+    }
+    .status-box.status-unsupported {
+      border-color: var(--border-subtle);
+      background: var(--bg-surface-subtle);
+    }
+    .status-left {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .icon-lg {
+      font-size: 1.4rem;
+    }
+    .status-desc {
+      font-size: 0.725rem;
+      color: var(--text-muted);
+      margin: 0.15rem 0 0 0;
+      font-family: var(--font-sans);
+    }
+    .status-action {
+      flex-shrink: 0;
+    }
+
+    .desktop-features-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.85rem;
+    }
+    @media (max-width: 640px) {
+      .desktop-features-grid { grid-template-columns: 1fr; }
+    }
+
+    .install-guides-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+      margin-top: 0.25rem;
+    }
+    .guide-cards-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.85rem;
+    }
+    @media (max-width: 640px) {
+      .guide-cards-grid { grid-template-columns: 1fr; }
+    }
+    .guide-card {
+      padding: 0.85rem;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xs);
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .guide-card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.775rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+    .guide-steps {
+      margin: 0;
+      padding-left: 1.1rem;
+      font-size: 0.725rem;
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      line-height: 1.4;
+      font-family: var(--font-sans);
+    }
+    .guide-steps code {
+      background: var(--bg-surface);
+      padding: 0.1rem 0.3rem;
+      border-radius: 3px;
+      font-size: 0.675rem;
+      color: var(--accent-cyan);
+      font-family: var(--font-mono);
+    }
+
     /* Footer */
     .modal-footer {
       display: flex;
@@ -747,12 +902,69 @@ import { WorkspaceService } from '../../core/services/workspace.service';
     }
   `]
 })
-export class ShortcutsModalComponent {
-  activeTab = signal<'shortcuts' | 'features' | 'markdown' | 'workflows'>('shortcuts');
+export class ShortcutsModalComponent implements OnInit, OnDestroy {
+  activeTab = signal<'shortcuts' | 'features' | 'markdown' | 'workflows' | 'desktop'>('shortcuts');
+  modalZIndex = 2000;
+  private readonly modalId = 'shortcuts-modal';
 
-  constructor(public workspaceService: WorkspaceService) { }
+  constructor(
+    public workspaceService: WorkspaceService,
+    public pwaInstallService: PwaInstallService,
+    private elementRef: ElementRef
+  ) { }
+
+  @HostListener('window:keydown', ['$event'])
+  handleGlobalKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && isTopModal(this.modalId)) {
+      e.preventDefault();
+      this.close();
+      return;
+    }
+
+    if (e.key === 'Tab' && isTopModal(this.modalId)) {
+      this.trapFocus(e);
+    }
+  }
+
+  private trapFocus(e: KeyboardEvent) {
+    const container = this.elementRef?.nativeElement;
+    if (!container) return;
+
+    const focusables = (Array.from(
+      container.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ) as HTMLElement[]).filter(el => el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement);
+
+    if (focusables.length === 0) return;
+
+    const firstEl = focusables[0];
+    const lastEl = focusables[focusables.length - 1];
+    const activeEl = document.activeElement;
+
+    if (e.shiftKey) {
+      if (activeEl === firstEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        lastEl.focus();
+      }
+    } else {
+      if (activeEl === lastEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        firstEl.focus();
+      }
+    }
+  }
+
+  ngOnInit() {
+    this.modalZIndex = registerModal(this.modalId);
+  }
+
+  ngOnDestroy() {
+    unregisterModal(this.modalId);
+  }
 
   close() {
+    unregisterModal(this.modalId);
     this.workspaceService.shortcutsModalOpen.set(false);
   }
 }

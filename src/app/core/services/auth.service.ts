@@ -1,15 +1,18 @@
-import { Injectable, signal, computed, Injector } from '@angular/core';
+import { Injectable, signal, computed, Injector, OnDestroy } from '@angular/core';
 import { User, AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { SupabaseService } from './supabase.service';
 import { ProjectService } from './project.service';
 import { TaskService } from './task.service';
 import { WorkflowService } from './workflow.service';
+import { SyncService } from './sync.service';
+import { PushNotificationService } from './push-notification.service';
 import { UserProfile } from '../models/user-profile.model';
+import { globalAuthRateLimiter } from '../utils/rate-limiter.util';
 
 @Injectable({
   providedIn: 'root'
 })
-export class AuthService {
+export class AuthService implements OnDestroy {
   user = signal<User | null>(null);
   session = signal<Session | null>(null);
   userProfile = signal<UserProfile | null>(null);
@@ -20,73 +23,209 @@ export class AuthService {
   readonly userEmail = computed(() => this.user()?.email || '');
   readonly userName = computed(() => {
     const profile = this.userProfile();
-    if (profile?.display_name) return profile.display_name;
+    if (profile?.display_name && profile.display_name.trim().length >= 2) {
+      return profile.display_name.trim();
+    }
     const u = this.user();
     if (!u) return 'User';
-    return u.user_metadata?.['display_name'] ||
-      u.user_metadata?.['full_name'] ||
-      (u.email ? u.email.split('@')[0] : 'User');
+    const metadataName = u.user_metadata?.['display_name'] || u.user_metadata?.['full_name'];
+    if (metadataName && metadataName.trim().length >= 2) {
+      return metadataName.trim();
+    }
+    if (u.email) {
+      const emailPrefix = u.email.split('@')[0].trim();
+      if (emailPrefix.length >= 2) return emailPrefix;
+    }
+    return 'User';
   });
   readonly userAvatar = computed(() => {
     const profile = this.userProfile();
     return profile?.avatar_url || null;
   });
+
+  get isSupabaseConfigured(): boolean {
+    return this.supabaseService ? this.supabaseService.isConfigured : false;
+  }
   // Guard flags to prevent re-entrant cascading loops
   private _bootstrapping = false;
   private _sanitized = false;
+  private authSubscription: { unsubscribe: () => void } | null = null;
+  private authChannel: BroadcastChannel | null = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('bilo_auth_channel') : null;
+  private storageEventListener: ((e: StorageEvent) => void) | null = null;
+  private authLoadingGuardTimer: any = null;
 
   constructor(
     private supabaseService: SupabaseService,
     private injector: Injector
   ) {
     this.initAuth();
+    this.setupCrossTabSync();
+  }
+
+  private setupAuthLoadingGuard() {
+    if (this.authLoadingGuardTimer) {
+      clearTimeout(this.authLoadingGuardTimer);
+      this.authLoadingGuardTimer = null;
+    }
+    this.authLoadingGuardTimer = setTimeout(() => {
+      if (this.authLoading()) {
+        console.warn('[AuthService] 10-second safety timeout guard triggered: forcing authLoading to false.');
+        this.clearAuthLoading();
+      }
+    }, 10000);
+  }
+
+  clearAuthLoading() {
+    if (this.authLoadingGuardTimer) {
+      clearTimeout(this.authLoadingGuardTimer);
+      this.authLoadingGuardTimer = null;
+    }
+    if (this.authLoading()) {
+      this.authLoading.set(false);
+    }
   }
 
   private async initAuth() {
+    this.setupAuthLoadingGuard();
+
     try {
-      const { data } = await this.supabaseService.supabase.auth.getSession();
-      let session = data?.session ?? null;
+      if (!this.supabaseService.isConfigured) {
+        console.warn('[AuthService] Supabase not configured in environment. Running in local workspace mode.');
+        this.clearAuthLoading();
+        return;
+      }
+
+      let session: Session | null = null;
+      try {
+        const { data, error } = await this.supabaseService.supabase.auth.getSession();
+        if (error) {
+          console.warn('[AuthService] getSession returned error notice:', error.message);
+        }
+        session = data?.session ?? null;
+      } catch (sessionErr) {
+        console.warn('[AuthService] getSession exception caught:', sessionErr);
+      }
 
       // CRITICAL: If the access token is bloated (>4KB = has embedded avatar/picture),
       // it causes ERR_CONNECTION_RESET because Cloudflare/Kong rejects oversized headers.
       // We MUST clean it BEFORE any data API calls go out.
       if (session?.access_token && session.access_token.length > 4096) {
         console.warn(`[AuthService] Bloated JWT detected (${(session.access_token.length / 1024).toFixed(1)}KB). Sanitizing before data load...`);
-        session = await this.sanitizeAndRefreshJwtToken(session);
+        try {
+          session = await this.sanitizeAndRefreshJwtToken(session);
+        } catch (sErr) {
+          console.warn('[AuthService] Token sanitization notice:', sErr);
+        }
       }
 
-      this.session.set(session);
-      this.user.set(session?.user ?? null);
+      if (session) {
+        this.session.set(session);
+        this.user.set(session.user);
+      }
 
       if (session?.user) {
-        await this.loadUserProfileBootstrap(session.user);
-        await this.reloadServicesData();
-      }
-      this.authLoading.set(false);
-
-      this.supabaseService.supabase.auth.onAuthStateChange(async (event: AuthChangeEvent, session: Session | null) => {
-        const previousUser = this.user();
-        const newUser = session?.user ?? null;
-
-        this.session.set(session);
-        this.user.set(newUser);
-
-        // Only bootstrap on actual sign-in or user switch, NOT on TOKEN_REFRESHED or other events
-        if (event === 'SIGNED_IN' && newUser) {
-          if (previousUser && newUser && previousUser.id !== newUser.id) {
-            this.resetServicesState();
-          }
-          await this.loadUserProfileBootstrap(newUser);
+        try {
+          await this.loadUserProfileBootstrap(session.user);
           await this.reloadServicesData();
-        } else if (event === 'SIGNED_OUT' || !newUser) {
-          this.resetServicesState();
+        } catch (bErr) {
+          console.warn('[AuthService] Bootstrap data load notice:', bErr);
         }
-        // TOKEN_REFRESHED, USER_UPDATED etc. just update signals above without re-triggering bootstrap
-        this.authLoading.set(false);
-      });
+      }
     } catch (e) {
       console.warn('Auth initialization skipped in offline mode', e);
-      this.authLoading.set(false);
+    } finally {
+      this.clearAuthLoading();
+    }
+
+    try {
+      if (this.supabaseService.isConfigured) {
+        if (this.authSubscription) {
+          try {
+            this.authSubscription.unsubscribe();
+          } catch (e) {}
+          this.authSubscription = null;
+        }
+
+        const { data } = this.supabaseService.supabase.auth.onAuthStateChange(async (event: AuthChangeEvent, session: Session | null) => {
+          try {
+            const previousUser = this.user();
+            const newUser = session?.user ?? null;
+
+            this.session.set(session);
+            this.user.set(newUser);
+
+            // Only bootstrap on actual sign-in or user switch, NOT on TOKEN_REFRESHED or other events
+            if (event === 'SIGNED_IN' && newUser) {
+              if (previousUser && newUser && previousUser.id !== newUser.id) {
+                this.resetServicesState();
+              }
+              await this.loadUserProfileBootstrap(newUser);
+              await this.reloadServicesData();
+            } else if (event === 'SIGNED_OUT' || !newUser) {
+              this.resetServicesState();
+            }
+          } catch (listenerErr) {
+            console.warn('[AuthService] onAuthStateChange listener notice:', listenerErr);
+          } finally {
+            this.clearAuthLoading();
+          }
+        });
+
+        this.authSubscription = data?.subscription ?? null;
+      }
+    } catch (subErr) {
+      console.warn('[AuthService] onAuthStateChange subscription notice:', subErr);
+      this.clearAuthLoading();
+    }
+  }
+
+  private setupCrossTabSync() {
+    if (this.authChannel) {
+      try {
+        this.authChannel.onmessage = (event) => {
+          if (event.data?.type === 'SIGN_OUT') {
+            console.log('[AuthService] Cross-tab SIGN_OUT received via BroadcastChannel.');
+            this.handleCrossTabSignOut();
+          }
+        };
+      } catch (e) {}
+    }
+
+    if (typeof window !== 'undefined') {
+      this.storageEventListener = (event: StorageEvent) => {
+        if (event.key === null || (event.key && (event.key.includes('sb-') || event.key.includes('bilo_')) && event.newValue === null)) {
+          console.log('[AuthService] Cross-tab storage clear detected.');
+          this.handleCrossTabSignOut();
+        }
+      };
+      window.addEventListener('storage', this.storageEventListener);
+    }
+  }
+
+  handleCrossTabSignOut() {
+    this.user.set(null);
+    this.session.set(null);
+    this.userProfile.set(null);
+    this._sanitized = false;
+    this.resetServicesState();
+  }
+
+  ngOnDestroy() {
+    if (this.authSubscription) {
+      try {
+        this.authSubscription.unsubscribe();
+      } catch (e) {}
+      this.authSubscription = null;
+    }
+    if (this.storageEventListener && typeof window !== 'undefined') {
+      window.removeEventListener('storage', this.storageEventListener);
+      this.storageEventListener = null;
+    }
+    if (this.authChannel) {
+      try {
+        this.authChannel.close();
+      } catch (e) {}
+      this.authChannel = null;
     }
   }
 
@@ -225,18 +364,67 @@ export class AuthService {
   }
 
   resetServicesState() {
+    this.user.set(null);
+    this.session.set(null);
     this.userProfile.set(null);
     this._sanitized = false;
     try {
       const projectService = this.injector.get(ProjectService);
       const taskService = this.injector.get(TaskService);
+      const workflowService = this.injector.get(WorkflowService);
+      const syncService = this.injector.get(SyncService);
+      const pushNotificationService = this.injector.get(PushNotificationService);
       projectService.resetState();
       taskService.resetState();
+      workflowService.resetState();
+      syncService.resetState();
+      pushNotificationService.resetState();
     } catch (e) {
       console.warn('[AuthService] Error resetting state:', e);
     }
+    localStorage.removeItem('bilo_projects_data');
+    localStorage.removeItem('bilo_tasks_data');
+    localStorage.removeItem('bilo_sync_queue');
+    localStorage.removeItem('bilo_notification_history');
     localStorage.removeItem('bilo_backlog_filters');
     localStorage.removeItem('bilo_board_filters');
+    localStorage.removeItem('bilo_workflows_by_project');
+    localStorage.removeItem('bilo_active_project_id');
+  }
+
+  async purgeAllUserDataFromRemoteAndLocal(): Promise<void> {
+    const currentUser = this.user();
+    if (!currentUser?.id) {
+      this.resetServicesState();
+      return;
+    }
+
+    const uid = currentUser.id;
+    if (this.supabaseService.isConfigured && this.supabaseService.supabase) {
+      const sb = this.supabaseService.supabase;
+      try {
+        await Promise.allSettled([
+          sb.from('tasks').delete().eq('user_id', uid),
+          sb.from('task_comments').delete().eq('user_id', uid),
+          sb.from('task_status_history').delete().eq('user_id', uid),
+          sb.from('project_activities').delete().eq('user_id', uid),
+          sb.from('workflows').delete().eq('user_id', uid),
+          sb.from('projects').delete().eq('user_id', uid)
+        ]);
+      } catch (e) {
+        console.warn('[AuthService] Supabase user data purge warning:', e);
+      }
+    }
+
+    localStorage.removeItem(`bilo_projects_data_${uid}`);
+    localStorage.removeItem(`bilo_tasks_data_${uid}`);
+    localStorage.removeItem(`bilo_workflows_by_project_${uid}`);
+    localStorage.removeItem(`bilo_sync_queue_${uid}`);
+    localStorage.removeItem(`bilo_dlq_${uid}`);
+    localStorage.removeItem(`bilo_user_profile_${uid}`);
+    localStorage.removeItem(`bilo_notification_history_${uid}`);
+
+    this.resetServicesState();
   }
 
   async reloadServicesData() {
@@ -244,7 +432,14 @@ export class AuthService {
       const projectService = this.injector.get(ProjectService);
       const taskService = this.injector.get(TaskService);
       const workflowService = this.injector.get(WorkflowService);
+      const syncService = this.injector.get(SyncService);
+      const pushNotificationService = this.injector.get(PushNotificationService);
 
+      await Promise.all([
+        syncService.loadQueueFromStorage(this.user()?.id),
+        syncService.loadDlqFromStorage(this.user()?.id)
+      ]);
+      pushNotificationService.loadHistoryFromStorage(this.user()?.id);
       projectService.loadFromStorage();
       taskService.loadFromStorage();
       workflowService.loadFromStorage();
@@ -260,75 +455,192 @@ export class AuthService {
   }
 
   async signUpWithEmailPassword(email: string, password: string) {
+    const trimmedEmail = email ? email.trim() : '';
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!trimmedEmail || !emailRegex.test(trimmedEmail)) {
+      return {
+        data: { user: null, session: null },
+        error: { message: 'Invalid email address format' } as any
+      };
+    }
+
+    if (!password || password.length < 6) {
+      return {
+        data: { user: null, session: null },
+        error: { message: 'Password must be at least 6 characters long' } as any
+      };
+    }
+
     return await this.supabaseService.supabase.auth.signUp({
-      email,
+      email: trimmedEmail,
       password
     });
   }
 
   async signInWithEmailPassword(email: string, password: string) {
-    return await this.supabaseService.supabase.auth.signInWithPassword({
+    const rateLimit = globalAuthRateLimiter.checkLoginRateLimit(email);
+    if (!rateLimit.allowed) {
+      return {
+        data: { user: null, session: null },
+        error: { message: rateLimit.message || 'Too many failed login attempts. Please wait before trying again.' } as any
+      };
+    }
+
+    const res = await this.supabaseService.supabase.auth.signInWithPassword({
       email,
       password
     });
+
+    if (res?.error) {
+      globalAuthRateLimiter.recordFailedLogin(email);
+    } else {
+      globalAuthRateLimiter.recordSuccessfulLogin(email);
+    }
+
+    return res;
   }
 
   async signInWithMagicLink(email: string) {
-    return await this.supabaseService.supabase.auth.signInWithOtp({ email });
+    const trimmedEmail = email ? email.trim() : '';
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!trimmedEmail || !emailRegex.test(trimmedEmail)) {
+      return {
+        data: { user: null, session: null },
+        error: { message: 'Invalid email address format' } as any
+      };
+    }
+
+    const rateLimit = globalAuthRateLimiter.checkMagicLinkRateLimit(trimmedEmail);
+    if (!rateLimit.allowed) {
+      return {
+        data: { user: null, session: null },
+        error: { message: rateLimit.message || 'Magic link request rate limited. Please wait before requesting another email.' } as any
+      };
+    }
+
+    try {
+      const res = await this.supabaseService.supabase.auth.signInWithOtp({ email: trimmedEmail });
+      if (res?.error) {
+        return {
+          data: { user: null, session: null },
+          error: res.error
+        };
+      }
+      globalAuthRateLimiter.recordMagicLinkSent(trimmedEmail);
+      return res;
+    } catch (e: any) {
+      return {
+        data: { user: null, session: null },
+        error: { message: e?.message || 'Failed to send magic link. Please check network connection.' } as any
+      };
+    }
   }
 
   async signOut() {
     const activeUserId = this.user()?.id;
-    const res = await this.supabaseService.supabase.auth.signOut();
-    this.user.set(null);
-    this.session.set(null);
-    this.userProfile.set(null);
-    
-    // Clear browser memory signals and local storage cache for complete data isolation
-    try {
-      const projectService = this.injector.get(ProjectService);
-      const taskService = this.injector.get(TaskService);
-      projectService.resetState();
-      taskService.resetState();
-    } catch (e) {
-      console.warn('[AuthService] Error resetting state on sign out:', e);
+    if (this.authChannel) {
+      try {
+        this.authChannel.postMessage({ type: 'SIGN_OUT' });
+      } catch (e) {}
     }
+
+    const res = await this.supabaseService.supabase.auth.signOut();
+    this.handleCrossTabSignOut();
 
     if (activeUserId) {
       localStorage.removeItem(`bilo_user_profile_${activeUserId}`);
+      localStorage.removeItem(`bilo_sync_queue_${activeUserId}`);
+      localStorage.removeItem(`bilo_notification_history_${activeUserId}`);
     }
-    localStorage.removeItem('bilo_projects_data');
-    localStorage.removeItem('bilo_tasks_data');
-    localStorage.removeItem('bilo_sync_queue');
-    localStorage.removeItem('bilo_backlog_filters');
-    localStorage.removeItem('bilo_board_filters');
+    localStorage.removeItem('bilo_notification_history');
     return res;
   }
 
-  async claimUnassignedData() {
+  async claimUnassignedData(): Promise<{ success: boolean; method: 'rpc' | 'fallback'; error?: string }> {
     const currentUser = this.user();
-    if (!currentUser) return;
+    if (!currentUser) {
+      return { success: false, method: 'fallback', error: 'No active authenticated user session.' };
+    }
+
+    let rpcSuccess = false;
+    let rpcErrorMessage = '';
 
     try {
       const { error } = await this.supabaseService.supabase.rpc('migrate_unassigned_data_to_user', {
         target_user_id: currentUser.id
       });
-      if (error) {
-        console.warn('[AuthService] RPC migrate_unassigned_data_to_user failed or function not present:', error.message);
+      if (!error) {
+        rpcSuccess = true;
+        console.log('[AuthService] Successfully claimed unassigned workspace data via RPC for user:', currentUser.email);
       } else {
-        console.log('[AuthService] Successfully claimed unassigned workspace data for user:', currentUser.email);
-        try {
-          const projectService = this.injector.get(ProjectService);
-          const taskService = this.injector.get(TaskService);
-          await projectService.loadFromSupabase();
-          await taskService.loadTasksFromSupabase();
-        } catch (reloadErr) {
-          console.warn('[AuthService] Services reload error:', reloadErr);
-        }
+        rpcErrorMessage = error.message;
+        console.warn('[AuthService] RPC migrate_unassigned_data_to_user failed or function not present:', error.message);
       }
-    } catch (e) {
-      console.warn('[AuthService] Exception claiming unassigned data:', e);
+    } catch (e: any) {
+      rpcErrorMessage = e?.message || 'RPC call exception';
+      console.warn('[AuthService] Exception claiming unassigned data via RPC:', e);
     }
+
+    let fallbackSuccess = false;
+    let fallbackErrorMessage = '';
+
+    if (!rpcSuccess) {
+      try {
+        // Fallback Step 1: Claim unassigned projects (user_id IS NULL)
+        const { error: projErr } = await this.supabaseService.supabase
+          .from('projects')
+          .update({ user_id: currentUser.id })
+          .is('user_id', null);
+
+        if (projErr) {
+          console.warn('[AuthService] Fallback project claim notice:', projErr.message);
+        }
+
+        // Fallback Step 2: Claim unassigned tasks (user_id IS NULL)
+        const { error: taskErr } = await this.supabaseService.supabase
+          .from('tasks')
+          .update({ user_id: currentUser.id })
+          .is('user_id', null);
+
+        if (taskErr) {
+          console.warn('[AuthService] Fallback task claim notice:', taskErr.message);
+        }
+
+        fallbackSuccess = !projErr && !taskErr;
+        if (projErr || taskErr) {
+          fallbackErrorMessage = projErr?.message || taskErr?.message || 'Partial fallback update error';
+        }
+        console.log('[AuthService] Completed client-side fallback data migration for user:', currentUser.email);
+      } catch (fallbackErr: any) {
+        fallbackErrorMessage = fallbackErr?.message || 'Fallback exception';
+        console.error('[AuthService] Exception during fallback data migration:', fallbackErr);
+      }
+    }
+
+    // Reload services data to ensure UI signals contain claimed data
+    try {
+      const projectService = this.injector.get(ProjectService);
+      const taskService = this.injector.get(TaskService);
+      const workflowService = this.injector.get(WorkflowService);
+      await Promise.all([
+        projectService.loadFromSupabase(),
+        taskService.loadTasksFromSupabase(),
+        workflowService.loadAllWorkflows()
+      ]);
+    } catch (reloadErr) {
+      console.warn('[AuthService] Services reload error after claiming unassigned data:', reloadErr);
+    }
+
+    if (rpcSuccess) {
+      return { success: true, method: 'rpc' };
+    }
+    return {
+      success: fallbackSuccess,
+      method: 'fallback',
+      error: fallbackErrorMessage || rpcErrorMessage
+    };
   }
 
   openAuthModal() {
@@ -339,9 +651,63 @@ export class AuthService {
     this.authModalOpen.set(false);
   }
 
+  private profileUpdateQueue: Promise<any> = Promise.resolve();
+
   async updateProfile(updates: { display_name?: string; avatar_url?: string | null }) {
+    if (updates.display_name !== undefined) {
+      const trimmedName = updates.display_name ? updates.display_name.trim() : '';
+      if (!trimmedName) {
+        throw new Error('Display name cannot be empty');
+      }
+      if (trimmedName.length < 2) {
+        throw new Error('Display name must be at least 2 characters long');
+      }
+      if (trimmedName.length > 20) {
+        throw new Error('Display name must not exceed 20 characters');
+      }
+      updates = { ...updates, display_name: trimmedName };
+    }
+
+    if (updates.avatar_url !== undefined && updates.avatar_url !== null) {
+      const trimmedAvatar = updates.avatar_url.trim();
+      if (!trimmedAvatar) {
+        updates = { ...updates, avatar_url: null };
+      } else if (!trimmedAvatar.startsWith('blob:') && !(trimmedAvatar.length > 64 * 1024 && /^data:image\//i.test(trimmedAvatar))) {
+        const isDataImage = /^data:image\/(png|jpeg|jpg|webp|gif|svg\+xml);base64,/i.test(trimmedAvatar);
+        const isBlobUrl = /^blob:https?:\/\//i.test(trimmedAvatar);
+        let isValidHttpUrl = false;
+        try {
+          const parsed = new URL(trimmedAvatar);
+          isValidHttpUrl = parsed.protocol === 'http:' || parsed.protocol === 'https:';
+        } catch {
+          isValidHttpUrl = false;
+        }
+
+        if (!isDataImage && !isBlobUrl && !isValidHttpUrl) {
+          throw new Error('Invalid avatar URL. Must be a valid http/https URL or image data URI');
+        }
+        updates = { ...updates, avatar_url: trimmedAvatar };
+      }
+    }
+
+    const nextTask = this.profileUpdateQueue.then(async () => {
+      return await this.performUpdateProfile(updates);
+    });
+    this.profileUpdateQueue = nextTask.catch(() => {});
+    return await nextTask;
+  }
+
+  private async performUpdateProfile(updates: { display_name?: string; avatar_url?: string | null }) {
     const currentUser = this.user();
     if (!currentUser) return;
+
+    if (updates.avatar_url !== undefined && updates.avatar_url !== null) {
+      const trimmedAvatar = updates.avatar_url.trim();
+      if (trimmedAvatar.startsWith('blob:') || (trimmedAvatar.length > 64 * 1024 && /^data:image\//i.test(trimmedAvatar))) {
+        const tiny = await this.compressImageToTinyThumbnail(trimmedAvatar);
+        updates = { ...updates, avatar_url: tiny || null };
+      }
+    }
 
     const currentProfile = this.userProfile() || {
       id: currentUser.id,
@@ -381,12 +747,19 @@ export class AuthService {
 
     // 3. Keep JWT Auth Token lightweight: Only pass essential minimal data in auth.updateUser
     try {
-      await this.supabaseService.supabase.auth.updateUser({
+      const safeAuthAvatar = (updatedProfile.avatar_url && updatedProfile.avatar_url.length <= 2048)
+        ? updatedProfile.avatar_url
+        : null;
+
+      const { error: authError } = await this.supabaseService.supabase.auth.updateUser({
         data: {
-          display_name: updatedProfile.display_name
-          // Notice: avatar_url is omitted from Auth JWT user_metadata to keep Bearer token small!
+          display_name: updatedProfile.display_name,
+          ...(safeAuthAvatar ? { avatar_url: safeAuthAvatar } : {})
         }
       });
+      if (authError) {
+        console.warn('[AuthService] Auth updateUser metadata sync notice:', authError.message);
+      }
     } catch (e) {
       console.warn('[AuthService] Auth updateUser metadata sync skipped:', e);
     }
@@ -397,14 +770,15 @@ export class AuthService {
     if (!currentUser) return null;
 
     try {
-      const fileExt = file.name.split('.').pop() || 'png';
-      const fileName = `avatar-${Date.now()}.${fileExt}`;
+      // 1. Rescale high-resolution images (e.g. 4000x4000) to crisp 256x256 max dimension avatar blob (~15KB)
+      const compressedBlob = await this.compressAvatarToBlob(file, 256, 0.85);
+      const fileName = `avatar-${Date.now()}.jpg`;
       const filePath = `${currentUser.id}/${fileName}`;
 
-      // 1. Upload to Supabase Storage 'avatars' bucket
+      // 2. Upload optimized 256x256 thumbnail blob to Supabase Storage 'avatars' bucket
       const { error: uploadError } = await this.supabaseService.supabase.storage
         .from('avatars')
-        .upload(filePath, file, { upsert: true });
+        .upload(filePath, compressedBlob, { upsert: true, contentType: 'image/jpeg' });
 
       if (!uploadError) {
         const { data } = this.supabaseService.supabase.storage
@@ -421,33 +795,112 @@ export class AuthService {
       console.warn('[AuthService] Supabase storage upload exception:', e);
     }
 
-    // 2. Fallback if storage bucket is missing or offline: compress to a tiny 80x80 thumbnail (~2KB max)
+    // 3. Fallback if storage bucket is missing or offline: compress to a tiny 120x120 data URI thumbnail (~8KB max)
     return await this.compressImageToTinyThumbnail(file);
   }
 
-  private compressImageToTinyThumbnail(file: File): Promise<string> {
+  private compressAvatarToBlob(file: File, maxDimension = 256, quality = 0.85): Promise<Blob> {
     return new Promise((resolve) => {
       const img = new Image();
-      const url = URL.createObjectURL(file);
+      let objectUrl = '';
+      try {
+        objectUrl = URL.createObjectURL(file);
+        img.src = objectUrl;
+      } catch {
+        resolve(file);
+        return;
+      }
+
       img.onload = () => {
-        URL.revokeObjectURL(url);
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+
         const canvas = document.createElement('canvas');
-        const size = 80;
-        canvas.width = size;
-        canvas.height = size;
+        canvas.width = Math.max(width, 1);
+        canvas.height = Math.max(height, 1);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(file);
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(
+          (blob) => {
+            resolve(blob || file);
+          },
+          'image/jpeg',
+          quality
+        );
+      };
+
+      img.onerror = () => {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        resolve(file);
+      };
+    });
+  }
+
+  private compressImageToTinyThumbnail(file: File | string): Promise<string> {
+    return new Promise((resolve) => {
+      const img = new Image();
+      let objectUrl = '';
+
+      if (typeof file === 'string') {
+        img.src = file;
+      } else {
+        try {
+          objectUrl = URL.createObjectURL(file);
+          img.src = objectUrl;
+        } catch {
+          resolve('');
+          return;
+        }
+      }
+
+      img.onload = () => {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        const canvas = document.createElement('canvas');
+        const size = 120;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > size || height > size) {
+          if (width > height) {
+            height = Math.round((height * size) / width);
+            width = size;
+          } else {
+            width = Math.round((width * size) / height);
+            height = size;
+          }
+        }
+
+        canvas.width = Math.max(width, 1);
+        canvas.height = Math.max(height, 1);
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          ctx.drawImage(img, 0, 0, size, size);
-          resolve(canvas.toDataURL('image/jpeg', 0.7));
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
         } else {
           resolve('');
         }
       };
+
       img.onerror = () => {
-        URL.revokeObjectURL(url);
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
         resolve('');
       };
-      img.src = url;
     });
   }
 }

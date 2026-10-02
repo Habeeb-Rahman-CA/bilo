@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Output, signal } from '@angular/core';
+import { Component, EventEmitter, Output, signal, OnInit, OnDestroy, HostListener, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TaskService } from '../../core/services/task.service';
@@ -7,14 +7,16 @@ import { AuthService } from '../../core/services/auth.service';
 import { TaskShareService } from '../../core/services/task-share.service';
 import { SelectComponent, SelectOption } from './select';
 import { RichEditorComponent } from './rich-editor';
-import { TaskPriority, TaskSeverity, TaskReproducibility, TaskType } from '../../core/models/project.model';
+import { TaskPriority, TaskSeverity, TaskReproducibility, TaskType, Project } from '../../core/models/project.model';
+import { compressImageFile, canAddAttachment, MAX_ATTACHMENT_FILE_SIZE_BYTES, MAX_ATTACHMENTS_PER_TASK } from '../../core/utils/image-compressor.util';
+import { registerModal, unregisterModal, isTopModal, getModalZIndex } from '../../core/utils/modal-stack.util';
 
 @Component({
   selector: 'app-report-issue-modal',
   standalone: true,
   imports: [CommonModule, FormsModule, SelectComponent, RichEditorComponent],
   template: `
-    <div class="modal-overlay" (click)="close.emit()">
+    <div class="modal-overlay" [style.z-index]="modalZIndex" (click)="close.emit()">
       <div class="modal-card report-modal-card paper-panel font-mono" (click)="$event.stopPropagation()">
         <!-- Header Strip -->
         <div class="modal-header">
@@ -29,150 +31,173 @@ import { TaskPriority, TaskSeverity, TaskReproducibility, TaskType } from '../..
           </button>
         </div>
 
-        <form (ngSubmit)="submitIssue()" class="modal-form">
-          <div class="form-body">
-            @if (submitted && !title.trim()) {
-              <div class="form-error-banner font-mono">
-                <i class="fi fi-rr-triangle-warning"></i>
-                <span>Please enter a summary / title for the reported issue.</span>
-              </div>
-            }
-
-            <!-- Issue Title / Summary -->
-            <div class="form-group">
-              <label class="form-label">ISSUE SUMMARY / TITLE <span class="text-rose">*</span></label>
-              <input
-                #titleInput
-                type="text"
-                class="form-input"
-                [class.input-error]="submitted && !title.trim()"
-                [(ngModel)]="title"
-                name="title"
-                placeholder="e.g. Kanban board drag & drop issue or Notification permission reset"
-                required
-              />
-              @if (submitted && !title.trim()) {
-                <span class="field-error-text font-mono">
-                  <i class="fi fi-rr-exclamation"></i> Issue summary is required
-                </span>
+        @if (submittedSuccessfully()) {
+          <div class="success-confirmation-body font-mono">
+            <div class="success-icon-badge">
+              <i class="fi fi-rr-check-circle text-emerald"></i>
+            </div>
+            <h3 class="success-title text-emerald">Report Submitted Successfully!</h3>
+            <p class="success-desc font-mono">
+              Your feedback report has been logged into the backlog under project <strong>"{{ getTargetProjectName() }}"</strong>.
+            </p>
+            <div class="success-actions">
+              <button type="button" class="btn btn-primary btn-sm" (click)="close.emit()">
+                <i class="fi fi-rr-check"></i> Done
+              </button>
+            </div>
+          </div>
+        } @else {
+          <form (ngSubmit)="submitIssue()" class="modal-form">
+            <div class="form-body">
+              @if (submitted && titleError) {
+                <div class="form-error-banner font-mono">
+                  <i class="fi fi-rr-triangle-warning"></i>
+                  <span>{{ titleError }}</span>
+                </div>
               }
-            </div>
 
-            <!-- Category & Priority Row -->
-            <div class="form-row">
-              <div class="form-group half">
-                <label class="form-label">CATEGORY / TYPE</label>
-                <app-select [options]="categoryOptions" [(value)]="category" placeholder="Select category..."></app-select>
+              <!-- Issue Title / Summary -->
+              <div class="form-group">
+                <div class="label-with-hint">
+                  <label class="form-label">ISSUE SUMMARY / TITLE <span class="text-rose">*</span></label>
+                  <span class="desc-hint font-mono" [class.text-rose]="title.length > 255">
+                    {{ title.length }}/255
+                  </span>
+                </div>
+                <input
+                  #titleInput
+                  type="text"
+                  class="form-input"
+                  [class.input-error]="submitted && !!titleError"
+                  [(ngModel)]="title"
+                  name="title"
+                  placeholder="e.g. Kanban board drag & drop issue or Notification permission reset"
+                  maxlength="255"
+                  required
+                />
+                @if (submitted && titleError) {
+                  <span class="field-error-text font-mono">
+                    <i class="fi fi-rr-exclamation"></i> {{ titleError }}
+                  </span>
+                }
               </div>
 
-              <div class="form-group half">
-                <label class="form-label">PRIORITY</label>
-                <app-select [options]="priorityOptions" [(value)]="priority" placeholder="Select priority..."></app-select>
-              </div>
-            </div>
-
-            <!-- Severity & Reproducibility Row (Only for Bug category) -->
-            @if (category === 'bug') {
+              <!-- Category & Priority Row -->
               <div class="form-row">
                 <div class="form-group half">
-                  <label class="form-label">SEVERITY</label>
-                  <app-select [options]="severityOptions" [(value)]="severity" placeholder="Select severity..."></app-select>
+                  <label class="form-label">CATEGORY / TYPE</label>
+                  <app-select [options]="categoryOptions" [(value)]="category" placeholder="Select category..."></app-select>
                 </div>
 
                 <div class="form-group half">
-                  <label class="form-label">REPRODUCIBILITY</label>
-                  <app-select [options]="reproducibilityOptions" [(value)]="reproducibility" placeholder="Select reproducibility..."></app-select>
+                  <label class="form-label">PRIORITY</label>
+                  <app-select [options]="priorityOptions" [(value)]="priority" placeholder="Select priority..."></app-select>
                 </div>
               </div>
-            }
 
-            <!-- Description / Steps to Reproduce -->
-            <div class="form-group">
-              <label class="form-label">DESCRIPTION & STEPS TO REPRODUCE</label>
-              <app-rich-editor
-                [(value)]="description"
-                placeholder="Describe what went wrong, expected result, or steps to reproduce..."
-                [minRows]="4"
-              ></app-rich-editor>
-            </div>
+              <!-- Severity & Reproducibility Row (Only for Bug category) -->
+              @if (category === 'bug') {
+                <div class="form-row">
+                  <div class="form-group half">
+                    <label class="form-label">SEVERITY</label>
+                    <app-select [options]="severityOptions" [(value)]="severity" placeholder="Select severity..."></app-select>
+                  </div>
 
-            <!-- Attachments Section (Screenshots / Images) -->
-            <div class="form-group">
-              <div class="label-with-hint">
-                <label class="form-label">SCREENSHOTS / ATTACHMENTS</label>
-                @if (attachments().length > 0) {
-                  <span class="attachment-count font-mono">{{ attachments().length }} attached</span>
-                }
+                  <div class="form-group half">
+                    <label class="form-label">REPRODUCIBILITY</label>
+                    <app-select [options]="reproducibilityOptions" [(value)]="reproducibility" placeholder="Select reproducibility..."></app-select>
+                  </div>
+                </div>
+              }
+
+              <!-- Description / Steps to Reproduce -->
+              <div class="form-group">
+                <label class="form-label">DESCRIPTION & STEPS TO REPRODUCE</label>
+                <app-rich-editor
+                  [(value)]="description"
+                  placeholder="Describe what went wrong, expected result, or steps to reproduce..."
+                  [minRows]="4"
+                ></app-rich-editor>
               </div>
 
-              <div
-                class="attachment-dropzone"
-                [class.drag-over]="isDraggingOver()"
-                [class.is-uploading]="uploadingAttachments()"
-                (dragover)="onDragOver($event)"
-                (dragleave)="onDragLeave($event)"
-                (drop)="onDrop($event)"
-                (click)="!uploadingAttachments() && fileInput.click()"
-              >
-                <input
-                  #fileInput
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  (change)="onFileSelected($event)"
-                  style="display: none;"
-                />
-                @if (uploadingAttachments()) {
-                  <div class="dropzone-content font-mono">
-                    <i class="fi fi-rr-spinner spinner dropzone-icon text-cyan"></i>
-                    <div class="dropzone-text">
-                      <span class="dropzone-title text-cyan">Uploading {{ uploadCount() }} image(s)...</span>
-                      <span class="dropzone-sub">Generating image preview, please wait...</span>
-                    </div>
-                  </div>
-                } @else {
-                  <div class="dropzone-content font-mono">
-                    <i class="fi fi-rr-picture dropzone-icon text-cyan"></i>
-                    <div class="dropzone-text">
-                      <span class="dropzone-title">Click to upload screenshot or drag & drop</span>
-                      <span class="dropzone-sub">PNG, JPG, WEBP, GIF supported</span>
-                    </div>
-                  </div>
-                }
-              </div>
+              <!-- Attachments Section (Screenshots / Images) -->
+              <div class="form-group">
+                <div class="label-with-hint">
+                  <label class="form-label">SCREENSHOTS / ATTACHMENTS</label>
+                  @if (attachments().length > 0) {
+                    <span class="attachment-count font-mono">{{ attachments().length }} attached</span>
+                  }
+                </div>
 
-              @if (attachments().length > 0) {
-                <div class="attachment-preview-grid">
-                  @for (img of attachments(); track $index) {
-                    <div class="preview-card">
-                      <img [src]="img" alt="Screenshot" />
-                      <button
-                        type="button"
-                        class="remove-img-btn"
-                        (click)="removeAttachment($index)"
-                        title="Remove image"
-                      >
-                        <i class="fi fi-rr-cross"></i>
-                      </button>
+                <div
+                  class="attachment-dropzone"
+                  [class.drag-over]="isDraggingOver()"
+                  [class.is-uploading]="uploadingAttachments()"
+                  (dragover)="onDragOver($event)"
+                  (dragleave)="onDragLeave($event)"
+                  (drop)="onDrop($event)"
+                  (click)="!uploadingAttachments() && fileInput.click()"
+                >
+                  <input
+                    #fileInput
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    (change)="onFileSelected($event)"
+                    style="display: none;"
+                  />
+                  @if (uploadingAttachments()) {
+                    <div class="dropzone-content font-mono">
+                      <i class="fi fi-rr-spinner spinner dropzone-icon text-cyan"></i>
+                      <div class="dropzone-text">
+                        <span class="dropzone-title text-cyan">Uploading {{ uploadCount() }} image(s)...</span>
+                        <span class="dropzone-sub">Generating image preview, please wait...</span>
+                      </div>
+                    </div>
+                  } @else {
+                    <div class="dropzone-content font-mono">
+                      <i class="fi fi-rr-picture dropzone-icon text-cyan"></i>
+                      <div class="dropzone-text">
+                        <span class="dropzone-title">Click to upload screenshot or drag & drop</span>
+                        <span class="dropzone-sub">PNG, JPG, WEBP, GIF supported</span>
+                      </div>
                     </div>
                   }
                 </div>
-              }
-            </div>
-          </div>
 
-          <!-- Footer Strip -->
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary btn-sm" (click)="close.emit()">Cancel</button>
-            <button type="submit" class="btn btn-primary btn-sm" [disabled]="submitting()">
-              @if (submitting()) {
-                <i class="fi fi-rr-spinner spinner-icon"></i> Submitting...
-              } @else {
-                <i class="fi fi-rr-paper-plane"></i> Submit Issue to {{ getTargetProjectName() }}
-              }
-            </button>
-          </div>
-        </form>
+                @if (attachments().length > 0) {
+                  <div class="attachment-preview-grid">
+                    @for (img of attachments(); track $index) {
+                      <div class="preview-card">
+                        <img [src]="img" alt="Screenshot" />
+                        <button
+                          type="button"
+                          class="remove-img-btn"
+                          (click)="removeAttachment($index)"
+                          title="Remove image"
+                        >
+                          <i class="fi fi-rr-cross"></i>
+                        </button>
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            </div>
+
+            <!-- Footer Strip -->
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary btn-sm" (click)="close.emit()">Cancel</button>
+              <button type="submit" class="btn btn-primary btn-sm" [disabled]="submitting()">
+                @if (submitting()) {
+                  <i class="fi fi-rr-spinner spinner-icon"></i> Submitting...
+                } @else {
+                  <i class="fi fi-rr-paper-plane"></i> Submit Issue to {{ getTargetProjectName() }}
+                }
+              </button>
+            </div>
+          </form>
+        }
       </div>
     </div>
   `,
@@ -380,10 +405,60 @@ import { TaskPriority, TaskSeverity, TaskReproducibility, TaskType } from '../..
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
     }
+    .success-confirmation-body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2.5rem 1.5rem;
+      text-align: center;
+      background: var(--bg-surface);
+    }
+    .success-icon-badge {
+      font-size: 3.25rem;
+      margin-bottom: 0.75rem;
+      line-height: 1;
+    }
+    .success-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+    .success-desc {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 1.5rem;
+      max-width: 420px;
+    }
+    .success-actions {
+      display: flex;
+      justify-content: center;
+    }
   `]
 })
-export class ReportIssueModalComponent {
+export class ReportIssueModalComponent implements OnInit, OnDestroy {
   @Output() close = new EventEmitter<void>();
+
+  private readonly modalId = 'report-issue-modal-' + Math.random().toString(36).substring(2, 9);
+
+  get modalZIndex(): number {
+    return getModalZIndex(this.modalId);
+  }
+
+  @HostListener('window:keydown.escape')
+  onEscape() {
+    if (isTopModal(this.modalId)) {
+      this.close.emit();
+    }
+  }
+
+  ngOnInit() {
+    registerModal(this.modalId);
+  }
+
+  ngOnDestroy() {
+    unregisterModal(this.modalId);
+  }
 
   title = '';
   category = 'bug';
@@ -397,6 +472,7 @@ export class ReportIssueModalComponent {
 
   submitted = false;
   submitting = signal<boolean>(false);
+  submittedSuccessfully = signal<boolean>(false);
   isDraggingOver = signal<boolean>(false);
 
   categoryOptions: SelectOption[] = [
@@ -432,13 +508,74 @@ export class ReportIssueModalComponent {
     private taskService: TaskService,
     private projectService: ProjectService,
     private authService: AuthService,
-    private taskShareService: TaskShareService
+    private taskShareService: TaskShareService,
+    private elementRef: ElementRef
   ) {}
 
-  getTargetProjectName(): string {
+  @HostListener('window:keydown', ['$event'])
+  handleGlobalKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && isTopModal(this.modalId)) {
+      e.preventDefault();
+      this.close.emit();
+      return;
+    }
+
+    if (e.key === 'Tab' && isTopModal(this.modalId)) {
+      this.trapFocus(e);
+    }
+  }
+
+  private trapFocus(e: KeyboardEvent) {
+    const container = this.elementRef?.nativeElement;
+    if (!container) return;
+
+    const focusables = (Array.from(
+      container.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ) as HTMLElement[]).filter(el => el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement);
+
+    if (focusables.length === 0) return;
+
+    const firstEl = focusables[0];
+    const lastEl = focusables[focusables.length - 1];
+    const activeEl = document.activeElement;
+
+    if (e.shiftKey) {
+      if (activeEl === firstEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        lastEl.focus();
+      }
+    } else {
+      if (activeEl === lastEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        firstEl.focus();
+      }
+    }
+  }
+
+  getTargetProject(): Project | null {
     const allProjects = this.projectService.projects();
-    const biloProj = allProjects.find(p => p.name.toLowerCase() === 'bilo' || p.slug.toLowerCase() === 'bilo' || p.id === 'proj-bilo-main');
-    return biloProj ? biloProj.name : 'bilo';
+    if (!allProjects || allProjects.length === 0) return null;
+
+    const biloProj = allProjects.find(p =>
+      p.name.trim().toLowerCase() === 'bilo' ||
+      p.slug.trim().toLowerCase() === 'bilo' ||
+      p.id === 'proj-bilo-main'
+    );
+    if (biloProj) return biloProj;
+
+    const active = this.projectService.activeProject();
+    if (active && allProjects.some(p => p.id === active.id)) {
+      return active;
+    }
+
+    return allProjects[0];
+  }
+
+  getTargetProjectName(): string {
+    const target = this.getTargetProject();
+    return target ? target.name : 'Project';
   }
 
   onDragOver(e: DragEvent) {
@@ -473,26 +610,39 @@ export class ReportIssueModalComponent {
       return;
     }
 
+    if (this.attachments().length + imageFiles.length > MAX_ATTACHMENTS_PER_TASK) {
+      this.taskShareService.showToast(`Maximum ${MAX_ATTACHMENTS_PER_TASK} attachments allowed.`);
+      return;
+    }
+
     this.uploadingAttachments.set(true);
     this.uploadCount.set(imageFiles.length);
 
     try {
+      let processedCount = 0;
       for (const file of imageFiles) {
-        const imgData = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = (ev) => resolve((ev.target?.result as string) || '');
-          reader.onerror = () => reject(new Error('Failed to read image file'));
-          reader.readAsDataURL(file);
-        });
+        if (file.size > MAX_ATTACHMENT_FILE_SIZE_BYTES) {
+          this.taskShareService.showToast(`File "${file.name}" exceeds 10MB limit and was skipped.`);
+          continue;
+        }
 
-        if (imgData) {
-          this.attachments.update(list => [...list, imgData]);
+        const compressed = await compressImageFile(file);
+        if (compressed) {
+          const check = canAddAttachment(this.attachments(), compressed);
+          if (!check.allowed) {
+            this.taskShareService.showToast(check.reason || 'Cumulative task attachment size limit (1.5MB) reached.');
+            break;
+          }
+          this.attachments.update(list => [...list, compressed]);
+          processedCount++;
         }
       }
-      this.taskShareService.showToast(`${imageFiles.length} screenshot(s) attached.`);
+      if (processedCount > 0) {
+        this.taskShareService.showToast(`${processedCount} screenshot(s) attached.`);
+      }
     } catch (err) {
       console.error('Error uploading screenshot:', err);
-      this.taskShareService.showToast('Failed to load image file. Please try again.');
+      this.taskShareService.showToast('Failed to process image file. Please try again.');
     } finally {
       this.uploadingAttachments.set(false);
       this.uploadCount.set(0);
@@ -503,21 +653,43 @@ export class ReportIssueModalComponent {
     this.attachments.update(list => list.filter((_, i) => i !== idx));
   }
 
+  get titleError(): string | null {
+    const trimmed = (this.title || '').trim();
+    if (!trimmed) {
+      return 'Please enter a summary / title for the reported issue.';
+    }
+    if (trimmed.length < 2) {
+      return 'Issue title must be at least 2 characters long.';
+    }
+    if (trimmed.length > 255) {
+      return 'Issue title cannot exceed 255 characters.';
+    }
+    return null;
+  }
+
   async submitIssue() {
     this.submitted = true;
-    if (!this.title.trim() || this.submitting()) return;
+    if (this.titleError || this.submitting()) return;
 
     this.submitting.set(true);
 
     try {
-      const allProjects = this.projectService.projects();
-      let biloProj = allProjects.find(p => p.name.toLowerCase() === 'bilo' || p.slug.toLowerCase() === 'bilo' || p.id === 'proj-bilo-main');
+      let targetProject = this.getTargetProject();
 
-      if (!biloProj && allProjects.length > 0) {
-        biloProj = allProjects[0];
+      if (!targetProject) {
+        targetProject = await this.projectService.createProject({
+          name: 'General Workspace',
+          color: '#06b6d4',
+          description: 'Primary workspace for tasks'
+        });
       }
 
-      const targetProjectId = biloProj ? biloProj.id : 'proj-bilo-main';
+      if (!targetProject || !targetProject.id) {
+        this.taskShareService.showToast('No valid project found to submit issue. Please create a project first.');
+        return;
+      }
+
+      const targetProjectId = targetProject.id;
       const currentUser = this.authService.user();
       const reporterName = currentUser?.user_metadata?.['display_name'] ||
         currentUser?.user_metadata?.['full_name'] ||
@@ -559,8 +731,15 @@ export class ReportIssueModalComponent {
         attachments: this.attachments()
       });
 
-      this.taskShareService.showToast(`Feedback submitted successfully! Submitted under project "${biloProj?.name || 'bilo'}".`);
-      this.close.emit();
+      if (newTask) {
+        this.submittedSuccessfully.set(true);
+        this.taskShareService.showToast(`Feedback report "${newTask.title}" submitted successfully under project "${targetProject.name}".`);
+        setTimeout(() => {
+          this.close.emit();
+        }, 1800);
+      } else {
+        this.taskShareService.showToast('Failed to submit issue report. Please try again.');
+      }
     } catch (e) {
       console.error('Failed to submit application issue:', e);
       this.taskShareService.showToast('Failed to submit issue. Please try again.');

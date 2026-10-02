@@ -15,7 +15,8 @@ describe('WorkflowService', () => {
           order: vi.fn().mockResolvedValue({ data: [], error: null }),
           insert: vi.fn().mockResolvedValue({ data: null, error: null }),
           update: vi.fn().mockReturnValue({
-            eq: vi.fn().mockResolvedValue({ data: null, error: null })
+            eq: vi.fn().mockResolvedValue({ data: null, error: null }),
+            in: vi.fn().mockResolvedValue({ data: null, error: null })
           }),
           delete: vi.fn().mockReturnValue({
             eq: vi.fn().mockResolvedValue({ data: null, error: null })
@@ -56,6 +57,14 @@ describe('WorkflowService', () => {
 
     const list = service.getWorkflowsForProject('proj-1');
     expect(list.some(w => w.id === created.id)).toBe(true);
+  });
+
+  it('should deduplicate workflow names within the same project', async () => {
+    const created1 = await service.createWorkflow('proj-dup', 'Testing Stage');
+    const created2 = await service.createWorkflow('proj-dup', 'Testing Stage');
+
+    expect(created1.name).toBe('Testing Stage');
+    expect(created2.name).toBe('Testing Stage (1)');
   });
 
   it('should update an existing workflow', async () => {
@@ -101,5 +110,83 @@ describe('WorkflowService', () => {
 
     const workflows = service.getWorkflowsForProject('proj-seq');
     expect(workflows.every(w => w.allow_all_transitions === true)).toBe(true);
+  });
+
+  it('should scrub deleted workflow ID from allowed_transitions and avoid dead ends', async () => {
+    await service.resetToSequentialPipeline('proj-deadend');
+    const workflows = service.getWorkflowsForProject('proj-deadend');
+
+    expect(service.canTransition(workflows[3].id, workflows[1].id, 'proj-deadend')).toBe(false);
+
+    await service.deleteWorkflow(workflows[0].id, 'proj-deadend');
+
+    expect(service.canTransition(workflows[3].id, workflows[1].id, 'proj-deadend')).toBe(true);
+  });
+
+  it('should reassign tasks to a fallback workflow column when a workflow is deleted', async () => {
+    const mockTaskService = {
+      tasks: vi.fn().mockReturnValue([
+        { id: 'task-1', project_id: 'proj-1', workflow_id: 'wf-temp', status: 'Temp Stage' },
+        { id: 'task-2', project_id: 'proj-1', workflow_id: 'wf-backlog-proj-1', status: 'Backlog' }
+      ]),
+      updateTask: vi.fn().mockResolvedValue(null)
+    };
+
+    const mockInjector = {
+      get: vi.fn().mockReturnValue(mockTaskService)
+    };
+
+    const serviceWithInjector = new WorkflowService(mockSupabaseService as SupabaseService, mockInjector as any);
+    const created = await serviceWithInjector.createWorkflow('proj-1', 'Temp Stage');
+
+    await serviceWithInjector.deleteWorkflow(created.id, 'proj-1');
+
+    expect(mockTaskService.updateTask).toHaveBeenCalledWith('task-1', expect.objectContaining({
+      status: expect.any(String)
+    }));
+  });
+
+  it('should reassign all existing project tasks when resetToDefaultWorkflows is called', async () => {
+    const mockTaskService = {
+      tasks: vi.fn().mockReturnValue([
+        { id: 'task-10', project_id: 'proj-reset', workflow_id: 'custom-wf-1', status: 'Custom Unknown Stage' },
+        { id: 'task-11', project_id: 'proj-reset', workflow_id: 'custom-wf-2', status: 'In Progress' }
+      ]),
+      updateTask: vi.fn().mockResolvedValue(null)
+    };
+
+    const mockInjector = {
+      get: vi.fn().mockReturnValue(mockTaskService)
+    };
+
+    const serviceWithInjector = new WorkflowService(mockSupabaseService as SupabaseService, mockInjector as any);
+    await serviceWithInjector.resetToDefaultWorkflows('proj-reset');
+
+    expect(mockTaskService.updateTask).toHaveBeenCalledWith('task-10', expect.objectContaining({
+      workflow_id: 'wf-backlog-proj-reset',
+      status: 'Backlog'
+    }));
+    expect(mockTaskService.updateTask).toHaveBeenCalledWith('task-11', expect.objectContaining({
+      workflow_id: 'wf-in-progress-proj-reset',
+      status: 'In Progress'
+    }));
+  });
+
+  it('should accurately return task count for a workflow column via getTaskCountForWorkflow', () => {
+    const mockTaskService = {
+      tasks: vi.fn().mockReturnValue([
+        { id: 'task-1', project_id: 'proj-count', workflow_id: 'wf-target', status: 'Target Stage' },
+        { id: 'task-2', project_id: 'proj-count', workflow_id: 'wf-target', status: 'Target Stage' },
+        { id: 'task-3', project_id: 'proj-count', workflow_id: 'wf-other', status: 'Other Stage' }
+      ])
+    };
+
+    const mockInjector = {
+      get: vi.fn().mockReturnValue(mockTaskService)
+    };
+
+    const serviceWithInjector = new WorkflowService(mockSupabaseService as SupabaseService, mockInjector as any);
+    const count = serviceWithInjector.getTaskCountForWorkflow('wf-target', 'proj-count');
+    expect(count).toBe(2);
   });
 });

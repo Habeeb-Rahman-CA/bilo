@@ -3,7 +3,7 @@
    Provides App Shell Cache & Network-First / Stale-While-Revalidate Caching
    ========================================================================== */
 
-const CACHE_NAME = 'bilo-pwa-v1.1.2';
+const CACHE_NAME = 'bilo-pwa-v1.2.0';
 
 const STATIC_ASSETS = [
   '/',
@@ -117,14 +117,26 @@ self.addEventListener('push', (event) => {
 
   if (event.data) {
     try {
-      data = { ...data, ...event.data.json() };
+      const parsed = event.data.json();
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        data = { ...data, ...parsed };
+      } else if (typeof parsed === 'string') {
+        data.body = parsed;
+      }
     } catch (e) {
-      data.body = event.data.text();
+      try {
+        const textContent = event.data.text();
+        if (textContent) {
+          data.body = textContent;
+        }
+      } catch (textErr) {
+        console.warn('[bilo SW] Failed to parse push payload text:', textErr);
+      }
     }
   }
 
   const options = {
-    body: data.body,
+    body: String(data.body || 'You have a new update in your workspace.'),
     icon: data.icon || '/bilo-icon-dark.png',
     badge: data.badge || '/bilo-icon-dark.png',
     vibrate: [100, 50, 100],
@@ -135,8 +147,12 @@ self.addEventListener('push', (event) => {
     ]
   };
 
+  const notificationTitle = String(data.title || 'bilo Task Manager');
+
   event.waitUntil(
-    self.registration.showNotification(data.title, options)
+    self.registration.showNotification(notificationTitle, options).catch((err) => {
+      console.error('[bilo SW] showNotification failed:', err);
+    })
   );
 });
 

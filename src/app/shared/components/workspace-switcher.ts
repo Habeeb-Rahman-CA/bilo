@@ -4,11 +4,13 @@ import { FormsModule } from '@angular/forms';
 import { ProjectService } from '../../core/services/project.service';
 import { AuthService } from '../../core/services/auth.service';
 import { Project } from '../../core/models/project.model';
+import { registerOpenPopover, unregisterOpenPopover } from './select';
+import { LazyImageDirective } from '../directives/lazy-image.directive';
 
 @Component({
   selector: 'app-workspace-switcher',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, LazyImageDirective],
   template: `
     <div class="workspace-switcher font-mono" #containerEl>
       <!-- Trigger Pill Button -->
@@ -39,7 +41,7 @@ import { Project } from '../../core/models/project.model';
 
       <!-- Dropdown Popover Menu -->
       @if (isOpen()) {
-        <div class="switcher-popover paper-panel font-mono" (click)="$event.stopPropagation()">
+        <div class="switcher-popover paper-panel font-mono" (click)="$event.stopPropagation()" (keydown)="onKeydown($event)">
           <div class="popover-header">
             <span class="header-title">WORKSPACES</span>
             <span class="badge-mono">{{ filteredProjects().length }} AVAILABLE</span>
@@ -52,35 +54,42 @@ import { Project } from '../../core/models/project.model';
               type="text"
               class="search-input font-mono"
               placeholder="Filter workspaces..."
-              [(ngModel)]="searchQuery"
+              [ngModel]="rawSearchQuery()"
+              (ngModelChange)="onSearchInput($event)"
               (click)="$event.stopPropagation()"
             />
-            @if (searchQuery()) {
-              <button class="btn-clear" (click)="searchQuery.set('')">
+            @if (rawSearchQuery()) {
+              <button class="btn-clear" (click)="clearSearch()">
                 <i class="fi fi-rr-cross"></i>
               </button>
             }
           </div>
 
           <!-- Workspaces List -->
-          <div class="popover-list">
+          <div class="popover-list" #popoverListEl>
             @if (filteredProjects().length === 0) {
-              <div class="empty-list font-mono">
-                <i class="fi fi-rr-folder-open text-subtle"></i>
-                <span>No matching workspace found</span>
+              <div class="empty-state-card compact font-mono" style="padding: 1.25rem 0.75rem;">
+                <div class="empty-state-icon-badge warning" style="width: 36px; height: 36px; font-size: 1rem; margin-bottom: 0.5rem;">
+                  <i class="fi fi-rr-search"></i>
+                </div>
+                <h4 class="empty-state-title" style="font-size: 0.85rem;">No Workspaces Found</h4>
+                <p class="empty-state-subtitle" style="font-size: 0.75rem; margin-bottom: 0.5rem;">No workspace matches "{{ rawSearchQuery() }}"</p>
+                <button type="button" class="btn btn-ghost btn-xs text-cyan" (click)="clearSearch()">Clear Search</button>
               </div>
             } @else {
-              @for (p of filteredProjects(); track p.id) {
+              @for (p of filteredProjects(); track p.id; let i = $index) {
                 <button
                   type="button"
                   class="ws-item-btn"
                   [class.active]="p.id === activeProject()?.id"
+                  [class.focused]="i === activeIndex()"
                   (click)="selectWorkspace(p)"
+                  (mouseenter)="activeIndex.set(i)"
                 >
                   <div class="item-left">
                     <div class="ws-item-avatar" [style.background]="p.image_url ? 'transparent' : (p.color || '#06b6d4')">
                       @if (p.image_url) {
-                        <img [src]="p.image_url" class="ws-icon-img" alt="Workspace Icon" />
+                        <img [appLazyImage]="p.image_url" class="ws-icon-img" alt="Workspace Icon" />
                       } @else if (p.icon) {
                         <i [class]="p.icon"></i>
                       } @else {
@@ -399,6 +408,25 @@ import { Project } from '../../core/models/project.model';
     .btn-create {
       color: var(--accent-cyan);
     }
+
+    @media (max-width: 768px) {
+      .switcher-trigger {
+        min-width: 148px;
+        padding: 0.25rem 0.45rem;
+      }
+      .ws-name {
+        max-width: 80px;
+      }
+      .switcher-popover {
+        position: absolute;
+        top: calc(100% + 6px);
+        left: -20px;
+        right: auto;
+        width: 270px;
+        max-width: calc(100vw - 1rem);
+        z-index: 2000;
+      }
+    }
   `]
 })
 export class WorkspaceSwitcherComponent {
@@ -408,7 +436,27 @@ export class WorkspaceSwitcherComponent {
   @ViewChild('containerEl') containerEl!: ElementRef;
 
   isOpen = signal<boolean>(false);
+  rawSearchQuery = signal<string>('');
   searchQuery = signal<string>('');
+  private searchDebounceTimer: any = null;
+
+  onSearchInput(val: string): void {
+    this.rawSearchQuery.set(val);
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+    this.searchDebounceTimer = setTimeout(() => {
+      this.searchQuery.set(val);
+    }, 300);
+  }
+
+  clearSearch(): void {
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+    this.rawSearchQuery.set('');
+    this.searchQuery.set('');
+  }
 
   activeProject = computed(() => this.projectService.activeProject());
 
@@ -416,10 +464,14 @@ export class WorkspaceSwitcherComponent {
     const list = this.projectService.projects();
     const q = this.searchQuery().toLowerCase().trim();
     if (!q) return list;
-    return list.filter(p =>
-      p.name.toLowerCase().includes(q) ||
-      p.slug.toLowerCase().includes(q)
-    );
+    return list.filter(p => {
+      const nameMatch = (p.name || '').toLowerCase().includes(q);
+      const descMatch = (p.description || '').toLowerCase().includes(q);
+      const slugMatch = (p.slug || '').toLowerCase().includes(q);
+      const labelMatch = (p.labels || []).some(l => (l || '').toLowerCase().includes(q));
+
+      return nameMatch || descMatch || slugMatch || labelMatch;
+    });
   });
 
   constructor(
@@ -427,24 +479,73 @@ export class WorkspaceSwitcherComponent {
     private authService: AuthService
   ) {}
 
+  @ViewChild('popoverListEl') popoverListEl?: ElementRef<HTMLDivElement>;
+  activeIndex = signal<number>(0);
+
+  onKeydown(e: KeyboardEvent) {
+    const list = this.filteredProjects();
+    if (list.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      this.activeIndex.update(i => (i + 1) % list.length);
+      this.scrollToActive();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      this.activeIndex.update(i => (i - 1 + list.length) % list.length);
+      this.scrollToActive();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const current = list[this.activeIndex()];
+      if (current) {
+        this.selectWorkspace(current);
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      this.closePopover();
+    }
+  }
+
+  private scrollToActive() {
+    setTimeout(() => {
+      if (!this.popoverListEl?.nativeElement) return;
+      const focusedEl = this.popoverListEl.nativeElement.querySelector('.ws-item-btn.focused') as HTMLElement;
+      if (focusedEl) {
+        focusedEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }, 0);
+  }
+
+  openPopover() {
+    registerOpenPopover(this);
+    this.isOpen.set(true);
+    this.activeIndex.set(0);
+  }
+
+  closePopover() {
+    unregisterOpenPopover(this);
+    this.isOpen.set(false);
+  }
+
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent) {
     if (this.isOpen() && this.containerEl && !this.containerEl.nativeElement.contains(event.target)) {
-      this.isOpen.set(false);
+      this.closePopover();
     }
   }
 
   toggleOpen(event: MouseEvent) {
     event.stopPropagation();
-    this.isOpen.update(v => !v);
+    if (!this.isOpen()) {
+      this.openPopover();
+    } else {
+      this.closePopover();
+    }
   }
 
   selectWorkspace(project: Project) {
-    this.projectService.activeProject.set(project);
-    this.isOpen.set(false);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('bilo_active_project_id', project.id);
-    }
+    this.projectService.setActiveProject(project);
+    this.closePopover();
   }
 
   getTaskStats(projectId: string) {
@@ -452,12 +553,12 @@ export class WorkspaceSwitcherComponent {
   }
 
   handleCreateWorkspace() {
-    this.isOpen.set(false);
+    this.closePopover();
     this.createWorkspace.emit();
   }
 
   handleAccessModal() {
-    this.isOpen.set(false);
+    this.closePopover();
     this.openAccessModal.emit();
   }
 }

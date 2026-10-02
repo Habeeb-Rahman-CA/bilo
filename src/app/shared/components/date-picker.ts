@@ -1,6 +1,8 @@
-import { Component, ElementRef, EventEmitter, HostListener, Input, OnChanges, Output, SimpleChanges, ViewChild, computed, signal } from '@angular/core';
+import { Component, ElementRef, EventEmitter, HostListener, Input, OnChanges, OnDestroy, Output, SimpleChanges, ViewChild, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { getLocalDateString, getOffsetDateString, parseYMDDate } from '../../core/utils/date.util';
+import { registerOpenPopover, unregisterOpenPopover } from './select';
 
 export interface DatePickerDay {
   dayNumber: number;
@@ -8,6 +10,7 @@ export interface DatePickerDay {
   isCurrentMonth: boolean;
   isToday: boolean;
   isSelected: boolean;
+  isDisabled: boolean;
 }
 
 @Component({
@@ -51,28 +54,56 @@ export interface DatePickerDay {
       <!-- Viewport Fixed Popover Calendar Panel -->
       @if (isOpen()) {
         <div 
+          #popoverEl
           class="picker-popover paper-panel font-mono" 
           [ngStyle]="popoverStyles()"
           (click)="$event.stopPropagation()"
         >
           <!-- Month Header & Navigation -->
           <div class="popover-header">
-            <button type="button" class="nav-btn" (click)="prevMonth()" title="Previous Month">
+            <button 
+              type="button" 
+              class="nav-btn" 
+              [disabled]="isPrevMonthDisabled()" 
+              (click)="prevMonth($event)" 
+              title="Previous Month"
+            >
               <i class="fi fi-rr-angle-left"></i>
             </button>
 
             <span class="month-title">{{ viewMonthTitle() }}</span>
 
-            <button type="button" class="nav-btn" (click)="nextMonth()" title="Next Month">
+            <button 
+              type="button" 
+              class="nav-btn" 
+              [disabled]="isNextMonthDisabled()" 
+              (click)="nextMonth($event)" 
+              title="Next Month"
+            >
               <i class="fi fi-rr-angle-right"></i>
             </button>
           </div>
 
           <!-- Quick Shortcuts -->
           <div class="quick-presets">
-            <button type="button" class="preset-btn" (click)="selectToday()">Today</button>
-            <button type="button" class="preset-btn" (click)="selectTomorrow()">Tomorrow</button>
-            <button type="button" class="preset-btn" (click)="selectNextWeek()">+7 Days</button>
+            <button 
+              type="button" 
+              class="preset-btn" 
+              [disabled]="isDateDisabled(todayStr)" 
+              (click)="selectToday($event)"
+            >Today</button>
+            <button 
+              type="button" 
+              class="preset-btn" 
+              [disabled]="isDateDisabled(tomorrowStr)" 
+              (click)="selectTomorrow($event)"
+            >Tomorrow</button>
+            <button 
+              type="button" 
+              class="preset-btn" 
+              [disabled]="isDateDisabled(nextWeekStr)" 
+              (click)="selectNextWeek($event)"
+            >+7 Days</button>
             @if (value) {
               <button type="button" class="preset-btn preset-clear" (click)="clearDate($event)">Clear</button>
             }
@@ -98,7 +129,9 @@ export interface DatePickerDay {
                 [class.other-month]="!day.isCurrentMonth"
                 [class.is-today]="day.isToday"
                 [class.is-selected]="day.isSelected"
-                (click)="selectDate(day.dateStr)"
+                [class.is-disabled]="day.isDisabled"
+                [disabled]="day.isDisabled"
+                (click)="selectDate(day.dateStr, $event)"
               >
                 {{ day.dayNumber }}
               </button>
@@ -332,10 +365,20 @@ export interface DatePickerDay {
       font-weight: 700;
       border-color: var(--text-main) !important;
     }
+
+    .day-btn.is-disabled, .nav-btn[disabled], .preset-btn[disabled] {
+      opacity: 0.3 !important;
+      cursor: not-allowed !important;
+      pointer-events: none !important;
+    }
   `]
 })
-export class DatePickerComponent implements OnChanges {
+export class DatePickerComponent implements OnChanges, OnDestroy {
   @Input() value: string = ''; // YYYY-MM-DD
+  @Input() minDate?: string; // YYYY-MM-DD
+  @Input() maxDate?: string; // YYYY-MM-DD
+  @Input() min?: string; // YYYY-MM-DD alias
+  @Input() max?: string; // YYYY-MM-DD alias
   @Input() placeholder: string = 'Select date...';
   @Input() compact: boolean = false;
   @Input() align: 'left' | 'right' = 'left';
@@ -345,10 +388,57 @@ export class DatePickerComponent implements OnChanges {
   @Output() dateChange = new EventEmitter<string>();
 
   @ViewChild('triggerEl') triggerEl!: ElementRef<HTMLDivElement>;
+  @ViewChild('popoverEl') popoverEl?: ElementRef<HTMLDivElement>;
 
   isOpen = signal<boolean>(false);
   viewDate = signal<Date>(new Date());
   triggerRect = signal<{ top: number; left: number; right: number; bottom: number; width: number; height: number } | null>(null);
+
+  private openTimeoutId: any = null;
+  private appendedPopoverEl: HTMLElement | null = null;
+
+  get effectiveMinDate(): string {
+    return this.minDate || this.min || '1900-01-01';
+  }
+
+  get effectiveMaxDate(): string {
+    return this.maxDate || this.max || '2100-12-31';
+  }
+
+  get todayStr(): string {
+    return getLocalDateString();
+  }
+
+  get tomorrowStr(): string {
+    return getOffsetDateString(1);
+  }
+
+  get nextWeekStr(): string {
+    return getOffsetDateString(7);
+  }
+
+  isDateDisabled(dateStr: string): boolean {
+    if (!dateStr) return false;
+    if (this.effectiveMinDate && dateStr < this.effectiveMinDate) return true;
+    if (this.effectiveMaxDate && dateStr > this.effectiveMaxDate) return true;
+    return false;
+  }
+
+  isPrevMonthDisabled(): boolean {
+    if (!this.effectiveMinDate) return false;
+    const curr = this.viewDate();
+    const prevMonthLastDay = new Date(curr.getFullYear(), curr.getMonth(), 0, 12, 0, 0);
+    const prevMonthLastDayStr = this.formatYMD(prevMonthLastDay);
+    return prevMonthLastDayStr < this.effectiveMinDate;
+  }
+
+  isNextMonthDisabled(): boolean {
+    if (!this.effectiveMaxDate) return false;
+    const curr = this.viewDate();
+    const nextMonthFirstDay = new Date(curr.getFullYear(), curr.getMonth() + 1, 1, 12, 0, 0);
+    const nextMonthFirstDayStr = this.formatYMD(nextMonthFirstDay);
+    return nextMonthFirstDayStr > this.effectiveMaxDate;
+  }
 
   popoverStyles = computed(() => {
     if (!this.isOpen()) return { display: 'none' };
@@ -391,36 +481,100 @@ export class DatePickerComponent implements OnChanges {
 
   ngOnChanges(changes: SimpleChanges) {
     if (changes['value'] && this.value) {
-      const parsed = new Date(this.value);
-      if (!isNaN(parsed.getTime())) {
+      const parsed = parseYMDDate(this.value);
+      if (parsed) {
         this.viewDate.set(parsed);
       }
     }
   }
 
+  ngOnDestroy() {
+    this.closePopover();
+  }
+
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent) {
-    if (!this.elementRef.nativeElement.contains(event.target)) {
-      this.isOpen.set(false);
+    const target = event.target as Node;
+    const isInsideTrigger = this.elementRef.nativeElement.contains(target);
+    const isInsidePopover = this.popoverEl?.nativeElement?.contains(target) || this.appendedPopoverEl?.contains(target);
+    if (!isInsideTrigger && !isInsidePopover) {
+      this.closePopover();
     }
   }
 
-  @HostListener('window:scroll')
   @HostListener('window:resize')
-  onWindowChange() {
+  onWindowResize() {
     if (this.isOpen()) {
-      this.isOpen.set(false);
+      this.updateRect();
     }
   }
+
+  private onScrollCapture = (event: Event) => {
+    if (!this.isOpen()) return;
+
+    this.updateRect();
+
+    const rect = this.triggerRect();
+    if (rect) {
+      if (rect.bottom < 0 || rect.top > window.innerHeight || rect.right < 0 || rect.left > window.innerWidth) {
+        this.closePopover();
+      }
+    }
+  };
 
   toggleOpen(event?: Event) {
     if (event) event.stopPropagation();
     if (!this.isOpen()) {
-      this.updateRect();
-      this.isOpen.set(true);
+      this.openPopover();
     } else {
-      this.isOpen.set(false);
+      this.closePopover();
     }
+  }
+
+  openPopover() {
+    registerOpenPopover(this);
+    this.updateRect();
+    this.isOpen.set(true);
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('scroll', this.onScrollCapture, { capture: true, passive: true });
+
+      if (this.openTimeoutId) {
+        clearTimeout(this.openTimeoutId);
+      }
+
+      this.openTimeoutId = setTimeout(() => {
+        this.openTimeoutId = null;
+        if (!this.isOpen()) return;
+
+        if (this.popoverEl?.nativeElement && document.body) {
+          this.popoverEl.nativeElement.setAttribute('data-bilo-popover', 'true');
+          document.body.appendChild(this.popoverEl.nativeElement);
+          this.appendedPopoverEl = this.popoverEl.nativeElement;
+        }
+      }, 0);
+    }
+  }
+
+  closePopover() {
+    unregisterOpenPopover(this);
+    if (this.openTimeoutId) {
+      clearTimeout(this.openTimeoutId);
+      this.openTimeoutId = null;
+    }
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('scroll', this.onScrollCapture, true);
+      if (this.appendedPopoverEl) {
+        if (this.appendedPopoverEl.parentNode) {
+          this.appendedPopoverEl.remove();
+        }
+        this.appendedPopoverEl = null;
+      }
+      if (this.popoverEl?.nativeElement && this.popoverEl.nativeElement.parentNode) {
+        this.popoverEl.nativeElement.remove();
+      }
+    }
+    this.isOpen.set(false);
   }
 
   private updateRect() {
@@ -439,15 +593,9 @@ export class DatePickerComponent implements OnChanges {
 
   displayLabel(): string {
     if (!this.value) return this.placeholder;
-    const parts = this.value.split('-');
-    if (parts.length === 3) {
-      const year = parseInt(parts[0], 10);
-      const month = parseInt(parts[1], 10) - 1;
-      const day = parseInt(parts[2], 10);
-      const d = new Date(year, month, day);
-      if (!isNaN(d.getTime())) {
-        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-      }
+    const parsed = parseYMDDate(this.value);
+    if (parsed) {
+      return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     }
     return this.value;
   }
@@ -457,46 +605,73 @@ export class DatePickerComponent implements OnChanges {
     return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }).toUpperCase();
   }
 
-  prevMonth() {
+  prevMonth(event?: Event) {
+    if (event) {
+      event.stopPropagation();
+    }
+    if (this.isPrevMonthDisabled()) return;
     const d = this.viewDate();
-    this.viewDate.set(new Date(d.getFullYear(), d.getMonth() - 1, 1));
+    this.viewDate.set(new Date(d.getFullYear(), d.getMonth() - 1, 1, 12, 0, 0));
   }
 
-  nextMonth() {
+  nextMonth(event?: Event) {
+    if (event) {
+      event.stopPropagation();
+    }
+    if (this.isNextMonthDisabled()) return;
     const d = this.viewDate();
-    this.viewDate.set(new Date(d.getFullYear(), d.getMonth() + 1, 1));
+    this.viewDate.set(new Date(d.getFullYear(), d.getMonth() + 1, 1, 12, 0, 0));
   }
 
-  selectDate(dateStr: string) {
+  selectDate(dateStr: string, event?: Event) {
+    if (event) {
+      event.stopPropagation();
+    }
+    if (this.isDateDisabled(dateStr)) return;
     this.value = dateStr;
     this.valueChange.emit(dateStr);
     this.dateChange.emit(dateStr);
-    this.isOpen.set(false);
+
+    setTimeout(() => {
+      this.closePopover();
+    }, 0);
   }
 
   clearDate(event?: Event) {
-    if (event) event.stopPropagation();
+    if (event) {
+      event.stopPropagation();
+    }
     this.value = '';
     this.valueChange.emit('');
     this.dateChange.emit('');
-    this.isOpen.set(false);
+
+    setTimeout(() => {
+      this.closePopover();
+    }, 0);
   }
 
-  selectToday() {
-    const today = new Date().toISOString().split('T')[0];
-    this.selectDate(today);
+  selectToday(event?: Event) {
+    if (event) {
+      event.stopPropagation();
+    }
+    if (this.isDateDisabled(this.todayStr)) return;
+    this.selectDate(this.todayStr, event);
   }
 
-  selectTomorrow() {
-    const tom = new Date();
-    tom.setDate(tom.getDate() + 1);
-    this.selectDate(tom.toISOString().split('T')[0]);
+  selectTomorrow(event?: Event) {
+    if (event) {
+      event.stopPropagation();
+    }
+    if (this.isDateDisabled(this.tomorrowStr)) return;
+    this.selectDate(this.tomorrowStr, event);
   }
 
-  selectNextWeek() {
-    const nw = new Date();
-    nw.setDate(nw.getDate() + 7);
-    this.selectDate(nw.toISOString().split('T')[0]);
+  selectNextWeek(event?: Event) {
+    if (event) {
+      event.stopPropagation();
+    }
+    if (this.isDateDisabled(this.nextWeekStr)) return;
+    this.selectDate(this.nextWeekStr, event);
   }
 
   calendarDays(): DatePickerDay[] {
@@ -504,38 +679,40 @@ export class DatePickerComponent implements OnChanges {
     const year = curr.getFullYear();
     const month = curr.getMonth();
 
-    const todayStr = new Date().toISOString().split('T')[0];
-    const firstDay = new Date(year, month, 1);
+    const todayStr = getLocalDateString();
+    const firstDay = new Date(year, month, 1, 12, 0, 0);
     const startDayOfWeek = firstDay.getDay(); // 0 (Sun) - 6 (Sat)
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const daysInPrevMonth = new Date(year, month, 0).getDate();
+    const daysInMonth = new Date(year, month + 1, 0, 12, 0, 0).getDate();
+    const daysInPrevMonth = new Date(year, month, 0, 12, 0, 0).getDate();
 
     const days: DatePickerDay[] = [];
 
     // Leading days from previous month
     for (let i = startDayOfWeek - 1; i >= 0; i--) {
       const pDay = daysInPrevMonth - i;
-      const prevDate = new Date(year, month - 1, pDay);
+      const prevDate = new Date(year, month - 1, pDay, 12, 0, 0);
       const dateStr = this.formatYMD(prevDate);
       days.push({
         dayNumber: pDay,
         dateStr,
         isCurrentMonth: false,
         isToday: dateStr === todayStr,
-        isSelected: dateStr === this.value
+        isSelected: dateStr === this.value,
+        isDisabled: this.isDateDisabled(dateStr)
       });
     }
 
     // Days in current month
     for (let d = 1; d <= daysInMonth; d++) {
-      const cDate = new Date(year, month, d);
+      const cDate = new Date(year, month, d, 12, 0, 0);
       const dateStr = this.formatYMD(cDate);
       days.push({
         dayNumber: d,
         dateStr,
         isCurrentMonth: true,
         isToday: dateStr === todayStr,
-        isSelected: dateStr === this.value
+        isSelected: dateStr === this.value,
+        isDisabled: this.isDateDisabled(dateStr)
       });
     }
 
@@ -543,14 +720,15 @@ export class DatePickerComponent implements OnChanges {
     const totalCells = days.length > 35 ? 42 : 35;
     const remaining = totalCells - days.length;
     for (let n = 1; n <= remaining; n++) {
-      const nDate = new Date(year, month + 1, n);
+      const nDate = new Date(year, month + 1, n, 12, 0, 0);
       const dateStr = this.formatYMD(nDate);
       days.push({
         dayNumber: n,
         dateStr,
         isCurrentMonth: false,
         isToday: dateStr === todayStr,
-        isSelected: dateStr === this.value
+        isSelected: dateStr === this.value,
+        isDisabled: this.isDateDisabled(dateStr)
       });
     }
 

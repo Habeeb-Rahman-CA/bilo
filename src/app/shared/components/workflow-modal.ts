@@ -1,15 +1,18 @@
-import { Component, EventEmitter, Input, OnInit, Output } from '@angular/core';
+import { Component, EventEmitter, Input, OnInit, OnDestroy, HostListener, Output, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { WorkflowService } from '../../core/services/workflow.service';
+import { TaskService } from '../../core/services/task.service';
 import { Project, Workflow } from '../../core/models/project.model';
+import { ColorPickerComponent } from './color-picker';
+import { registerModal, unregisterModal, isTopModal, getModalZIndex } from '../../core/utils/modal-stack.util';
 
 @Component({
   selector: 'app-workflow-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ColorPickerComponent],
   template: `
-    <div class="modal-overlay" (click)="close.emit()">
+    <div class="modal-overlay" [style.z-index]="modalZIndex" (click)="close.emit()">
       <div class="modal-card" (click)="$event.stopPropagation()">
         <div class="modal-header">
           <h3>
@@ -36,11 +39,10 @@ import { Project, Workflow } from '../../core/models/project.model';
               <div class="column-item">
                 <span class="drag-handle"><i class="fi fi-rr-menu-dots-vertical"></i></span>
 
-                <input
-                  type="color"
-                  class="color-picker-inline"
-                  [(ngModel)]="col.color"
-                />
+                <app-color-picker
+                  [(color)]="col.color"
+                  title="Column status color"
+                ></app-color-picker>
 
                 <input
                   type="text"
@@ -60,7 +62,13 @@ import { Project, Workflow } from '../../core/models/project.model';
                       <i class="fi fi-rr-angle-down"></i>
                     </button>
                   }
-                  <button type="button" class="btn btn-ghost btn-sm btn-icon btn-danger" (click)="removeColumn(col, i)">
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-sm btn-icon btn-danger"
+                    [disabled]="columns.length <= 1"
+                    [title]="columns.length <= 1 ? 'A workflow requires at least one status column' : 'Delete status column'"
+                    (click)="removeColumn(col, i)"
+                  >
                     <i class="fi fi-rr-trash"></i>
                   </button>
                 </div>
@@ -178,35 +186,124 @@ import { Project, Workflow } from '../../core/models/project.model';
     }
   `]
 })
-export class WorkflowModalComponent implements OnInit {
+export class WorkflowModalComponent implements OnInit, OnDestroy {
   @Input() project: Project | null = null;
   @Output() close = new EventEmitter<void>();
+
+  private readonly modalId = 'workflow-modal-' + Math.random().toString(36).substring(2, 9);
+
+  get modalZIndex(): number {
+    return getModalZIndex(this.modalId);
+  }
+
+  @HostListener('window:keydown', ['$event'])
+  handleGlobalKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && isTopModal(this.modalId)) {
+      e.preventDefault();
+      this.close.emit();
+      return;
+    }
+
+    if (e.key === 'Tab' && isTopModal(this.modalId)) {
+      this.trapFocus(e);
+    }
+  }
+
+  private trapFocus(e: KeyboardEvent) {
+    const container = this.elementRef?.nativeElement;
+    if (!container) return;
+
+    const focusables = (Array.from(
+      container.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ) as HTMLElement[]).filter(el => el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement);
+
+    if (focusables.length === 0) return;
+
+    const firstEl = focusables[0];
+    const lastEl = focusables[focusables.length - 1];
+    const activeEl = document.activeElement;
+
+    if (e.shiftKey) {
+      if (activeEl === firstEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        lastEl.focus();
+      }
+    } else {
+      if (activeEl === lastEl || !container.contains(activeEl)) {
+        e.preventDefault();
+        firstEl.focus();
+      }
+    }
+  }
 
   columns: Workflow[] = [];
   deletedColumnIds: string[] = [];
   newColumnName = '';
 
-  constructor(private workflowService: WorkflowService) {}
+  constructor(
+    private workflowService: WorkflowService,
+    private taskService: TaskService,
+    private elementRef: ElementRef
+  ) {}
 
   ngOnInit() {
+    registerModal(this.modalId);
     const projId = this.project?.id || 'global';
     const existing = this.workflowService.getWorkflowsForProject(projId);
     this.columns = JSON.parse(JSON.stringify(existing));
+  }
+
+  ngOnDestroy() {
+    unregisterModal(this.modalId);
   }
 
   async addNewWorkflowColumn() {
     if (!this.newColumnName.trim()) return;
     const name = this.newColumnName.trim();
     const projId = this.project?.id || 'global';
+    const existingNames = this.columns.map(c => c.name.trim().toLowerCase());
+    if (existingNames.includes(name.toLowerCase())) {
+      alert(`A workflow status column named "${name}" already exists in this project.`);
+      return;
+    }
     const created = await this.workflowService.createWorkflow(projId, name);
     this.columns.push(JSON.parse(JSON.stringify(created)));
     this.newColumnName = '';
   }
 
   async removeColumn(col: Workflow, index: number) {
+    if (this.columns.length <= 1) {
+      alert('Cannot delete the only remaining status column in a workflow.');
+      return;
+    }
+
+    const projId = this.project?.id || 'global';
+    const colNameLower = col.name.trim().toLowerCase();
+
+    const assignedTasks = this.taskService.tasks().filter(t => {
+      if (projId !== 'global' && t.project_id !== projId) return false;
+      if (t.workflow_id === col.id) return true;
+      if (t.status === col.id) return true;
+      if (colNameLower && t.status?.trim().toLowerCase() === colNameLower) return true;
+      return false;
+    });
+
+    if (assignedTasks.length > 0) {
+      const remainingCols = this.columns.filter((_, i) => i !== index);
+      const fallbackName = remainingCols.length > 0 ? remainingCols[0].name : 'Backlog';
+      const confirmed = window.confirm(
+        `Column "${col.name}" currently has ${assignedTasks.length} task(s) assigned to it.\n\nDeleting this column will reassign those task(s) to "${fallbackName}". Are you sure you want to proceed?`
+      );
+      if (!confirmed) return;
+    }
+
     this.columns.splice(index, 1);
     if (col.id && !col.id.startsWith('temp-')) {
-      this.deletedColumnIds.push(col.id);
+      if (!this.deletedColumnIds.includes(col.id)) {
+        this.deletedColumnIds.push(col.id);
+      }
     }
   }
 
@@ -220,6 +317,13 @@ export class WorkflowModalComponent implements OnInit {
 
   async saveWorkflowChanges() {
     const projId = this.project?.id || 'global';
+    if (!this.columns || this.columns.length === 0) {
+      alert('A workflow must have at least one status column. Resetting to default columns.');
+      await this.workflowService.resetToDefaultWorkflows(projId);
+      this.close.emit();
+      return;
+    }
+
     for (const delId of this.deletedColumnIds) {
       await this.workflowService.deleteWorkflow(delId, projId);
     }
