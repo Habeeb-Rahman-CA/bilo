@@ -47,6 +47,16 @@ import { LazyImageDirective } from '../directives/lazy-image.directive';
         <div class="detail-nav-bar paper-panel">
           <div class="nav-left">
             <div class="header-type-row font-mono">
+              @if (parentTask(); as parent) {
+                <span
+                  class="parent-key-badge font-mono"
+                  (click)="navigateToTask(parent)"
+                  [title]="'Go to parent ' + parent.type + ': ' + parent.title"
+                >
+                  <i class="fi fi-rr-angle-small-up"></i> {{ getTaskKeyStr(parent) }}
+                </span>
+                <span class="text-muted" style="font-size: 0.75rem;">/</span>
+              }
               <span class="badge" [class]="getBadgeClass(task)">
                 <i [class]="getTypeIcon(task)"></i> {{ getTypeLabel(task) }}
               </span>
@@ -263,6 +273,42 @@ import { LazyImageDirective } from '../directives/lazy-image.directive';
                   <div class="empty-attachments font-mono clickable-dropzone" (click)="detailFileInput.click()">
                     <i class="fi fi-rr-picture text-subtle"></i>
                     <span>No image attachments. Click to add image attachment.</span>
+                  </div>
+                }
+              </div>
+
+              <!-- Sub-Items / Child Tasks Box -->
+              <div class="sub-items-box paper-panel">
+                <div class="section-heading-row">
+                  <h4 class="section-heading">
+                    <i class="fi fi-rr-diagram-sub"></i> Child Tasks & Sub-Items
+                    @if (childTasks().length > 0) {
+                      <span class="attachment-count-badge font-mono">{{ childTasks().length }}</span>
+                    }
+                  </h4>
+                </div>
+
+                @if (childTasks().length > 0) {
+                  <div class="child-tasks-list font-mono">
+                    @for (child of childTasks(); track child.id) {
+                      <div class="child-task-item" (click)="navigateToTask(child)">
+                        <div class="child-item-left">
+                          <span class="badge badge-xs" [class]="getBadgeClass(child)">
+                            <i [class]="getTypeIcon(child)"></i>
+                          </span>
+                          <span class="child-key text-cyan">{{ getTaskKeyStr(child) }}</span>
+                          <span class="child-title">{{ child.title }}</span>
+                        </div>
+                        <div class="child-item-right">
+                          <span class="child-status-pill">{{ child.status }}</span>
+                        </div>
+                      </div>
+                    }
+                  </div>
+                } @else {
+                  <div class="empty-attachments font-mono text-muted" style="padding: 0.75rem;">
+                    <i class="fi fi-rr-diagram-sub text-subtle"></i>
+                    <span>No child tasks linked to this item.</span>
                   </div>
                 }
               </div>
@@ -606,6 +652,18 @@ import { LazyImageDirective } from '../directives/lazy-image.directive';
                     [value]="task.type"
                     (valueChange)="updateType($event)"
                     placeholder="Select type..."
+                  ></app-select>
+                </div>
+              }
+
+              @if (parentOptions.length > 1) {
+                <div class="meta-group">
+                  <label class="meta-label">Parent Task</label>
+                  <app-select
+                    [options]="parentOptions"
+                    [value]="task.parent_id || ''"
+                    (valueChange)="updateParentTask($event)"
+                    placeholder="Select parent task..."
                   ></app-select>
                 </div>
               }
@@ -1898,6 +1956,79 @@ import { LazyImageDirective } from '../directives/lazy-image.directive';
       box-shadow: 0 2px 8px rgba(244, 63, 94, 0.3);
     }
 
+    .parent-key-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.15rem 0.45rem;
+      border-radius: var(--radius-xs);
+      font-size: 0.725rem;
+      font-weight: 700;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      color: var(--accent-cyan);
+      cursor: pointer;
+      transition: var(--transition-fast);
+    }
+    .parent-key-badge:hover {
+      border-color: var(--accent-cyan);
+      background: rgba(6, 182, 212, 0.1);
+    }
+
+    .sub-items-box {
+      padding: 1rem;
+      border-radius: var(--radius-xs);
+      background: var(--bg-surface);
+      border: 1px solid var(--border-medium);
+      margin-bottom: 1rem;
+    }
+    .child-tasks-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      margin-top: 0.75rem;
+    }
+    .child-task-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.5rem 0.75rem;
+      border-radius: var(--radius-xs);
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      cursor: pointer;
+      transition: var(--transition-fast);
+    }
+    .child-task-item:hover {
+      border-color: var(--accent-cyan);
+      background: var(--bg-canvas);
+    }
+    .child-item-left {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      overflow: hidden;
+    }
+    .child-key {
+      font-size: 0.725rem;
+      font-weight: 700;
+    }
+    .child-title {
+      font-size: 0.8rem;
+      color: var(--text-main);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .child-status-pill {
+      font-size: 0.675rem;
+      padding: 0.15rem 0.45rem;
+      border-radius: var(--radius-xs);
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+    }
+
     /* Mobile Page Optimizations */
     @media (max-width: 768px) {
       .task-detail-panel {
@@ -1943,6 +2074,50 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
   @Input() task!: Task;
   @Output() close = new EventEmitter<void>();
   @Output() editTask = new EventEmitter<Task>();
+  @Output() selectTask = new EventEmitter<Task>();
+
+  parentTask = computed(() => {
+    const parentId = this.task?.parent_id;
+    if (!parentId) return undefined;
+    return this.taskService.tasks().find(t => t.id === parentId);
+  });
+
+  childTasks = computed(() => {
+    const taskId = this.task?.id;
+    if (!taskId) return [];
+    return this.taskService.tasks().filter(t => t.parent_id === taskId);
+  });
+
+  get parentOptions(): SelectOption[] {
+    if (!this.task) return [];
+    const projectTasks = this.taskService.tasks().filter(t => t.project_id === this.task.project_id);
+    const validParents = this.taskService.getValidParentOptions(projectTasks, this.task.type, this.task.id);
+    const options: SelectOption[] = [
+      { value: '', label: 'None (Top Level)', icon: 'fi fi-rr-cross-small' }
+    ];
+    validParents.forEach(p => {
+      const key = this.getTaskKeyStr(p);
+      options.push({
+        value: p.id,
+        label: `[${key}] ${p.title}`,
+        icon: p.type === 'epic' ? 'fi fi-rr-rocket text-amber' : p.type === 'story' ? 'fi fi-rr-book-alt text-cyan' : 'fi fi-rr-checkbox text-cyan'
+      });
+    });
+    return options;
+  }
+
+  navigateToTask(targetTask: Task) {
+    if (!targetTask) return;
+    this.task = targetTask;
+    this.refreshHistory();
+    this.loadComments(1, false);
+    this.selectTask.emit(targetTask);
+  }
+
+  async updateParentTask(newParentId: string) {
+    const parentIdValue = newParentId || undefined;
+    await this.safeUpdateTask({ parent_id: parentIdValue });
+  }
 
   modalZIndex = 2000;
   private readonly modalId = 'task-detail-modal-' + Math.random().toString(36).substring(2, 9);
@@ -2504,7 +2679,15 @@ export class TaskDetailModalComponent implements OnInit, OnDestroy {
   }
 
   async updateType(newType: TaskType) {
-    await this.safeUpdateTask({ type: newType });
+    let parentIdValue = this.task?.parent_id;
+    if (parentIdValue && this.task) {
+      const projectTasks = this.taskService.tasks().filter(t => t.project_id === this.task.project_id);
+      const validParents = this.taskService.getValidParentOptions(projectTasks, newType, this.task.id);
+      if (!validParents.some(p => p.id === parentIdValue)) {
+        parentIdValue = undefined;
+      }
+    }
+    await this.safeUpdateTask({ type: newType, parent_id: parentIdValue });
   }
 
   isReportedTask(): boolean {

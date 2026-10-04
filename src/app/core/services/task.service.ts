@@ -5,7 +5,7 @@ import { ProjectService } from './project.service';
 import { PushNotificationService } from './push-notification.service';
 import { AuthService } from './auth.service';
 import { WorkflowService } from './workflow.service';
-import { Task, TaskComment, TaskStatusHistory, Workflow, PaginatedCommentsResult } from '../models/project.model';
+import { Task, TaskComment, TaskStatusHistory, Workflow, PaginatedCommentsResult, TaskType } from '../models/project.model';
 import { sanitizeLabels } from '../utils/label.util';
 import { validateAndSanitizeTask } from '../utils/data-validator.util';
 
@@ -442,6 +442,7 @@ export class TaskService {
       position: targetPosition,
       is_next: taskData.is_next || false,
       completed: initialStatus.toLowerCase() === 'done' || initialStatus.toLowerCase() === 'completed',
+      parent_id: taskData.parent_id || undefined,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
@@ -464,7 +465,8 @@ export class TaskService {
       attachments: newTask.attachments,
       assignee: newTask.assignee,
       due_date: newTask.due_date && newTask.due_date.trim() !== '' ? newTask.due_date : null,
-      completed: newTask.completed
+      completed: newTask.completed,
+      parent_id: newTask.parent_id || null
     };
     // Only include project_id when it is a valid UUID — never send null which
     // violates the NOT NULL DB constraint and causes a 23502 error on upsert.
@@ -656,10 +658,39 @@ export class TaskService {
       if ('workflow_id' in payloadFields && (!payloadFields.workflow_id || !this.syncService.isValidUuid(payloadFields.workflow_id))) {
         (payloadFields as any).workflow_id = null;
       }
+      if ('parent_id' in payloadFields && (!payloadFields.parent_id || !this.syncService.isValidUuid(payloadFields.parent_id))) {
+        (payloadFields as any).parent_id = null;
+      }
       this.syncService.enqueue('UPDATE_TASK', { id, ...payloadFields });
     }
 
     return updatedTask;
+  }
+
+  getParentTask(task: Task | undefined | null): Task | undefined {
+    if (!task || !task.parent_id) return undefined;
+    return this.tasks().find(t => t.id === task.parent_id);
+  }
+
+  getChildTasks(taskId: string): Task[] {
+    if (!taskId) return [];
+    return this.tasks().filter(t => t.parent_id === taskId);
+  }
+
+  getValidParentOptions(projectTasks: Task[], currentTaskType: TaskType, currentTaskId?: string): Task[] {
+    const candidateTasks = projectTasks.filter(t => t.id !== currentTaskId);
+    switch (currentTaskType) {
+      case 'epic':
+        return [];
+      case 'story':
+        return candidateTasks.filter(t => t.type === 'epic');
+      case 'task':
+        return candidateTasks.filter(t => t.type === 'story');
+      case 'bug':
+        return candidateTasks.filter(t => t.type === 'story' || t.type === 'task');
+      default:
+        return [];
+    }
   }
 
   async restoreTask(id: string): Promise<Task | null> {

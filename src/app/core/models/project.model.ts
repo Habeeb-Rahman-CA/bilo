@@ -91,6 +91,7 @@ export interface Task {
   completed: boolean;
   estimated_hours?: number;
   logged_hours?: number;
+  parent_id?: string;
   created_at: string;
   updated_at: string;
 }

@@ -13,6 +13,7 @@ import { compressImageFile, canAddAttachment, MAX_ATTACHMENT_FILE_SIZE_BYTES, MA
 import { sanitizeLabels } from '../../core/utils/label.util';
 import { registerModal, unregisterModal, isTopModal } from '../../core/utils/modal-stack.util';
 import { LazyImageDirective } from '../directives/lazy-image.directive';
+import { getTaskKey } from '../../core/utils/task-key.util';
 
 @Component({
   selector: 'app-task-modal',
@@ -77,8 +78,15 @@ import { LazyImageDirective } from '../directives/lazy-image.directive';
             <!-- Issue Type -->
             <div class="form-group">
               <label class="form-label">ISSUE TYPE</label>
-              <app-select [options]="typeOptions" [(value)]="type" placeholder="Select type..."></app-select>
+              <app-select [options]="typeOptions" [value]="type" (valueChange)="onTypeChange($event)" placeholder="Select type..."></app-select>
             </div>
+
+            @if (parentOptions.length > 1) {
+              <div class="form-group">
+                <label class="form-label">PARENT TASK</label>
+                <app-select [options]="parentOptions" [(value)]="parentId" placeholder="Select parent task..."></app-select>
+              </div>
+            }
 
             <!-- Priority & Status Row -->
             @if (isEditMode) {
@@ -591,6 +599,7 @@ export class TaskModalComponent implements OnInit, AfterViewInit, OnDestroy {
   description = '';
   projectId = '';
   type: TaskType = 'task';
+  parentId = '';
   status: string = '';
   priority: TaskPriority = 'medium';
   severity: TaskSeverity | '' = '';
@@ -646,6 +655,35 @@ export class TaskModalComponent implements OnInit, AfterViewInit, OnDestroy {
       label: p.name,
       icon: 'fi fi-rr-folder'
     }));
+  }
+
+  getTaskKeyStr(t: Task): string {
+    return getTaskKey(t, this.projectService.projects(), this.taskService.tasks());
+  }
+
+  get parentOptions(): SelectOption[] {
+    const projectTasks = this.taskService.tasks().filter(t => t.project_id === this.projectId);
+    const validParents = this.taskService.getValidParentOptions(projectTasks, this.type, this.taskToEdit?.id);
+    const options: SelectOption[] = [
+      { value: '', label: 'None (Top Level)', icon: 'fi fi-rr-cross-small' }
+    ];
+    validParents.forEach(p => {
+      const key = this.getTaskKeyStr(p);
+      options.push({
+        value: p.id,
+        label: `[${key}] ${p.title}`,
+        icon: p.type === 'epic' ? 'fi fi-rr-rocket text-amber' : p.type === 'story' ? 'fi fi-rr-book-alt text-cyan' : 'fi fi-rr-checkbox text-cyan'
+      });
+    });
+    return options;
+  }
+
+  onTypeChange(newType: TaskType) {
+    this.type = newType;
+    const valid = this.parentOptions.some(o => o.value === this.parentId);
+    if (!valid) {
+      this.parentId = '';
+    }
   }
 
   get statusOptions(): SelectOption[] {
@@ -773,6 +811,7 @@ export class TaskModalComponent implements OnInit, AfterViewInit, OnDestroy {
       this.description = this.taskToEdit.description || '';
       this.projectId = this.taskToEdit.project_id || this.projectService.activeProject()?.id || (this.projectService.projects()[0]?.id || '');
       this.type = this.taskToEdit.type || 'task';
+      this.parentId = this.taskToEdit.parent_id || '';
       this.status = this.taskToEdit.status || '';
       this.priority = this.taskToEdit.priority || 'medium';
       this.severity = this.taskToEdit.severity || '';
@@ -794,6 +833,7 @@ export class TaskModalComponent implements OnInit, AfterViewInit, OnDestroy {
       }
       this.severity = '';
       this.reproducibility = '';
+      this.parentId = '';
       if (this.defaultStatus) this.status = this.defaultStatus;
       if (this.defaultDueDate) this.dueDate = this.defaultDueDate;
     }
@@ -985,7 +1025,8 @@ export class TaskModalComponent implements OnInit, AfterViewInit, OnDestroy {
           assignee: this.assignee,
           due_date: this.dueDate,
           labels: parsedLabels,
-          attachments: this.attachments()
+          attachments: this.attachments(),
+          parent_id: this.parentId || undefined
         },
         this.initialUpdatedAt
       );
@@ -1009,7 +1050,8 @@ export class TaskModalComponent implements OnInit, AfterViewInit, OnDestroy {
         assignee: this.assignee,
         due_date: this.dueDate,
         labels: parsedLabels,
-        attachments: this.attachments()
+        attachments: this.attachments(),
+        parent_id: this.parentId || undefined
       });
       resTask = created;
       if (created) {

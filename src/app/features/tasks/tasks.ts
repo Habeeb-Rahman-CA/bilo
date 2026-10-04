@@ -273,6 +273,15 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                     <!-- Card Top Row: Issue Type, Key, Priority, Drag Handle -->
                     <div class="card-top font-mono">
                       <div class="type-badge-wrap">
+                        @if (getParentTask(t); as parent) {
+                          <span
+                            class="card-parent-tag font-mono"
+                            (click)="$event.stopPropagation(); openDetailModal(parent)"
+                            [title]="'Parent ' + parent.type + ': ' + parent.title"
+                          >
+                            <i class="fi fi-rr-angle-small-up"></i> {{ getTaskKeyStr(parent) }}
+                          </span>
+                        }
                         <span class="badge-type" [class]="getTypeBadgeClass(t)">
                           <i [class]="getTypeIcon(t)"></i> {{ getTypeLabel(t) }}
                         </span>
@@ -676,6 +685,24 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       background: var(--bg-surface-subtle);
       border: 1px solid var(--border-subtle);
       color: var(--text-muted);
+    }
+    .card-parent-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.2rem;
+      padding: 0.1rem 0.35rem;
+      border-radius: var(--radius-xs);
+      font-size: 0.675rem;
+      font-weight: 700;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      color: var(--accent-cyan);
+      cursor: pointer;
+      transition: var(--transition-fast);
+    }
+    .card-parent-tag:hover {
+      border-color: var(--accent-cyan);
+      background: rgba(6, 182, 212, 0.12);
     }
     .badge-type.bug { background: #fee2e2; color: #dc2626; border-color: #fca5a5; }
     .badge-type.story { background: #e0f2fe; color: #0284c7; border-color: #7dd3fc; }
@@ -1330,6 +1357,10 @@ export class TasksComponent implements OnInit, OnDestroy, AfterViewInit {
       case 'epic': return 'fi fi-rr-rocket';
       default: return 'fi fi-rr-check-circle';
     }
+  }
+
+  getParentTask(t: Task): Task | undefined {
+    return this.taskService.getParentTask(t);
   }
 
   isOverdue(dueDate?: string): boolean {

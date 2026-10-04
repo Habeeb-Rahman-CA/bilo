@@ -49,7 +49,7 @@ export class TaskShareService {
       event.preventDefault();
     }
 
-    const key = getTaskKey(task, this.projectService.projects());
+    const key = getTaskKey(task, this.projectService.projects(), this.taskService.tasks());
     const baseUrl = `${window.location.origin}${window.location.pathname}`;
     const shareUrl = `${baseUrl}?task=${key}`;
 
@@ -93,6 +93,7 @@ export class TaskShareService {
    */
   checkUrlForTaskParam() {
     if (typeof window === 'undefined') return;
+    if (this.hasProcessedInitialUrl) return;
 
     const urlParams = new URLSearchParams(window.location.search);
     let taskParam = urlParams.get('task') || urlParams.get('taskId');
@@ -110,15 +111,32 @@ export class TaskShareService {
       if (match) taskParam = match[1];
     }
 
-    if (taskParam) {
+    if (!taskParam) {
       this.hasProcessedInitialUrl = true;
-      const opened = this.openTaskByParam(taskParam);
-      if (!opened) {
-        // Clean up invalid task parameter from URL to prevent broken navigation state
-        const cleanUrl = window.location.pathname + (window.location.hash || '');
-        window.history.replaceState(null, '', cleanUrl);
-      }
+      return;
     }
+
+    const tasks = this.taskService.tasks();
+    const isLoading = typeof this.taskService.loading === 'function' ? this.taskService.loading() : false;
+
+    // Try to open matching task
+    const opened = this.openTaskByParam(taskParam);
+    if (opened) {
+      this.hasProcessedInitialUrl = true;
+      return;
+    }
+
+    // If task not found locally BUT tasks are still loading over network or not populated, wait!
+    if (isLoading || tasks.length === 0) {
+      console.log(`[TaskShareService] Shared task "${taskParam}" not found in current local task list, waiting for remote fetch to complete...`);
+      return;
+    }
+
+    // Task loading completed and task was not found
+    this.hasProcessedInitialUrl = true;
+    this.showToast(`Shared task "${taskParam}" not found or may have been deleted`);
+    const cleanUrl = window.location.pathname + (window.location.hash || '');
+    window.history.replaceState(null, '', cleanUrl);
   }
 
   /**

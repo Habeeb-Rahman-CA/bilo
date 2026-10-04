@@ -305,6 +305,15 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
 
                 <!-- Title / Summary -->
                 <div class="cell-summary">
+                  @if (getParentTask(t); as parent) {
+                    <span
+                      class="card-parent-tag font-mono"
+                      (click)="$event.stopPropagation(); openDetail(parent)"
+                      [title]="'Parent ' + parent.type + ': ' + parent.title"
+                    >
+                      <i class="fi fi-rr-angle-small-up"></i> {{ getTaskKeyStr(parent) }}
+                    </span>
+                  }
                   <span class="summary-text" [class.completed]="t.completed || isDone(t.status)">{{ t.title }}</span>
                   @if (isReportedTask(t)) {
                     <span class="app-report-badge font-mono" title="Reported directly by user via App Report">
@@ -809,6 +818,25 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
       align-items: center;
       gap: 0.5rem;
       overflow: hidden;
+    }
+    .card-parent-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.2rem;
+      padding: 0.1rem 0.35rem;
+      border-radius: var(--radius-xs);
+      font-size: 0.675rem;
+      font-weight: 700;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      color: var(--accent-cyan);
+      cursor: pointer;
+      transition: var(--transition-fast);
+      flex-shrink: 0;
+    }
+    .card-parent-tag:hover {
+      border-color: var(--accent-cyan);
+      background: rgba(6, 182, 212, 0.12);
     }
     .app-report-badge {
       display: inline-flex !important;
@@ -1509,6 +1537,10 @@ export class BacklogComponent implements OnInit, OnDestroy {
     if (list.length === 0) return false;
     const selected = this.visibleSelectedTaskIds();
     return list.every(t => selected.includes(t.id));
+  }
+
+  getParentTask(t: Task): Task | undefined {
+    return this.taskService.getParentTask(t);
   }
 
   toggleSelectAll() {
