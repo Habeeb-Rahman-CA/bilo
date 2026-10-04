@@ -321,6 +321,35 @@
 
     <!-- Main Active Workspace View -->
     <main class="app-main">
+      <!-- Mobile PWA Pull-to-Refresh Indicator Banner -->
+      <div
+        class="pull-to-refresh-indicator paper-panel font-mono"
+        [class.active]="pullDistance() > 0 || isRefreshingData()"
+        [class.threshold-met]="isPullThresholdReached()"
+        [class.refreshing]="isRefreshingData()"
+        [style.height.px]="pullDistance()"
+        [style.opacity]="pullDistance() > 10 || isRefreshingData() ? '1' : '0'"
+      >
+        <div class="pull-refresh-content">
+          <i
+            class="fi"
+            [class.fi-rr-arrow-small-down]="!isRefreshingData() && !isPullThresholdReached()"
+            [class.fi-rr-angle-up]="!isRefreshingData() && isPullThresholdReached()"
+            [class.fi-rr-rotate-right]="isRefreshingData()"
+            [class.spin]="isRefreshingData()"
+          ></i>
+          <span class="pull-refresh-text">
+            @if (isRefreshingData()) {
+              REFRESHING WORKSPACE...
+            } @else if (isPullThresholdReached()) {
+              RELEASE TO REFRESH
+            } @else {
+              PULL TO REFRESH
+            }
+          </span>
+        </div>
+      </div>
+
       <!-- App Update Available Notice Banner -->
       @if (updateService.updateAvailable()) {
       <div class="update-banner-strip paper-panel font-mono">

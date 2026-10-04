@@ -180,14 +180,15 @@ export interface CalendarCellEvent {
                       [class.pill-created]="evt.eventType === 'created'"
                       [class.pill-closed]="evt.eventType === 'closed'"
                       [class.pill-due]="evt.eventType === 'due'"
+                      [class.is-holding]="touchHoldTaskId() === evt.task.id"
                       draggable="true"
                       (dragstart)="onDragStartTask($event, evt.task)"
                       (touchstart)="onTouchStartTask($event, evt.task)"
                       (touchmove)="onTouchMoveTask($event)"
                       (touchend)="onTouchEndTask($event)"
                       (touchcancel)="onTouchCancelTask()"
-                      (click)="$event.stopPropagation(); openDetail(evt.task)"
-                      [title]="'Drag to reschedule: ' + evt.task.title"
+                      (click)="$event.stopPropagation(); onTaskCardClick($event, evt.task)"
+                      [title]="'Hold to drag & reschedule: ' + evt.task.title"
                     >
                       <i [class]="evt.eventType === 'created' ? 'fi fi-rr-plus-circle' : (evt.eventType === 'closed' ? 'fi fi-rr-check-circle' : 'fi fi-rr-clock')"></i>
                       <span class="event-text">{{ evt.eventType === 'created' ? 'Created' : (evt.eventType === 'closed' ? 'Closed' : 'Due') }}: {{ evt.title }}</span>
@@ -265,13 +266,14 @@ export interface CalendarCellEvent {
                 @for (t of paginatedUnscheduledTasks(); track t.id) {
                   <div
                     class="unscheduled-card paper-panel font-mono"
+                    [class.is-holding]="touchHoldTaskId() === t.id"
                     draggable="true"
                     (dragstart)="onDragStartTask($event, t)"
                     (touchstart)="onTouchStartTask($event, t)"
                     (touchmove)="onTouchMoveTask($event)"
                     (touchend)="onTouchEndTask($event)"
                     (touchcancel)="onTouchCancelTask()"
-                    (click)="openDetail(t)"
+                    (click)="onTaskCardClick($event, t)"
                   >
                     <!-- Meta Row: Issue Type Icon, Task Key, Priority Badge, Status Badge -->
                     <div class="card-meta-row font-mono">
@@ -350,16 +352,24 @@ export interface CalendarCellEvent {
 
       <!-- Touch Drag Cancel Bar (Visible during mobile touch drag) -->
       @if (isTouchDraggingTask()) {
-        <div class="touch-cancel-dropzone font-mono" [class.hovering]="isOverCancelDropzone()">
+        <div class="touch-cancel-dropzone paper-panel font-mono" [class.hovering]="isOverCancelDropzone()">
           <i class="fi fi-rr-cross-circle"></i>
-          <span>{{ isOverCancelDropzone() ? 'Release to Cancel Scheduling' : 'Drop here to Cancel' }}</span>
+          <span>{{ isOverCancelDropzone() ? 'Release to Cancel' : 'Drop here to Cancel' }}</span>
         </div>
       }
 
       <!-- Selected Day Detail Modal Card matching App Theme -->
       @if (selectedCell(); as sc) {
-        <div class="modal-overlay" (click)="selectedCell.set(null)">
-          <div class="modal-card day-detail-card font-mono" (click)="$event.stopPropagation()">
+        <div
+          class="modal-overlay"
+          [class.touch-dragging-active]="isTouchDraggingTask()"
+          (click)="selectedCell.set(null)"
+        >
+          <div
+            class="modal-card day-detail-card font-mono"
+            [class.touch-dragging-active]="isTouchDraggingTask()"
+            (click)="$event.stopPropagation()"
+          >
             <div class="modal-header">
               <h3>
                 <i class="fi fi-rr-calendar text-cyan"></i>
@@ -421,7 +431,17 @@ export interface CalendarCellEvent {
                 } @else {
                   <div class="task-mini-list">
                     @for (t of sc.dueTasks; track t.id) {
-                      <div class="task-mini-item" (click)="openDetail(t)">
+                      <div
+                        class="task-mini-item"
+                        [class.is-holding]="touchHoldTaskId() === t.id"
+                        draggable="true"
+                        (dragstart)="onDragStartTask($event, t)"
+                        (touchstart)="onTouchStartTask($event, t)"
+                        (touchmove)="onTouchMoveTask($event)"
+                        (touchend)="onTouchEndTask($event)"
+                        (touchcancel)="onTouchCancelTask()"
+                        (click)="onTaskCardClick($event, t)"
+                      >
                         <i [class]="getTypeIcon(t.type)"></i>
                         <span class="task-title">{{ t.title }}</span>
                         <span class="badge-mono">{{ t.status }}</span>
@@ -871,7 +891,7 @@ export interface CalendarCellEvent {
     }
     .priority-badge {
       font-size: 0.625rem;
-      padding: 0.08rem 0.35rem;
+      padding: 4px 4px 0 4px;
       border-radius: var(--radius-xs);
       font-weight: 700;
       text-transform: uppercase;
@@ -917,7 +937,7 @@ export interface CalendarCellEvent {
     }
     .card-project-pill {
       font-size: 0.675rem;
-      padding: 0.1rem 0.4rem;
+      padding: 4px 4px 0 4px;
       background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-xs);
@@ -1089,12 +1109,23 @@ export interface CalendarCellEvent {
         padding: 0.1rem 0.3rem;
       }
 
-      /* Hide/Collapse Drawer & Backdrop during touch drag on Mobile */
+      /* Hide/Collapse Drawer, Backdrop & Day Detail Modal during touch drag on Mobile */
       .unscheduled-drawer.touch-dragging-active,
-      .drawer-backdrop.touch-dragging-active {
+      .drawer-backdrop.touch-dragging-active,
+      .day-detail-card.touch-dragging-active,
+      .modal-overlay.touch-dragging-active {
         opacity: 0 !important;
         pointer-events: none !important;
         visibility: hidden !important;
+        transition: opacity 0.18s ease-out;
+      }
+
+      .unscheduled-card.is-holding,
+      .event-pill.is-holding,
+      .task-mini-item.is-holding {
+        transform: scale(0.97);
+        box-shadow: 0 0 0 2px var(--accent-purple) !important;
+        transition: transform 0.12s ease, box-shadow 0.12s ease;
       }
 
       /* Mobile Slide-Up Bottom Sheet for Unscheduled Drawer */
@@ -1136,25 +1167,27 @@ export interface CalendarCellEvent {
       z-index: 100000;
       display: flex;
       align-items: center;
-      gap: 0.5rem;
-      padding: 0.65rem 1.35rem;
-      background: rgba(225, 29, 72, 0.95);
-      color: #ffffff;
-      border: 1px solid rgba(255, 255, 255, 0.4);
-      border-radius: 24px;
+      gap: 0.6rem;
+      padding: 0.65rem 1.25rem;
+      background: var(--bg-surface);
+      color: #f43f5e;
+      border: 1px solid rgba(244, 63, 94, 0.4);
+      border-radius: var(--radius-xs);
       font-size: 0.8rem;
       font-weight: 700;
-      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
-      backdrop-filter: blur(8px);
-      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      letter-spacing: 0.02em;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(244, 63, 94, 0.15);
+      backdrop-filter: blur(12px);
+      transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
       cursor: pointer;
       user-select: none;
     }
     .touch-cancel-dropzone.hovering {
-      background: #be123c;
-      transform: translateX(-50%) scale(1.08);
-      box-shadow: 0 12px 36px rgba(190, 18, 60, 0.6);
-      border-color: #ffffff;
+      background: #f43f5e;
+      color: #ffffff;
+      border-color: #f43f5e;
+      transform: translateX(-50%) scale(1.04);
+      box-shadow: 0 12px 36px rgba(244, 63, 94, 0.5);
     }
   `]
 })
@@ -1175,6 +1208,7 @@ export class CalendarComponent implements OnInit, OnDestroy {
   dragOverDate = signal<string | null>(null);
   isTouchDraggingTask = signal<boolean>(false);
   isOverCancelDropzone = signal<boolean>(false);
+  touchHoldTaskId = signal<string | null>(null);
 
   weekStart = signal<WeekStartDay>('sunday');
 
@@ -1482,103 +1516,176 @@ export class CalendarComponent implements OnInit, OnDestroy {
     }
   }
 
-  // --- Mobile Touch Drag Scheduling ---
+  // --- Mobile Touch & Hold-to-Drag Scheduling ---
   private touchGhostEl: HTMLElement | null = null;
+  private touchHoldTimer: any = null;
+  private touchStartPos = { x: 0, y: 0 };
+  private touchHoldTaskObj: Task | null = null;
+  private wasTouchDragged = false;
 
   onTouchStartTask(e: TouchEvent, task: Task) {
     if (!e.touches || e.touches.length === 0) return;
     const touch = e.touches[0];
+
+    this.cleanupTouchHold();
+    this.wasTouchDragged = false;
+    this.touchStartPos = { x: touch.clientX, y: touch.clientY };
+    this.touchHoldTaskObj = task;
+    this.touchHoldTaskId?.set?.(task.id);
+
+    // Delay drag activation by 280ms to distinguish taps/scrolls from intentional hold-to-drag
+    this.touchHoldTimer = setTimeout(() => {
+      this.activateTouchDrag(touch, task);
+    }, 280);
+  }
+
+  activateTouchDrag(touch: { clientX: number; clientY: number }, task: Task) {
+    this.cleanupTouchHoldTimer();
+    this.wasTouchDragged = true;
     this.draggedTaskId?.set?.(task.id);
     this.isTouchDraggingTask?.set?.(true);
     this.isOverCancelDropzone?.set?.(false);
 
-    // Create a floating visual ghost for touch feedback
-    this.cleanupTouchGhost();
-    const ghost = document.createElement('div');
-    ghost.className = 'touch-drag-ghost font-mono';
-    ghost.innerHTML = `<i class="fi fi-rr-calendar" style="margin-right:0.35rem; font-size:0.85rem;"></i> ${task.title}`;
-    ghost.style.position = 'fixed';
-    ghost.style.left = `${touch.clientX - 40}px`;
-    ghost.style.top = `${touch.clientY - 20}px`;
-    ghost.style.zIndex = '999999';
-    ghost.style.pointerEvents = 'none';
-    ghost.style.padding = '0.45rem 0.85rem';
-    ghost.style.background = 'var(--accent-purple)';
-    ghost.style.color = '#ffffff';
-    ghost.style.borderRadius = 'var(--radius-xs)';
-    ghost.style.boxShadow = '0 8px 24px rgba(0,0,0,0.4)';
-    ghost.style.fontSize = '0.775rem';
-    ghost.style.fontWeight = '700';
-    ghost.style.border = '1px solid rgba(255,255,255,0.4)';
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      try { navigator.vibrate(35); } catch (_) {}
+    }
 
-    document.body.appendChild(ghost);
-    this.touchGhostEl = ghost;
+    this.cleanupTouchGhost();
+    if (typeof document !== 'undefined') {
+      const ghost = document.createElement('div');
+      ghost.className = 'touch-drag-ghost font-mono';
+      ghost.innerHTML = `<i class="fi fi-rr-calendar" style="margin-right:0.35rem; font-size:0.85rem;"></i> ${task.title}`;
+      ghost.style.position = 'fixed';
+      ghost.style.left = `${touch.clientX - 40}px`;
+      ghost.style.top = `${touch.clientY - 20}px`;
+      ghost.style.zIndex = '999999';
+      ghost.style.pointerEvents = 'none';
+      ghost.style.padding = '0.45rem 0.85rem';
+      ghost.style.background = 'var(--accent-purple)';
+      ghost.style.color = '#ffffff';
+      ghost.style.borderRadius = 'var(--radius-xs)';
+      ghost.style.boxShadow = '0 8px 24px rgba(0,0,0,0.4)';
+      ghost.style.fontSize = '0.775rem';
+      ghost.style.fontWeight = '700';
+      ghost.style.border = '1px solid rgba(255,255,255,0.4)';
+
+      document.body.appendChild(ghost);
+      this.touchGhostEl = ghost;
+    }
   }
 
   onTouchMoveTask(e: TouchEvent) {
-    if (!this.touchGhostEl || !e.touches || e.touches.length === 0) return;
+    if (!e.touches || e.touches.length === 0) return;
     const touch = e.touches[0];
-    this.touchGhostEl.style.left = `${touch.clientX - 40}px`;
-    this.touchGhostEl.style.top = `${touch.clientY - 20}px`;
 
-    // Identify target element under touch pointer
-    if (typeof document !== 'undefined') {
-      const targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
-      if (targetEl) {
-        // Check if over cancel dropzone bar
-        if (targetEl.closest('.touch-cancel-dropzone')) {
-          if (!this.isOverCancelDropzone?.()) {
-            this.isOverCancelDropzone?.set?.(true);
-          }
-          if (this.dragOverDate?.() !== null) {
-            this.dragOverDate?.set?.(null);
-          }
-          return;
-        }
-
-        if (this.isOverCancelDropzone?.()) {
-          this.isOverCancelDropzone?.set?.(false);
-        }
-
-        // Check if over a calendar day cell
-        const dayCell = targetEl.closest('.day-cell') as HTMLElement;
-        if (dayCell && dayCell.dataset['date']) {
-          const dateStr = dayCell.dataset['date'];
-          if (this.dragOverDate?.() !== dateStr) {
-            this.dragOverDate?.set?.(dateStr);
-          }
-          return;
-        }
+    // If hold timer is still pending, cancel if movement exceeds scroll threshold
+    if (this.touchHoldTimer) {
+      const dx = Math.abs(touch.clientX - this.touchStartPos.x);
+      const dy = Math.abs(touch.clientY - this.touchStartPos.y);
+      if (dx > 8 || dy > 8) {
+        this.cleanupTouchHold();
       }
     }
 
-    if (this.dragOverDate?.() !== null) {
-      this.dragOverDate?.set?.(null);
+    if (this.isTouchDraggingTask ? this.isTouchDraggingTask() : false) {
+      if (e.cancelable) e.preventDefault();
+
+      if (this.touchGhostEl) {
+        this.touchGhostEl.style.left = `${touch.clientX - 40}px`;
+        this.touchGhostEl.style.top = `${touch.clientY - 20}px`;
+      }
+
+      if (typeof document !== 'undefined') {
+        const targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
+        if (targetEl) {
+          if (targetEl.closest('.touch-cancel-dropzone')) {
+            if (!this.isOverCancelDropzone?.()) {
+              this.isOverCancelDropzone?.set?.(true);
+            }
+            if (this.dragOverDate?.() !== null) {
+              this.dragOverDate?.set?.(null);
+            }
+            return;
+          }
+
+          if (this.isOverCancelDropzone?.()) {
+            this.isOverCancelDropzone?.set?.(false);
+          }
+
+          const dayCell = targetEl.closest('.day-cell') as HTMLElement;
+          if (dayCell && dayCell.dataset['date']) {
+            const dateStr = dayCell.dataset['date'];
+            if (this.dragOverDate?.() !== dateStr) {
+              this.dragOverDate?.set?.(dateStr);
+            }
+            return;
+          }
+        }
+      }
+
+      if (this.dragOverDate?.() !== null) {
+        this.dragOverDate?.set?.(null);
+      }
     }
   }
 
   async onTouchEndTask(e: TouchEvent) {
-    const taskId = this.draggedTaskId ? this.draggedTaskId() : null;
-    const dateStr = this.dragOverDate ? this.dragOverDate() : null;
-    const isCancelled = this.isOverCancelDropzone ? this.isOverCancelDropzone() : false;
+    const isDragged = this.wasTouchDragged || (this.isTouchDraggingTask ? this.isTouchDraggingTask() : false);
+    this.cleanupTouchHold();
 
-    this.cleanupTouchGhost();
-    this.dragOverDate?.set?.(null);
-    this.draggedTaskId?.set?.(null);
-    this.isTouchDraggingTask?.set?.(false);
-    this.isOverCancelDropzone?.set?.(false);
+    if (isDragged) {
+      const taskId = this.draggedTaskId ? this.draggedTaskId() : null;
+      const dateStr = this.dragOverDate ? this.dragOverDate() : null;
+      const isCancelled = this.isOverCancelDropzone ? this.isOverCancelDropzone() : false;
 
-    if (taskId && dateStr && !isCancelled) {
-      await this.taskService.updateTask(taskId, { due_date: dateStr });
+      this.cleanupTouchGhost();
+      this.dragOverDate?.set?.(null);
+      this.draggedTaskId?.set?.(null);
+      this.isTouchDraggingTask?.set?.(false);
+      this.isOverCancelDropzone?.set?.(false);
+
+      if (taskId && dateStr && !isCancelled) {
+        await this.taskService.updateTask(taskId, { due_date: dateStr });
+      }
+    } else {
+      this.cleanupTouchGhost();
+      this.dragOverDate?.set?.(null);
+      this.draggedTaskId?.set?.(null);
+      this.isTouchDraggingTask?.set?.(false);
+      this.isOverCancelDropzone?.set?.(false);
     }
   }
 
   onTouchCancelTask() {
+    this.cleanupTouchHold();
     this.cleanupTouchGhost();
     this.dragOverDate?.set?.(null);
     this.draggedTaskId?.set?.(null);
     this.isTouchDraggingTask?.set?.(false);
     this.isOverCancelDropzone?.set?.(false);
+  }
+
+  onTaskCardClick(e: Event, task: Task) {
+    if (this.wasTouchDragged) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.wasTouchDragged = false;
+      return;
+    }
+    this.openDetail(task);
+  }
+
+  private cleanupTouchHoldTimer() {
+    if (this.touchHoldTimer) {
+      clearTimeout(this.touchHoldTimer);
+      this.touchHoldTimer = null;
+    }
+  }
+
+  private cleanupTouchHold() {
+    this.cleanupTouchHoldTimer();
+    this.touchHoldTaskId?.set?.(null);
+    this.touchHoldTaskObj = null;
   }
 
   private cleanupTouchGhost() {

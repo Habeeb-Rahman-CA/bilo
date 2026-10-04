@@ -849,7 +849,7 @@ import { LazyImageDirective } from '../directives/lazy-image.directive';
     .priority-badge {
       display: inline-flex;
       align-items: center;
-      padding: 0.15rem 0.5rem;
+      padding: 4px 4px 0 4px;
       border-radius: var(--radius-xs);
       font-size: 0.7rem;
       font-weight: 700;

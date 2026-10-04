@@ -4,14 +4,13 @@ import { FormsModule } from '@angular/forms';
 import { ProjectService } from '../../core/services/project.service';
 import { Project } from '../../core/models/project.model';
 import { SelectComponent, SelectOption } from './select';
-import { ConfirmModalComponent } from './confirm-modal';
 import { sanitizeLabels } from '../../core/utils/label.util';
 import { registerModal, unregisterModal, isTopModal } from '../../core/utils/modal-stack.util';
 
 @Component({
   selector: 'app-project-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectComponent, ConfirmModalComponent],
+  imports: [CommonModule, FormsModule, SelectComponent],
   template: `
     <div class="modal-overlay" [style.z-index]="modalZIndex" (click)="close.emit()">
       <div class="modal-card paper-panel font-mono" (click)="$event.stopPropagation()">
@@ -218,11 +217,6 @@ import { registerModal, unregisterModal, isTopModal } from '../../core/utils/mod
               <span>PROJECT METADATA</span>
             </div>
             <div class="footer-actions">
-              @if (isEditMode) {
-                <button type="button" class="btn btn-ghost btn-sm text-rose" (click)="confirmDeleteProject()">
-                  <i class="fi fi-rr-trash"></i> Delete Project
-                </button>
-              }
               <button type="button" class="btn btn-secondary btn-sm" (click)="close.emit()">
                 Cancel
               </button>
@@ -244,17 +238,6 @@ import { registerModal, unregisterModal, isTopModal } from '../../core/utils/mod
         </form>
       </div>
     </div>
-
-    <app-confirm-modal
-      [isOpen]="showConfirmDelete"
-      title="Delete Project"
-      [message]="'Are you sure you want to delete project &quot;' + name + '&quot;? This will permanently delete the project and all associated tasks, workflows, and activities.'"
-      confirmText="Delete Project"
-      cancelText="Cancel"
-      type="danger"
-      (confirm)="executeDeleteProject()"
-      (cancel)="cancelDeleteProject()"
-    ></app-confirm-modal>
   `,
   styles: [`
     .modal-card {
@@ -607,6 +590,8 @@ export class ProjectModalComponent implements OnInit, AfterViewInit, OnDestroy {
       } catch (e: any) {
         console.error('Image upload failed:', e);
         this.imageError = e?.message || 'Failed to upload project image.';
+      } finally {
+        this.uploadingImage = false;
       }
     }
   }
@@ -618,13 +603,13 @@ export class ProjectModalComponent implements OnInit, AfterViewInit, OnDestroy {
 
   @HostListener('window:keydown', ['$event'])
   handleGlobalKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape' && isTopModal(this.modalId) && !this.showConfirmDelete) {
+    if (e.key === 'Escape' && isTopModal(this.modalId)) {
       e.preventDefault();
       this.close.emit();
       return;
     }
 
-    if (e.key === 'Tab' && isTopModal(this.modalId) && !this.showConfirmDelete) {
+    if (e.key === 'Tab' && isTopModal(this.modalId)) {
       this.trapFocus(e);
     }
   }
@@ -736,23 +721,6 @@ export class ProjectModalComponent implements OnInit, AfterViewInit, OnDestroy {
       console.error('Error saving project:', e);
     } finally {
       this.submitting.set(false);
-    }
-  }
-
-  showConfirmDelete = false;
-
-  confirmDeleteProject() {
-    this.showConfirmDelete = true;
-  }
-
-  cancelDeleteProject() {
-    this.showConfirmDelete = false;
-  }
-
-  async executeDeleteProject() {
-    if (this.projectToEdit?.id) {
-      await this.projectService.deleteProject(this.projectToEdit.id);
-      this.close.emit();
     }
   }
 }

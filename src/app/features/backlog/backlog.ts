@@ -867,7 +867,7 @@ import { ConfirmModalComponent } from '../../shared/components/confirm-modal';
     }
     .priority-badge {
       font-size: 0.675rem;
-      padding: 0.1rem 0.4rem;
+      padding: 4px 4px 0 4px;
       border-radius: var(--radius-xs);
       font-weight: 700;
       text-transform: uppercase;

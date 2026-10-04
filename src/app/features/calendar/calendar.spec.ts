@@ -26,19 +26,23 @@ describe('CalendarComponent - Touch Drag & Scheduling', () => {
     const mockIsOverCancelDropzone: any = () => overCancelVal;
     mockIsOverCancelDropzone.set = vi.fn((val: any) => { overCancelVal = val; });
 
+    let touchHoldVal: string | null = null;
+    const mockTouchHoldTaskId: any = () => touchHoldVal;
+    mockTouchHoldTaskId.set = vi.fn((val: any) => { touchHoldVal = val; });
+
     component.draggedTaskId = mockDraggedTaskId;
     component.dragOverDate = mockDragOverDate;
     component.isTouchDraggingTask = mockIsTouchDraggingTask;
     component.isOverCancelDropzone = mockIsOverCancelDropzone;
+    component.touchHoldTaskId = mockTouchHoldTaskId;
     component.taskService = { updateTask: vi.fn().mockResolvedValue({}) };
   });
 
-  it('should create touch drag ghost element on touchstart', () => {
+  it('should create touch drag ghost element on hold activation', () => {
     const mockTouch = { clientX: 150, clientY: 250 };
-    const mockEvent = { touches: [mockTouch] } as unknown as TouchEvent;
     const mockTask = { id: 'task-100', title: 'Mobile Touch Test Task' } as any;
 
-    component.onTouchStartTask(mockEvent, mockTask);
+    component.activateTouchDrag(mockTouch, mockTask);
 
     expect(component.touchGhostEl).not.toBeNull();
     expect(component.touchGhostEl.textContent).toContain('Mobile Touch Test Task');
@@ -49,6 +53,7 @@ describe('CalendarComponent - Touch Drag & Scheduling', () => {
 
   it('should update task due date on touchend over target day cell', async () => {
     const mockEvent = {} as TouchEvent;
+    component.activateTouchDrag({ clientX: 100, clientY: 100 }, { id: 'task-1', title: 'Task 1' } as any);
 
     await component.onTouchEndTask(mockEvent);
 
@@ -57,7 +62,7 @@ describe('CalendarComponent - Touch Drag & Scheduling', () => {
 
   it('should cleanup touch ghost element on touchcancel', () => {
     const mockTouch = { clientX: 100, clientY: 200 };
-    component.onTouchStartTask({ touches: [mockTouch] } as any, { id: 't1', title: 'Task' } as any);
+    component.activateTouchDrag(mockTouch, { id: 't1', title: 'Task' } as any);
 
     expect(component.touchGhostEl).not.toBeNull();
 

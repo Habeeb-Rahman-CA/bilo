@@ -87,6 +87,15 @@ export class App implements OnInit {
   retryingConnection = signal<boolean>(false);
   showAuthPage = signal<boolean>(false);
 
+  // PWA Pull to Refresh State & Signals
+  pullDistance = signal<number>(0);
+  isPullThresholdReached = signal<boolean>(false);
+  isRefreshingData = signal<boolean>(false);
+
+  private touchStartY = 0;
+  private touchStartX = 0;
+  private isPulling = false;
+
   private userMenuPopoverInstance: ClosablePopover = {
     closePopover: () => this.closeUserMenu()
   };
@@ -138,9 +147,110 @@ export class App implements OnInit {
     public supabaseService: SupabaseService
   ) {}
 
+  @HostListener('window:touchstart', ['$event'])
+  onAppTouchStart(e: TouchEvent) {
+    if (!e.touches || e.touches.length === 0 || this.isRefreshingData()) return;
+    const touch = e.touches[0];
+    const scrollContainer = this.findScrollableContainer(e.target as HTMLElement);
+    const scrollTop = scrollContainer ? scrollContainer.scrollTop : (window.scrollY || document.documentElement.scrollTop || 0);
+
+    if (scrollTop <= 2) {
+      this.touchStartY = touch.clientY;
+      this.touchStartX = touch.clientX;
+      this.isPulling = true;
+    } else {
+      this.isPulling = false;
+    }
+  }
+
+  @HostListener('window:touchmove', ['$event'])
+  onAppTouchMove(e: TouchEvent) {
+    if (!this.isPulling || !e.touches || e.touches.length === 0 || this.isRefreshingData()) return;
+    const touch = e.touches[0];
+    const deltaY = touch.clientY - this.touchStartY;
+    const deltaX = Math.abs(touch.clientX - this.touchStartX);
+
+    if (deltaX > Math.abs(deltaY) && deltaY < 30) {
+      this.isPulling = false;
+      this.pullDistance.set(0);
+      this.isPullThresholdReached.set(false);
+      return;
+    }
+
+    if (deltaY > 0) {
+      const distance = Math.min(85, Math.pow(deltaY, 0.82) * 1.6);
+      this.pullDistance.set(distance);
+      const thresholdMet = distance >= 65;
+      if (thresholdMet && !this.isPullThresholdReached()) {
+        this.isPullThresholdReached.set(true);
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+          try { navigator.vibrate(25); } catch (_) {}
+        }
+      } else if (!thresholdMet && this.isPullThresholdReached()) {
+        this.isPullThresholdReached.set(false);
+      }
+    }
+  }
+
+  @HostListener('window:touchend')
+  @HostListener('window:touchcancel')
+  async onAppTouchEnd() {
+    if (!this.isPulling && this.pullDistance() === 0) return;
+    this.isPulling = false;
+
+    if (this.isPullThresholdReached() && !this.isRefreshingData()) {
+      await this.triggerPullToRefresh();
+    } else {
+      this.pullDistance.set(0);
+      this.isPullThresholdReached.set(false);
+    }
+  }
+
+  async triggerPullToRefresh() {
+    this.isRefreshingData.set(true);
+    this.pullDistance.set(65);
+
+    const minDelay = new Promise(resolve => setTimeout(resolve, 600));
+
+    try {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try { navigator.vibrate(35); } catch (_) {}
+      }
+
+      await Promise.all([
+        this.projectService?.loadFromSupabase?.(),
+        this.taskService?.loadTasksFromSupabase?.(),
+        this.syncService?.retryConnection?.(),
+        minDelay
+      ]);
+    } catch (err) {
+      console.error('[PullToRefresh] Refresh failed:', err);
+      this.toastService?.error?.('Refresh failed. Check network connection.');
+    } finally {
+      setTimeout(() => {
+        this.isRefreshingData.set(false);
+        this.pullDistance.set(0);
+        this.isPullThresholdReached.set(false);
+      }, 300);
+    }
+  }
+
+  private findScrollableContainer(target: HTMLElement | null): HTMLElement | null {
+    let curr = target;
+    while (curr && curr !== document.body) {
+      const overflowY = window.getComputedStyle(curr).overflowY;
+      if ((overflowY === 'auto' || overflowY === 'scroll') && curr.scrollHeight > curr.clientHeight) {
+        return curr;
+      }
+      curr = curr.parentElement;
+    }
+    return null;
+  }
+
   async retryConnection() {
     if (this.retryingConnection()) return;
     this.retryingConnection.set(true);
+    this.isRefreshingData.set(true);
     try {
       const restored = await this.syncService.retryConnection();
       if (restored) {
@@ -149,6 +259,7 @@ export class App implements OnInit {
       }
     } finally {
       this.retryingConnection.set(false);
+      setTimeout(() => this.isRefreshingData.set(false), 300);
     }
   }
 

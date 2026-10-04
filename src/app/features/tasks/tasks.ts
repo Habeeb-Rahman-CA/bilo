@@ -214,7 +214,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
             @if (canScrollLeft()) {
               <button
                 type="button"
-                class="board-scroll-indicator left font-mono"
+                class="board-scroll-indicator left paper-panel font-mono"
                 (click)="scrollBoard('left')"
                 title="Scroll left to view off-screen columns"
               >
@@ -226,7 +226,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
             @if (canScrollRight()) {
               <button
                 type="button"
-                class="board-scroll-indicator right font-mono"
+                class="board-scroll-indicator right paper-panel font-mono"
                 (click)="scrollBoard('right')"
                 title="Scroll right to view off-screen columns"
               >
@@ -354,21 +354,6 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
                       }
                     </div>
 
-                    <!-- Mobile / Touch Quick-Move Status Selector -->
-                    <div class="card-mobile-actions font-mono" (click)="$event.stopPropagation()">
-                      <span class="mobile-move-label"><i class="fi fi-rr-exchange-alt"></i> Move:</span>
-                      <select
-                        class="mobile-status-select font-mono"
-                        [ngModel]="t.status"
-                        (ngModelChange)="moveTaskStatus(t, $event)"
-                      >
-                        @for (col of activeColumns(); track col.id) {
-                          <option [value]="col.name">
-                            {{ col.name }}
-                          </option>
-                        }
-                      </select>
-                    </div>
                   </div>
                 }
               </div>
@@ -608,23 +593,25 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       transform: translateY(-50%);
       display: flex;
       align-items: center;
-      gap: 0.4rem;
-      padding: 0.45rem 0.75rem;
+      gap: 0.45rem;
+      padding: 0.5rem 0.85rem;
       font-size: 0.725rem;
       font-weight: 700;
-      border-radius: 20px;
+      letter-spacing: 0.02em;
+      border-radius: var(--radius-xs);
       background: var(--bg-surface);
       color: var(--accent-cyan);
       border: 1px solid var(--accent-cyan);
       box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
       cursor: pointer;
-      transition: all 0.2s ease;
+      transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
       backdrop-filter: blur(8px);
     }
     .board-scroll-indicator:hover {
       background: var(--accent-cyan);
       color: #ffffff;
       box-shadow: 0 6px 18px rgba(6, 182, 212, 0.4);
+      transform: translateY(-50%) scale(1.04);
     }
     .board-scroll-indicator.left {
       margin-right: auto;
@@ -684,7 +671,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       font-size: 0.65rem;
       font-weight: 700;
       text-transform: uppercase;
-      padding: 0.1rem 0.35rem;
+      padding: 4px 4px 0 4px;
       border-radius: var(--radius-xs);
       background: var(--bg-surface-subtle);
       border: 1px solid var(--border-subtle);
@@ -709,7 +696,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
     }
     .priority-badge {
       font-size: 0.65rem;
-      padding: 0.08rem 0.35rem;
+      padding: 4px 4px 0 4px;
       border-radius: var(--radius-xs);
       font-weight: 700;
       text-transform: uppercase;
@@ -756,7 +743,7 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
     }
     .card-project-pill {
       font-size: 0.675rem;
-      padding: 0.1rem 0.4rem;
+      padding: 4px 4px 0 4px;
       background: var(--bg-surface-subtle);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-xs);
@@ -855,37 +842,6 @@ import { SelectComponent, SelectOption } from '../../shared/components/select';
       touch-action: pan-y;
       user-select: none;
       -webkit-user-select: none;
-    }
-    .card-mobile-actions {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.4rem;
-      margin-top: 0.35rem;
-      padding-top: 0.35rem;
-      border-top: 1px dashed var(--border-subtle);
-    }
-    .mobile-move-label {
-      font-size: 0.675rem;
-      color: var(--text-muted);
-      display: flex;
-      align-items: center;
-      gap: 0.25rem;
-      font-weight: 700;
-    }
-    .mobile-status-select {
-      background: var(--bg-surface-subtle);
-      color: var(--text-main);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-xs);
-      padding: 0.15rem 0.4rem;
-      font-size: 0.725rem;
-      font-weight: 600;
-      cursor: pointer;
-      outline: none;
-    }
-    .mobile-status-select:focus {
-      border-color: var(--accent-cyan);
     }
 
     .cdk-drag-preview {
